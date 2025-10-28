@@ -174,16 +174,17 @@ class XUIDatabase:
             logger.info(f"Creating user {user_data['email']} in inbound {inbound_id} (protocol: {protocol})")
 
             # Вставляем в client_traffics (id автоинкремент)
+            # Используем только базовые поля которые есть во всех версиях 3x-ui
             cursor.execute("""
                 INSERT INTO client_traffics
-                (inbound_id, enable, email, up, down, total, expiry_time, reset, all_time, last_online)
-                VALUES (?, ?, ?, 0, 0, ?, ?, 0, 0, 0)
+                (inbound_id, enable, email, up, down, expiry_time, total, reset)
+                VALUES (?, ?, ?, 0, 0, ?, ?, 0)
             """, (
                 user_data['inbound_id'],
                 1,  # enable по умолчанию
                 user_data['email'],
-                user_data.get('total', 0),
-                user_data.get('expiry_time', 0)
+                user_data.get('expiry_time', 0),
+                user_data.get('total', 0)
             ))
 
             # Получаем созданный ID
