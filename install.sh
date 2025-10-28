@@ -275,15 +275,39 @@ if [ "$SKIP_NGINX" != true ]; then
 
     print_info "Порт X-UI: $XUI_PORT"
 
-    # Создаем временный самоподписанный сертификат если отсутствует
-    if [ ! -f "/etc/ssl/certs/ssl-cert-snakeoil.pem" ] || [ ! -f "/etc/ssl/private/ssl-cert-snakeoil.key" ]; then
+    # Проверка наличия SSL сертификата от 3x-ui или Let's Encrypt
+    SSL_CERT=""
+    SSL_KEY=""
+
+    # Проверяем сертификат Let's Encrypt для домена
+    if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ] && [ -f "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]; then
+        SSL_CERT="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+        SSL_KEY="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+        print_success "Найден Let's Encrypt сертификат для $DOMAIN"
+    # Проверяем самоподписанный сертификат
+    elif [ -f "/etc/ssl/certs/ssl-cert-snakeoil.pem" ] && [ -f "/etc/ssl/private/ssl-cert-snakeoil.key" ]; then
+        SSL_CERT="/etc/ssl/certs/ssl-cert-snakeoil.pem"
+        SSL_KEY="/etc/ssl/private/ssl-cert-snakeoil.key"
+        print_info "Используется временный самоподписанный сертификат"
+    else
+        # Создаем временный самоподписанный сертификат
         print_info "Создание временного SSL сертификата..."
         apt-get install -y ssl-cert -qq
-        make-ssl-cert generate-default-snakeoil --force-overwrite
-        print_success "Временный SSL сертификат создан"
+        make-ssl-cert generate-default-snakeoil --force-overwrite 2>/dev/null
+
+        if [ -f "/etc/ssl/certs/ssl-cert-snakeoil.pem" ]; then
+            SSL_CERT="/etc/ssl/certs/ssl-cert-snakeoil.pem"
+            SSL_KEY="/etc/ssl/private/ssl-cert-snakeoil.key"
+            print_success "Временный SSL сертификат создан"
+        else
+            print_warning "Не удалось создать SSL сертификат, будет использован только HTTP"
+        fi
     fi
 
-    cat > "$NGINX_CONFIG" <<EOF
+    # Создаем конфигурацию Nginx
+    if [ -n "$SSL_CERT" ] && [ -f "$SSL_CERT" ]; then
+        # Конфигурация с HTTPS
+        cat > "$NGINX_CONFIG" <<EOF
 # HTTP -> HTTPS redirect
 server {
     listen 80;
@@ -305,13 +329,8 @@ server {
     listen [::]:443 ssl http2;
     server_name $DOMAIN;
 
-    # SSL configuration (update paths after getting certificates)
-    # ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
-    # ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
-
-    # Temporary self-signed certificate
-    ssl_certificate /etc/ssl/certs/ssl-cert-snakeoil.pem;
-    ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+    ssl_certificate $SSL_CERT;
+    ssl_certificate_key $SSL_KEY;
 
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
@@ -346,6 +365,49 @@ server {
     }
 }
 EOF
+    else
+        # Конфигурация только с HTTP (без SSL)
+        print_warning "SSL сертификат недоступен, настраиваем только HTTP"
+        cat > "$NGINX_CONFIG" <<EOF
+# HTTP server (без SSL)
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $DOMAIN;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    # X-UI Panel
+    location /esmars/ {
+        proxy_pass http://127.0.0.1:$XUI_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_redirect off;
+    }
+
+    # XUI-Manager API
+    location /manager/ {
+        proxy_pass http://127.0.0.1:8888/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+    fi
 
     # Активация конфигурации
     ln -sf "$NGINX_CONFIG" /etc/nginx/sites-enabled/xui-manager
