@@ -98,15 +98,29 @@ apt install -y python3 python3-pip nginx sqlite3 git curl
 
 print_success "Системные пакеты установлены"
 
-# 3. Установка Python зависимостей
-print_info "Шаг 3/8: Установка Python зависимостей..."
+# 3. Проверка версии Python
+print_info "Шаг 3/9: Проверка версии Python..."
 
-pip3 install -q fastapi uvicorn pydantic python-multipart pydantic-settings
+PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
+PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d. -f1)
+PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d. -f2)
+
+if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 8 ]); then
+    print_error "Требуется Python 3.8 или выше (найден $PYTHON_VERSION)"
+    exit 1
+fi
+
+print_success "Python $PYTHON_VERSION - OK"
+
+# 4. Установка Python зависимостей
+print_info "Шаг 4/9: Установка Python зависимостей..."
+
+pip3 install -q fastapi uvicorn pydantic python-multipart pydantic-settings aiofiles jinja2
 
 print_success "Python пакеты установлены"
 
-# 4. Копирование файлов
-print_info "Шаг 4/8: Копирование файлов проекта..."
+# 5. Копирование файлов
+print_info "Шаг 5/9: Копирование файлов проекта..."
 
 INSTALL_DIR="/opt/xui-manager"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -130,19 +144,28 @@ fi
 
 cd "$INSTALL_DIR"
 
+# Создание необходимых директорий
+print_info "Создание рабочих директорий..."
+mkdir -p "$INSTALL_DIR/logs"
+mkdir -p "$INSTALL_DIR/backups"
+mkdir -p "$INSTALL_DIR/app"
+mkdir -p "$INSTALL_DIR/templates"
+
+print_success "Директории созданы"
+
 # Создание .env если не существует
 if [ ! -f "$INSTALL_DIR/.env" ]; then
     print_info "Создание файла конфигурации .env..."
     cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
 
     # Обновляем путь к БД в .env
-    sed -i "s|DB_PATH=.*|DB_PATH=$XUI_DB|g" "$INSTALL_DIR/.env"
+    sed -i "s|XUI_DB_PATH=.*|XUI_DB_PATH=$XUI_DB|g" "$INSTALL_DIR/.env"
 
     print_success "Файл .env создан"
 fi
 
-# 5. Создание systemd сервиса
-print_info "Шаг 5/8: Создание systemd сервиса..."
+# 6. Создание systemd сервиса
+print_info "Шаг 6/9: Создание systemd сервиса..."
 
 cat > /etc/systemd/system/xui-manager.service <<EOF
 [Unit]
@@ -177,8 +200,8 @@ else
     exit 1
 fi
 
-# 6. Настройка Nginx
-print_info "Шаг 6/8: Настройка Nginx..."
+# 7. Настройка Nginx
+print_info "Шаг 7/9: Настройка Nginx..."
 
 # Получение доменного имени
 DOMAIN=$(hostname -f 2>/dev/null || hostname)
@@ -288,8 +311,8 @@ EOF
     fi
 fi
 
-# 7. Получение SSL сертификата (опционально)
-print_info "Шаг 7/8: SSL сертификат..."
+# 8. Получение SSL сертификата (опционально)
+print_info "Шаг 8/9: SSL сертификат..."
 
 if [ "$SKIP_NGINX" != true ]; then
     read -p "Получить Let's Encrypt SSL сертификат? (y/n): " -n 1 -r
@@ -311,8 +334,8 @@ if [ "$SKIP_NGINX" != true ]; then
     fi
 fi
 
-# 8. Проверка установки
-print_info "Шаг 8/8: Проверка установки..."
+# 9. Проверка установки
+print_info "Шаг 9/9: Проверка установки..."
 
 # Проверка API
 sleep 2
