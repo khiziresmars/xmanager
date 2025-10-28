@@ -225,8 +225,27 @@ fi
 # 8. Настройка Nginx
 print_info "Шаг 8/10: Настройка Nginx..."
 
-# Получение доменного имени
-DOMAIN=$(hostname -f 2>/dev/null || hostname)
+# Автоматическое определение домена из 3x-ui
+XUI_DOMAIN=""
+if [ -f "$XUI_DB" ]; then
+    # Пытаемся извлечь домен из настроек 3x-ui
+    XUI_DOMAIN=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webCertFile' OR key='certDomain'" 2>/dev/null | head -1 | grep -oP '(?<=/)([^/]+)(?=/fullchain)' || echo "")
+
+    # Если не нашли в настройках, пробуем из файла конфигурации
+    if [ -z "$XUI_DOMAIN" ] && [ -f "/usr/local/x-ui/bin/config.json" ]; then
+        XUI_DOMAIN=$(grep -oP '"certDomain"\s*:\s*"\K[^"]+' /usr/local/x-ui/bin/config.json 2>/dev/null || echo "")
+    fi
+fi
+
+# Определяем домен по умолчанию
+if [ -n "$XUI_DOMAIN" ]; then
+    DOMAIN="$XUI_DOMAIN"
+    print_success "Обнаружен домен из 3x-ui: $DOMAIN"
+else
+    DOMAIN=$(hostname -f 2>/dev/null || hostname)
+    print_info "Домен из 3x-ui не найден, используем системный: $DOMAIN"
+fi
+
 read -p "Введите доменное имя [По умолчанию: $DOMAIN]: " INPUT_DOMAIN
 DOMAIN="${INPUT_DOMAIN:-$DOMAIN}"
 
@@ -255,6 +274,14 @@ if [ "$SKIP_NGINX" != true ]; then
     fi
 
     print_info "Порт X-UI: $XUI_PORT"
+
+    # Создаем временный самоподписанный сертификат если отсутствует
+    if [ ! -f "/etc/ssl/certs/ssl-cert-snakeoil.pem" ] || [ ! -f "/etc/ssl/private/ssl-cert-snakeoil.key" ]; then
+        print_info "Создание временного SSL сертификата..."
+        apt-get install -y ssl-cert -qq
+        make-ssl-cert generate-default-snakeoil --force-overwrite
+        print_success "Временный SSL сертификат создан"
+    fi
 
     cat > "$NGINX_CONFIG" <<EOF
 # HTTP -> HTTPS redirect
