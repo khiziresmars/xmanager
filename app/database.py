@@ -38,8 +38,23 @@ class XUIDatabase:
             logger.error(f"Database connection error: {e}")
             return False
     
+    # ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
+
+    def _get_table_columns(self, table_name: str) -> List[str]:
+        """Получить список колонок таблицы"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            columns = [row[1] for row in cursor.fetchall()]
+            conn.close()
+            return columns
+        except Exception as e:
+            logger.error(f"Error getting table columns: {e}")
+            return []
+
     # ==================== СТАТИСТИКА ====================
-    
+
     def get_system_stats(self) -> Dict[str, Any]:
         """Получение статистики системы"""
         try:
@@ -173,23 +188,45 @@ class XUIDatabase:
             inbound_id, settings_json, protocol = inbound_row
             logger.info(f"Creating user {user_data['email']} in inbound {inbound_id} (protocol: {protocol})")
 
-            # Вставляем в client_traffics (id автоинкремент)
-            # Используем только базовые поля которые есть во всех версиях 3x-ui
-            cursor.execute("""
-                INSERT INTO client_traffics
-                (inbound_id, enable, email, up, down, expiry_time, total, reset)
-                VALUES (?, ?, ?, 0, 0, ?, ?, 0)
-            """, (
-                user_data['inbound_id'],
-                1,  # enable по умолчанию
-                user_data['email'],
-                user_data.get('expiry_time', 0),
-                user_data.get('total', 0)
-            ))
+            # Получаем список доступных колонок в таблице
+            available_columns = self._get_table_columns('client_traffics')
+
+            # Базовые обязательные поля
+            fields = {
+                'inbound_id': user_data['inbound_id'],
+                'enable': 1,
+                'email': user_data['email'],
+                'up': 0,
+                'down': 0,
+                'expiry_time': user_data.get('expiry_time', 0),
+                'total': user_data.get('total', 0)
+            }
+
+            # Дополнительные поля если они существуют в таблице
+            optional_fields = {
+                'reset': 0,
+                'all_time': 0,
+                'last_online': 0
+            }
+
+            # Добавляем опциональные поля только если они есть в схеме
+            for field, value in optional_fields.items():
+                if field in available_columns:
+                    fields[field] = value
+
+            # Формируем динамический INSERT запрос
+            columns = ', '.join(fields.keys())
+            placeholders = ', '.join(['?' for _ in fields])
+            values = tuple(fields.values())
+
+            cursor.execute(f"""
+                INSERT INTO client_traffics ({columns})
+                VALUES ({placeholders})
+            """, values)
 
             # Получаем созданный ID
             user_id = cursor.lastrowid
-            logger.info(f"Created user in client_traffics with ID: {user_id}")
+            logger.info(f"Created user in client_traffics with ID: {user_id} (used columns: {list(fields.keys())})")
 
             # Обновляем settings в inbound
             settings = json.loads(settings_json)
