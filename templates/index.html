@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XUI Manager - Управление 3x-ui</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0f0f0f;
+            --bg-secondary: #1a1a1a;
+            --bg-tertiary: #242424;
+            --text-primary: #e0e0e0;
+            --text-secondary: #a0a0a0;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --border: #333;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        .header {
+            background: var(--bg-secondary);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            border: 1px solid var(--border);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background: var(--bg-tertiary);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            margin-top: 5px;
+            color: var(--accent);
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            padding: 12px 24px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            cursor: pointer;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .tab-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        /* Content Area */
+        .tab-content {
+            display: none;
+            background: var(--bg-secondary);
+            padding: 25px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Forms */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .form-input, .form-select {
+            width: 100%;
+            padding: 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .form-input:hover, .form-select:hover {
+            border-color: rgba(59, 130, 246, 0.5);
+        }
+
+        .form-select {
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a0a0a0' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 36px;
+        }
+
+        .form-select option {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            padding: 8px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #0ea572;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-secondary);
+            border-color: var(--accent);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        /* Table */
+        .table-container {
+            overflow-x: auto;
+            margin-top: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background: var(--bg-tertiary);
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+        }
+
+        tr:hover {
+            background: var(--bg-tertiary);
+        }
+
+        /* Status Badge */
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+
+        .badge-danger {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            padding: 16px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            z-index: 1000;
+            animation: slideIn 0.3s;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .toast-success {
+            border-left: 4px solid var(--success);
+        }
+
+        .toast-error {
+            border-left: 4px solid var(--danger);
+        }
+
+        /* Checkbox */
+        .checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        small {
+            display: block;
+            margin-top: 5px;
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+            padding: 15px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .pagination-info {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .pagination-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .page-btn {
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-width: 36px;
+            text-align: center;
+        }
+
+        .page-btn:hover:not(:disabled) {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .page-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .page-btn.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .page-size-selector {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .page-size-selector label {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .page-size-selector select {
+            padding: 6px 10px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .btn-group {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .pagination {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .pagination-controls {
+                justify-content: center;
+            }
+
+            .page-size-selector {
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🚀 XUI Manager</h1>
+            <p style="color: var(--text-secondary)">Управление пользователями 3x-ui</p>
+
+            <div class="stats-grid" id="stats">
+                <div class="stat-card">
+                    <div class="stat-label">Всего пользователей</div>
+                    <div class="stat-value" id="total-users">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Активных</div>
+                    <div class="stat-value" id="active-users" style="color: var(--success)">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Загружено</div>
+                    <div class="stat-value" id="total-upload" style="color: var(--warning)">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Скачано</div>
+                    <div class="stat-value" id="total-download" style="color: var(--accent)">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="showTab('users')">👥 Пользователи</button>
+            <button class="tab-btn" onclick="showTab('bulk-create')">➕ Массовое создание</button>
+            <button class="tab-btn" onclick="showTab('low-traffic')">📉 Низкий трафик</button>
+            <button class="tab-btn" onclick="showTab('unlimited')">♾️ Безлимитные</button>
+        </div>
+
+        <!-- Tab: Users -->
+        <div id="tab-users" class="tab-content active">
+            <h2>Все пользователи</h2>
+
+            <div class="form-row" style="margin-top: 20px;">
+                <div class="form-group">
+                    <label class="form-label">Поиск по email</label>
+                    <input type="text" class="form-input" id="search-users" placeholder="Введите email для поиска...">
+                </div>
+            </div>
+
+            <div class="btn-group" style="margin-top: 20px;">
+                <button class="btn btn-primary" onclick="loadUsers()">🔄 Обновить</button>
+                <button class="btn btn-danger" onclick="deleteSelected()">🗑️ Удалить выбранные</button>
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" class="checkbox" onclick="toggleAllUsers(this)"></th>
+                            <th>Email</th>
+                            <th>Статус</th>
+                            <th>Трафик</th>
+                            <th>Срок действия</th>
+                            <th>Inbound</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table-body">
+                        <tr><td colspan="6" class="loading">Загрузка...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div class="pagination">
+                <div class="pagination-info" id="users-pagination-info">
+                    Показано 0-0 из 0
+                </div>
+                <div class="pagination-controls">
+                    <button class="page-btn" onclick="goToFirstPage()" id="users-first-btn" disabled>⏮️</button>
+                    <button class="page-btn" onclick="goToPrevPage()" id="users-prev-btn" disabled>◀️</button>
+                    <span id="users-page-numbers" style="display: flex; gap: 5px;"></span>
+                    <button class="page-btn" onclick="goToNextPage()" id="users-next-btn">▶️</button>
+                    <button class="page-btn" onclick="goToLastPage()" id="users-last-btn">⏭️</button>
+                </div>
+                <div class="page-size-selector">
+                    <label>На странице:</label>
+                    <select id="page-size-select" onchange="changePageSize()">
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Bulk Create -->
+        <div id="tab-bulk-create" class="tab-content">
+            <h2>Массовое создание пользователей</h2>
+
+            <form onsubmit="bulkCreateUsers(event)">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Префикс имени *</label>
+                        <input type="text" class="form-input" id="bulk-prefix" value="user" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Количество *</label>
+                        <input type="number" class="form-input" id="bulk-count" min="1" max="100" value="10" required>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Лимит трафика (GB) *</label>
+                        <input type="number" class="form-input" id="bulk-traffic" value="100" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Срок действия (дней)</label>
+                        <input type="number" class="form-input" id="bulk-expiry-days" value="30" min="0" placeholder="0 = бессрочно">
+                        <small style="color: var(--text-secondary); font-size: 12px;">0 = бессрочно, > 0 = количество дней</small>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Inbound *</label>
+                        <select class="form-select" id="bulk-inbound" required>
+                            <option value="">Загрузка...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Метод шифрования</label>
+                        <select class="form-select" id="bulk-method">
+                            <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
+                            <option value="aes-256-gcm">aes-256-gcm</option>
+                            <option value="aes-128-gcm">aes-128-gcm</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-success">✨ Создать пользователей</button>
+            </form>
+        </div>
+
+        <!-- Tab: Low Traffic -->
+        <div id="tab-low-traffic" class="tab-content">
+            <h2>Пользователи с низким трафиком</h2>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Порог трафика (байт)</label>
+                    <input type="number" class="form-input" id="low-traffic-threshold" value="1024" min="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Сортировка</label>
+                    <select class="form-select" id="low-traffic-sort">
+                        <option value="remaining">По остатку</option>
+                        <option value="used">По использованному</option>
+                        <option value="email">По email</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="btn-group" style="margin-top: 20px;">
+                <button class="btn btn-primary" onclick="loadLowTrafficUsers()">🔍 Найти</button>
+                <button class="btn btn-secondary" onclick="resetTrafficSelected()">🔄 Сбросить трафик</button>
+                <button class="btn btn-danger" onclick="deleteLowTrafficSelected()">🗑️ Удалить выбранных</button>
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" class="checkbox" onclick="toggleAllLowTraffic(this)"></th>
+                            <th>Email</th>
+                            <th>Использовано</th>
+                            <th>Остаток</th>
+                            <th>Лимит</th>
+                        </tr>
+                    </thead>
+                    <tbody id="low-traffic-table-body">
+                        <tr><td colspan="5" class="loading">Нажмите "Найти" для поиска</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Tab: Unlimited -->
+        <div id="tab-unlimited" class="tab-content">
+            <h2>Безлимитные пользователи</h2>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Тип фильтра</label>
+                    <select class="form-select" id="unlimited-filter-type">
+                        <option value="expiry">Бессрочные (без даты истечения)</option>
+                        <option value="traffic">Безлимитный трафик</option>
+                        <option value="both">Оба критерия</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Продлить на (дней)</label>
+                    <input type="number" class="form-input" id="unlimited-extend-days" value="30" min="1">
+                </div>
+            </div>
+
+            <div class="btn-group" style="margin-top: 20px;">
+                <button class="btn btn-primary" onclick="loadUnlimitedUsers()">🔍 Найти</button>
+                <button class="btn btn-success" onclick="extendUnlimitedExpiry()">📅 Продлить срок</button>
+                <button class="btn btn-danger" onclick="blockUnlimitedSelected()">🚫 Заблокировать</button>
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" class="checkbox" onclick="toggleAllUnlimited(this)"></th>
+                            <th>Email</th>
+                            <th>Статус</th>
+                            <th>Использовано</th>
+                            <th>Срок действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="unlimited-table-body">
+                        <tr><td colspan="5" class="loading">Нажмите "Найти" для поиска</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Use relative URLs - nginx proxies /manager/ to API service
+        const API_URL = '';
+        let currentUsers = [];
+        let lowTrafficUsers = [];
+        let unlimitedUsers = [];
+
+        // Pagination variables
+        let currentPage = 1;
+        let pageSize = 50;
+        let totalUsers = 0;
+
+        // Tab switching
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+
+            document.getElementById('tab-' + tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // Toast notifications
+        function showToast(message, type) {
+            type = type || 'success';
+            const toast = document.createElement('div');
+            toast.className = 'toast toast-' + type;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            setTimeout(function() { toast.remove(); }, 3000);
+        }
+
+        // Format bytes
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            var k = 1024;
+            var sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            var i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        // Format date
+        function formatDate(timestamp) {
+            if (!timestamp || timestamp === 0) return 'Бессрочно';
+            var date = new Date(timestamp);
+            return date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+        }
+
+        // Load stats
+        function loadStats() {
+            fetch(API_URL + 'api/stats')
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    document.getElementById('total-users').textContent = data.total_users || 0;
+                    document.getElementById('active-users').textContent = data.active_users || 0;
+                    document.getElementById('total-upload').textContent = formatBytes(data.total_upload || 0);
+                    document.getElementById('total-download').textContent = formatBytes(data.total_download || 0);
+                })
+                .catch(function(error) {
+                    console.error('Error loading stats:', error);
+                });
+        }
+
+        // Load inbounds
+        function loadInbounds() {
+            fetch(API_URL + 'api/inbounds')
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    var select = document.getElementById('bulk-inbound');
+                    select.innerHTML = data.inbounds.map(function(inbound) {
+                        return '<option value="' + inbound.id + '">' + inbound.remark + ' (' + inbound.protocol + ':' + inbound.port + ')</option>';
+                    }).join('');
+                })
+                .catch(function(error) {
+                    console.error('Error loading inbounds:', error);
+                });
+        }
+
+        // Load users
+        function loadUsers() {
+            var search = document.getElementById('search-users').value;
+            var offset = (currentPage - 1) * pageSize;
+            var url = API_URL + 'api/users?limit=' + pageSize + '&offset=' + offset;
+            if (search) url += '&search=' + search;
+
+            fetch(url)
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    currentUsers = data.users;
+                    totalUsers = data.total;
+
+                    var tbody = document.getElementById('users-table-body');
+                    if (currentUsers.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" class="loading">Пользователей не найдено</td></tr>';
+                        updatePagination();
+                        return;
+                    }
+
+                    tbody.innerHTML = currentUsers.map(function(user) {
+                        return '<tr>' +
+                            '<td><input type="checkbox" class="checkbox user-checkbox" value="' + user.id + '"></td>' +
+                            '<td>' + user.email + '</td>' +
+                            '<td><span class="badge ' + (user.enable ? 'badge-success' : 'badge-danger') + '">' + (user.enable ? 'Активен' : 'Заблокирован') + '</span></td>' +
+                            '<td>' + formatBytes(user.up + user.down) + ' / ' + formatBytes(user.total) + '</td>' +
+                            '<td>' + formatDate(user.expiry_time) + '</td>' +
+                            '<td>' + (user.inbound_name || '-') + '</td>' +
+                            '</tr>';
+                    }).join('');
+
+                    updatePagination();
+                })
+                .catch(function(error) {
+                    console.error('Error loading users:', error);
+                    showToast('Ошибка загрузки пользователей', 'error');
+                });
+        }
+
+        // Pagination functions
+        function updatePagination() {
+            var totalPages = Math.ceil(totalUsers / pageSize);
+            var startItem = totalUsers === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+            var endItem = Math.min(currentPage * pageSize, totalUsers);
+
+            // Update info text
+            document.getElementById('users-pagination-info').textContent =
+                'Показано ' + startItem + '-' + endItem + ' из ' + totalUsers;
+
+            // Update navigation buttons
+            document.getElementById('users-first-btn').disabled = currentPage === 1;
+            document.getElementById('users-prev-btn').disabled = currentPage === 1;
+            document.getElementById('users-next-btn').disabled = currentPage >= totalPages;
+            document.getElementById('users-last-btn').disabled = currentPage >= totalPages;
+
+            // Render page numbers
+            renderPageNumbers(totalPages);
+        }
+
+        function renderPageNumbers(totalPages) {
+            var container = document.getElementById('users-page-numbers');
+            var html = '';
+            var maxVisible = 5;
+            var start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+            var end = Math.min(totalPages, start + maxVisible - 1);
+
+            if (end - start < maxVisible - 1) {
+                start = Math.max(1, end - maxVisible + 1);
+            }
+
+            if (start > 1) {
+                html += '<button class="page-btn" onclick="goToPage(1)">1</button>';
+                if (start > 2) {
+                    html += '<span style="color: var(--text-secondary); padding: 0 5px;">...</span>';
+                }
+            }
+
+            for (var i = start; i <= end; i++) {
+                html += '<button class="page-btn ' + (i === currentPage ? 'active' : '') + '" onclick="goToPage(' + i + ')">' + i + '</button>';
+            }
+
+            if (end < totalPages) {
+                if (end < totalPages - 1) {
+                    html += '<span style="color: var(--text-secondary); padding: 0 5px;">...</span>';
+                }
+                html += '<button class="page-btn" onclick="goToPage(' + totalPages + ')">' + totalPages + '</button>';
+            }
+
+            container.innerHTML = html;
+        }
+
+        function goToPage(page) {
+            currentPage = page;
+            loadUsers();
+        }
+
+        function goToFirstPage() {
+            goToPage(1);
+        }
+
+        function goToPrevPage() {
+            if (currentPage > 1) {
+                goToPage(currentPage - 1);
+            }
+        }
+
+        function goToNextPage() {
+            var totalPages = Math.ceil(totalUsers / pageSize);
+            if (currentPage < totalPages) {
+                goToPage(currentPage + 1);
+            }
+        }
+
+        function goToLastPage() {
+            var totalPages = Math.ceil(totalUsers / pageSize);
+            goToPage(totalPages);
+        }
+
+        function changePageSize() {
+            pageSize = parseInt(document.getElementById('page-size-select').value);
+            currentPage = 1;
+            loadUsers();
+        }
+
+        // Bulk create users
+        function bulkCreateUsers(event) {
+            event.preventDefault();
+
+            var prefix = document.getElementById('bulk-prefix').value;
+            var count = parseInt(document.getElementById('bulk-count').value);
+            var traffic = parseInt(document.getElementById('bulk-traffic').value) * 1024 * 1024 * 1024;
+            var expiryDays = parseInt(document.getElementById('bulk-expiry-days').value);
+            var inboundId = parseInt(document.getElementById('bulk-inbound').value);
+            var method = document.getElementById('bulk-method').value;
+
+            // Calculate expiry time
+            var expiryTime = 0;
+            if (expiryDays > 0) {
+                expiryTime = Date.now() + (expiryDays * 24 * 60 * 60 * 1000);
+            }
+
+            fetch(API_URL + 'api/users/bulk-create', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    template: {
+                        name: "Bulk Create",
+                        prefix: prefix,
+                        total: traffic,
+                        expiry_time: expiryTime,
+                        method: method,
+                        limitIp: 0
+                    },
+                    count: count,
+                    inbound_id: inboundId
+                })
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                showToast('Создано пользователей: ' + data.created, 'success');
+                loadStats();
+            })
+            .catch(function(error) {
+                console.error('Error creating users:', error);
+                showToast('Ошибка создания пользователей', 'error');
+            });
+        }
+
+        // Load low traffic users
+        function loadLowTrafficUsers() {
+            var threshold = document.getElementById('low-traffic-threshold').value;
+            var sortBy = document.getElementById('low-traffic-sort').value;
+
+            fetch(API_URL + 'api/users/low-traffic?threshold=' + threshold + '&sort_by=' + sortBy)
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    lowTrafficUsers = data.users;
+                    var tbody = document.getElementById('low-traffic-table-body');
+                    if (lowTrafficUsers.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" class="loading">Пользователей не найдено</td></tr>';
+                        return;
+                    }
+
+                    tbody.innerHTML = lowTrafficUsers.map(function(user) {
+                        return '<tr>' +
+                            '<td><input type="checkbox" class="checkbox low-traffic-checkbox" value="' + user.id + '"></td>' +
+                            '<td>' + user.email + '</td>' +
+                            '<td>' + formatBytes(user.up + user.down) + '</td>' +
+                            '<td style="color: var(--danger)">' + formatBytes(user.remaining || 0) + '</td>' +
+                            '<td>' + formatBytes(user.total) + '</td>' +
+                            '</tr>';
+                    }).join('');
+                })
+                .catch(function(error) {
+                    console.error('Error:', error);
+                    showToast('Ошибка загрузки', 'error');
+                });
+        }
+
+        // Load unlimited users
+        function loadUnlimitedUsers() {
+            var filterType = document.getElementById('unlimited-filter-type').value;
+
+            fetch(API_URL + 'api/users/unlimited?filter_type=' + filterType)
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    unlimitedUsers = data.users;
+                    var tbody = document.getElementById('unlimited-table-body');
+                    if (unlimitedUsers.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" class="loading">Пользователей не найдено</td></tr>';
+                        return;
+                    }
+
+                    tbody.innerHTML = unlimitedUsers.map(function(user) {
+                        return '<tr>' +
+                            '<td><input type="checkbox" class="checkbox unlimited-checkbox" value="' + user.id + '"></td>' +
+                            '<td>' + user.email + '</td>' +
+                            '<td><span class="badge ' + (user.enable ? 'badge-success' : 'badge-danger') + '">' + (user.enable ? 'Активен' : 'Заблокирован') + '</span></td>' +
+                            '<td>' + formatBytes(user.used_traffic || 0) + '</td>' +
+                            '<td>' + formatDate(user.expiry_time) + '</td>' +
+                            '</tr>';
+                    }).join('');
+                })
+                .catch(function(error) {
+                    console.error('Error:', error);
+                    showToast('Ошибка загрузки', 'error');
+                });
+        }
+
+        // Delete selected users
+        function deleteSelected() {
+            var checkboxes = document.querySelectorAll('.user-checkbox:checked');
+            var userIds = [];
+            checkboxes.forEach(function(cb) { userIds.push(cb.value); });
+
+            if (userIds.length === 0) {
+                showToast('Выберите пользователей', 'error');
+                return;
+            }
+
+            if (!confirm('Удалить ' + userIds.length + ' пользователей?')) return;
+
+            fetch(API_URL + 'api/users/bulk-delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({user_ids: userIds})
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                showToast('Удалено: ' + data.deleted, 'success');
+                loadUsers();
+                loadStats();
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                showToast('Ошибка удаления', 'error');
+            });
+        }
+
+        // Extend expiry for unlimited users
+        function extendUnlimitedExpiry() {
+            var checkboxes = document.querySelectorAll('.unlimited-checkbox:checked');
+            var userIds = [];
+            checkboxes.forEach(function(cb) { userIds.push(cb.value); });
+            var days = parseInt(document.getElementById('unlimited-extend-days').value);
+
+            if (userIds.length === 0) {
+                showToast('Выберите пользователей', 'error');
+                return;
+            }
+
+            fetch(API_URL + 'api/users/extend-expiry', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({user_ids: userIds, days: days})
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                showToast('Продлено: ' + data.updated + ' пользователей на ' + days + ' дней', 'success');
+                loadUnlimitedUsers();
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                showToast('Ошибка продления', 'error');
+            });
+        }
+
+        // Block unlimited users
+        function blockUnlimitedSelected() {
+            var checkboxes = document.querySelectorAll('.unlimited-checkbox:checked');
+            var userIds = [];
+            checkboxes.forEach(function(cb) { userIds.push(cb.value); });
+
+            if (userIds.length === 0) {
+                showToast('Выберите пользователей', 'error');
+                return;
+            }
+
+            fetch(API_URL + 'api/users/toggle-status', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({user_ids: userIds, enable: false})
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                showToast('Заблокировано: ' + data.updated, 'success');
+                loadUnlimitedUsers();
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                showToast('Ошибка блокировки', 'error');
+            });
+        }
+
+        // Toggle checkboxes
+        function toggleAllUsers(checkbox) {
+            document.querySelectorAll('.user-checkbox').forEach(function(cb) { cb.checked = checkbox.checked; });
+        }
+
+        function toggleAllLowTraffic(checkbox) {
+            document.querySelectorAll('.low-traffic-checkbox').forEach(function(cb) { cb.checked = checkbox.checked; });
+        }
+
+        function toggleAllUnlimited(checkbox) {
+            document.querySelectorAll('.unlimited-checkbox').forEach(function(cb) { cb.checked = checkbox.checked; });
+        }
+
+        // Reset traffic
+        function resetTrafficSelected() {
+            var checkboxes = document.querySelectorAll('.low-traffic-checkbox:checked');
+            var userIds = [];
+            checkboxes.forEach(function(cb) { userIds.push(cb.value); });
+
+            if (userIds.length === 0) {
+                showToast('Выберите пользователей', 'error');
+                return;
+            }
+
+            var newLimit = prompt('Новый лимит трафика (GB):', '100');
+            if (!newLimit) return;
+
+            fetch(API_URL + 'api/users/reset-traffic', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    user_ids: userIds,
+                    new_limit: parseInt(newLimit) * 1024 * 1024 * 1024
+                })
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                showToast('Сброшено: ' + data.updated, 'success');
+                loadLowTrafficUsers();
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                showToast('Ошибка сброса', 'error');
+            });
+        }
+
+        // Delete low traffic users
+        function deleteLowTrafficSelected() {
+            var checkboxes = document.querySelectorAll('.low-traffic-checkbox:checked');
+            var userIds = [];
+            checkboxes.forEach(function(cb) { userIds.push(cb.value); });
+
+            if (userIds.length === 0) {
+                showToast('Выберите пользователей', 'error');
+                return;
+            }
+
+            if (!confirm('Удалить ' + userIds.length + ' пользователей?')) return;
+
+            fetch(API_URL + 'api/users/bulk-delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({user_ids: userIds})
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                showToast('Удалено: ' + data.deleted, 'success');
+                loadLowTrafficUsers();
+                loadStats();
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                showToast('Ошибка удаления', 'error');
+            });
+        }
+
+        // Initialize
+        window.onload = function() {
+            loadStats();
+            loadInbounds();
+            loadUsers();
+
+            // Refresh stats every 30 seconds
+            setInterval(loadStats, 30000);
+        };
+    </script>
+</body>
+</html>
