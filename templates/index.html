@@ -669,6 +669,9 @@
             <div class="btn-group" style="margin-top: 20px;">
                 <button class="btn btn-primary" onclick="loadUnlimitedUsers()">🔍 Найти пользователей</button>
                 <button class="btn btn-success" onclick="extendUnlimitedExpiry()">📅 Продлить срок выбранным</button>
+                <button class="btn btn-secondary" onclick="resetTrafficUnlimited()">🔄 Сбросить трафик</button>
+                <button class="btn btn-info" onclick="addTrafficUnlimited()">➕ Добавить трафик</button>
+                <button class="btn btn-warning" onclick="setLimitUnlimited()">📊 Установить лимит</button>
                 <button class="btn btn-danger" onclick="blockUnlimitedSelected()">🚫 Заблокировать выбранных</button>
             </div>
 
@@ -1116,6 +1119,105 @@
             .catch(function(error) {
                 console.error('Error:', error);
                 showToast('Ошибка блокировки', 'error');
+            });
+        }
+
+        // Reset traffic for unlimited users
+        function resetTrafficUnlimited() {
+            var checkboxes = document.querySelectorAll('.unlimited-checkbox:checked');
+            var userIds = [];
+            checkboxes.forEach(function(cb) { userIds.push(cb.value); });
+
+            if (userIds.length === 0) {
+                showToast('Выберите пользователей', 'error');
+                return;
+            }
+
+            var newLimit = prompt('Новый лимит трафика (GB):', '100');
+            if (!newLimit) return;
+
+            fetch(API_URL + 'api/users/reset-traffic', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    user_ids: userIds,
+                    new_limit: parseInt(newLimit) * 1024 * 1024 * 1024
+                })
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                showToast('Трафик сброшен для ' + data.updated + ' пользователей. Новый лимит: ' + newLimit + ' GB', 'success');
+                loadUnlimitedUsers();
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                showToast('Ошибка сброса трафика', 'error');
+            });
+        }
+
+        // Add traffic to unlimited users
+        function addTrafficUnlimited() {
+            var checkboxes = document.querySelectorAll('.unlimited-checkbox:checked');
+            var userIds = [];
+            checkboxes.forEach(function(cb) { userIds.push(cb.value); });
+
+            if (userIds.length === 0) {
+                showToast('Выберите пользователей', 'error');
+                return;
+            }
+
+            var additionalTraffic = prompt('Добавить трафик (GB):', '50');
+            if (!additionalTraffic) return;
+
+            fetch(API_URL + 'api/users/add-traffic', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    user_ids: userIds,
+                    additional_traffic: parseInt(additionalTraffic) * 1024 * 1024 * 1024
+                })
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                showToast('Добавлено ' + additionalTraffic + ' GB для ' + data.updated + ' пользователей', 'success');
+                loadUnlimitedUsers();
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                showToast('Ошибка добавления трафика', 'error');
+            });
+        }
+
+        // Set traffic limit for unlimited users
+        function setLimitUnlimited() {
+            var checkboxes = document.querySelectorAll('.unlimited-checkbox:checked');
+            var userIds = [];
+            checkboxes.forEach(function(cb) { userIds.push(cb.value); });
+
+            if (userIds.length === 0) {
+                showToast('Выберите пользователей', 'error');
+                return;
+            }
+
+            var newLimit = prompt('Установить лимит трафика (GB):', '100');
+            if (!newLimit) return;
+
+            fetch(API_URL + 'api/users/set-limit', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    user_ids: userIds,
+                    new_limit: parseInt(newLimit) * 1024 * 1024 * 1024
+                })
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                showToast('Лимит установлен: ' + newLimit + ' GB для ' + data.updated + ' пользователей', 'success');
+                loadUnlimitedUsers();
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                showToast('Ошибка установки лимита', 'error');
             });
         }
 

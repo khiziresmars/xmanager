@@ -50,6 +50,16 @@ class ResetTrafficRequest(BaseModel):
     user_ids: List[str] = Field(..., description="Список ID пользователей")
     new_limit: int = Field(..., ge=0, description="Новый лимит трафика")
 
+class AddTrafficRequest(BaseModel):
+    """Запрос на добавление трафика"""
+    user_ids: List[str] = Field(..., description="Список ID пользователей")
+    additional_traffic: int = Field(..., ge=0, description="Дополнительный трафик в байтах")
+
+class SetLimitRequest(BaseModel):
+    """Запрос на установку лимита"""
+    user_ids: List[str] = Field(..., description="Список ID пользователей")
+    new_limit: int = Field(..., ge=0, description="Новый лимит трафика в байтах")
+
 class ToggleStatusRequest(BaseModel):
     """Запрос на блокировку/разблокировку"""
     user_ids: List[str] = Field(..., description="Список ID пользователей")

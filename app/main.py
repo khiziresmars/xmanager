@@ -227,6 +227,38 @@ async def reset_traffic(request: ResetTrafficRequest):
         logger.error(f"Error resetting traffic: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/users/add-traffic")
+async def add_traffic(request: AddTrafficRequest):
+    """Добавление трафика к существующему лимиту"""
+    try:
+        result = db.add_traffic_for_users(
+            request.user_ids,
+            request.additional_traffic
+        )
+        return {
+            "message": f"Added traffic for {result['updated']} users",
+            "updated": result['updated']
+        }
+    except Exception as e:
+        logger.error(f"Error adding traffic: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/users/set-limit")
+async def set_limit(request: SetLimitRequest):
+    """Установка лимита трафика без сброса использованного"""
+    try:
+        result = db.set_limit_for_users(
+            request.user_ids,
+            request.new_limit
+        )
+        return {
+            "message": f"Set limit for {result['updated']} users",
+            "updated": result['updated']
+        }
+    except Exception as e:
+        logger.error(f"Error setting limit: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==================== БЛОКИРОВКА И УПРАВЛЕНИЕ СТАТУСОМ ====================
 
 @app.post("/api/users/toggle-status")

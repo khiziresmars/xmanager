@@ -545,7 +545,65 @@ class XUIDatabase:
         except Exception as e:
             logger.error(f"Error resetting traffic: {e}")
             return {"updated": 0}
-    
+
+    def add_traffic_for_users(self, user_ids: List[str],
+                              additional_traffic: int) -> Dict:
+        """Добавление трафика к существующему лимиту без сброса использованного"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            updated = 0
+            for user_id in user_ids:
+                cursor.execute("""
+                    UPDATE client_traffics
+                    SET total = total + ?
+                    WHERE id = ?
+                """, (additional_traffic, user_id))
+
+                if cursor.rowcount > 0:
+                    # Синхронизируем с JSON
+                    self._sync_client_to_json(cursor, user_id)
+                    updated += 1
+
+            conn.commit()
+            conn.close()
+
+            return {"updated": updated}
+
+        except Exception as e:
+            logger.error(f"Error adding traffic: {e}")
+            return {"updated": 0}
+
+    def set_limit_for_users(self, user_ids: List[str],
+                           new_limit: int) -> Dict:
+        """Установка нового лимита без сброса использованного трафика"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            updated = 0
+            for user_id in user_ids:
+                cursor.execute("""
+                    UPDATE client_traffics
+                    SET total = ?
+                    WHERE id = ?
+                """, (new_limit, user_id))
+
+                if cursor.rowcount > 0:
+                    # Синхронизируем с JSON
+                    self._sync_client_to_json(cursor, user_id)
+                    updated += 1
+
+            conn.commit()
+            conn.close()
+
+            return {"updated": updated}
+
+        except Exception as e:
+            logger.error(f"Error setting limit: {e}")
+            return {"updated": 0}
+
     # ==================== ИНБАУНДЫ ====================
     
     def get_inbounds(self) -> List[Dict]:
