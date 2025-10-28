@@ -184,15 +184,26 @@ async def get_unlimited_users(
     enabled_only: bool = Query(False, description="Только активные"),
     sort_by: str = Query("used", description="Поле для сортировки"),
     order: str = Query("desc", description="Порядок сортировки (asc/desc)"),
-    filter_type: str = Query("expiry", description="Тип фильтра: expiry (бессрочные), traffic (без лимита трафика), both (оба)")
+    filter_type: str = Query("expiry", description="Тип фильтра: expiry (бессрочные), traffic (без лимита трафика), both (оба)"),
+    limit: Optional[int] = Query(None, ge=1, le=10000, description="Максимальное количество результатов"),
+    offset: Optional[int] = Query(0, ge=0, description="Смещение для пагинации")
 ):
     """Получение пользователей с безлимитным трафиком или бессрочных"""
     try:
         users = db.get_unlimited_traffic_users(inbound_id, enabled_only, sort_by, order, filter_type)
+
+        # Применяем пагинацию если указан limit
+        total_count = len(users)
+        if limit is not None:
+            users = users[offset:offset + limit]
+
         return {
             "users": users,
             "count": len(users),
-            "filter_type": filter_type
+            "total": total_count,
+            "filter_type": filter_type,
+            "limit": limit,
+            "offset": offset
         }
     except Exception as e:
         logger.error(f"Error getting unlimited users: {e}")
@@ -225,6 +236,38 @@ async def reset_traffic(request: ResetTrafficRequest):
         }
     except Exception as e:
         logger.error(f"Error resetting traffic: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/users/add-traffic")
+async def add_traffic(request: AddTrafficRequest):
+    """Добавление трафика к существующему лимиту"""
+    try:
+        result = db.add_traffic_for_users(
+            request.user_ids,
+            request.additional_traffic
+        )
+        return {
+            "message": f"Added traffic for {result['updated']} users",
+            "updated": result['updated']
+        }
+    except Exception as e:
+        logger.error(f"Error adding traffic: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/users/set-limit")
+async def set_limit(request: SetLimitRequest):
+    """Установка лимита трафика без сброса использованного"""
+    try:
+        result = db.set_limit_for_users(
+            request.user_ids,
+            request.new_limit
+        )
+        return {
+            "message": f"Set limit for {result['updated']} users",
+            "updated": result['updated']
+        }
+    except Exception as e:
+        logger.error(f"Error setting limit: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== БЛОКИРОВКА И УПРАВЛЕНИЕ СТАТУСОМ ====================

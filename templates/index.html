@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>XUI Manager - Управление 3x-ui</title>
     <style>
         * {
@@ -643,16 +646,26 @@
 
         <!-- Tab: Unlimited -->
         <div id="tab-unlimited" class="tab-content">
-            <h2>Безлимитные пользователи</h2>
+            <h2>Поиск пользователей по критериям</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Найдите пользователей по критериям безлимита (время, трафик или оба параметра)
+            </p>
 
             <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label">Тип фильтра</label>
-                    <select class="form-select" id="unlimited-filter-type">
-                        <option value="expiry">Бессрочные (без даты истечения)</option>
-                        <option value="traffic">Безлимитный трафик</option>
-                        <option value="both">Оба критерия</option>
+                    <label class="form-label">Тип фильтра <span style="color: #999; font-size: 12px;">(выберите критерий поиска)</span></label>
+                    <select class="form-select" id="unlimited-filter-type" onchange="updateFilterDescription()">
+                        <option value="expiry">Бессрочные пользователи (без даты истечения)</option>
+                        <option value="traffic">Безлимитный трафик (нет лимита трафика)</option>
+                        <option value="both">Оба критерия (бессрочные И безлимитный трафик)</option>
                     </select>
+                    <small id="filter-description" style="display: block; margin-top: 8px; color: #0066cc; font-size: 13px;">
+                        📌 Будут найдены пользователи без ограничения по времени (expiry_time = 0)
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Макс. результатов <span style="color: #999; font-size: 12px;">(0 = все)</span></label>
+                    <input type="number" class="form-input" id="unlimited-limit" value="100" min="0" max="10000">
                 </div>
                 <div class="form-group">
                     <label class="form-label">Продлить на (дней)</label>
@@ -661,9 +674,18 @@
             </div>
 
             <div class="btn-group" style="margin-top: 20px;">
-                <button class="btn btn-primary" onclick="loadUnlimitedUsers()">🔍 Найти</button>
-                <button class="btn btn-success" onclick="extendUnlimitedExpiry()">📅 Продлить срок</button>
-                <button class="btn btn-danger" onclick="blockUnlimitedSelected()">🚫 Заблокировать</button>
+                <button class="btn btn-primary" onclick="loadUnlimitedUsers()">🔍 Найти пользователей</button>
+                <button class="btn btn-success" onclick="extendUnlimitedExpiry()">📅 Продлить срок выбранным</button>
+                <button class="btn btn-secondary" onclick="resetTrafficUnlimited()">🔄 Сбросить трафик</button>
+                <button class="btn btn-info" onclick="addTrafficUnlimited()">➕ Добавить трафик</button>
+                <button class="btn btn-warning" onclick="setLimitUnlimited()">📊 Установить лимит</button>
+                <button class="btn btn-danger" onclick="blockUnlimitedSelected()">🚫 Заблокировать выбранных</button>
+            </div>
+
+            <!-- Status bar showing filter and results -->
+            <div id="unlimited-status-bar" style="display: none; margin: 20px 0; padding: 12px; background: #e8f4fd; border-left: 4px solid #0066cc; border-radius: 4px;">
+                <strong>Активный фильтр:</strong> <span id="unlimited-active-filter"></span> |
+                <strong>Найдено:</strong> <span id="unlimited-results-count">0</span> пользователей
             </div>
 
             <div class="table-container">
@@ -678,7 +700,9 @@
                         </tr>
                     </thead>
                     <tbody id="unlimited-table-body">
-                        <tr><td colspan="5" class="loading">Нажмите "Найти" для поиска</td></tr>
+                        <tr><td colspan="5" class="loading">
+                            Выберите тип фильтра и нажмите "Найти пользователей" для начала поиска
+                        </td></tr>
                     </tbody>
                 </table>
             </div>
@@ -898,11 +922,19 @@
             var inboundId = parseInt(document.getElementById('bulk-inbound').value);
             var method = document.getElementById('bulk-method').value;
 
+            if (!inboundId || isNaN(inboundId)) {
+                showToast('Пожалуйста, выберите Inbound', 'error');
+                return;
+            }
+
             // Calculate expiry time
             var expiryTime = 0;
             if (expiryDays > 0) {
                 expiryTime = Date.now() + (expiryDays * 24 * 60 * 60 * 1000);
             }
+
+            // Показываем что идёт создание
+            showToast('⏳ Создание ' + count + ' пользователей...', 'info');
 
             fetch(API_URL + 'api/users/bulk-create', {
                 method: 'POST',
@@ -920,14 +952,42 @@
                     inbound_id: inboundId
                 })
             })
-            .then(function(response) { return response.json(); })
+            .then(function(response) {
+                if (!response.ok) {
+                    return response.json().then(function(err) {
+                        throw new Error(err.detail || 'Server error');
+                    });
+                }
+                return response.json();
+            })
             .then(function(data) {
-                showToast('Создано пользователей: ' + data.created, 'success');
+                var message = 'Создано пользователей: ' + data.created + ' из ' + count;
+
+                if (data.created === 0) {
+                    showToast('❌ Не удалось создать ни одного пользователя', 'error');
+                    if (data.errors && data.errors.length > 0) {
+                        console.error('Errors:', data.errors);
+                        alert('Ошибки:\n' + data.errors.join('\n'));
+                    }
+                } else if (data.created < count) {
+                    showToast('⚠️ ' + message + ' (есть ошибки)', 'warning');
+                    if (data.errors && data.errors.length > 0) {
+                        console.error('Errors:', data.errors);
+                    }
+                } else {
+                    showToast('✅ ' + message, 'success');
+                }
+
                 loadStats();
+                // Очищаем форму при успешном создании
+                if (data.created > 0) {
+                    document.getElementById('bulk-prefix').value = 'user';
+                    document.getElementById('bulk-count').value = '10';
+                }
             })
             .catch(function(error) {
                 console.error('Error creating users:', error);
-                showToast('Ошибка создания пользователей', 'error');
+                showToast('Ошибка создания пользователей: ' + error.message, 'error');
             });
         }
 
@@ -962,17 +1022,60 @@
                 });
         }
 
+        // Update filter description based on selected filter type
+        function updateFilterDescription() {
+            var filterType = document.getElementById('unlimited-filter-type').value;
+            var description = document.getElementById('filter-description');
+
+            var descriptions = {
+                'expiry': '📌 Будут найдены пользователи без ограничения по времени (expiry_time = 0)',
+                'traffic': '📌 Будут найдены пользователи без ограничения трафика (total = 0 или NULL)',
+                'both': '📌 Будут найдены пользователи БЕЗ обоих ограничений (бессрочные И безлимитный трафик)'
+            };
+
+            description.textContent = descriptions[filterType] || '';
+        }
+
         // Load unlimited users
         function loadUnlimitedUsers() {
             var filterType = document.getElementById('unlimited-filter-type').value;
+            var filterSelect = document.getElementById('unlimited-filter-type');
+            var filterText = filterSelect.options[filterSelect.selectedIndex].text;
+            var limit = parseInt(document.getElementById('unlimited-limit').value) || 0;
 
-            fetch(API_URL + 'api/users/unlimited?filter_type=' + filterType)
+            // Показываем индикатор загрузки
+            var tbody = document.getElementById('unlimited-table-body');
+            tbody.innerHTML = '<tr><td colspan="5" class="loading">⏳ Загрузка...</td></tr>';
+
+            // Формируем URL с параметрами
+            var url = API_URL + 'api/users/unlimited?filter_type=' + filterType;
+            if (limit > 0) {
+                url += '&limit=' + limit;
+            }
+
+            fetch(url)
                 .then(function(response) { return response.json(); })
                 .then(function(data) {
                     unlimitedUsers = data.users;
-                    var tbody = document.getElementById('unlimited-table-body');
+
+                    // Update status bar
+                    var statusBar = document.getElementById('unlimited-status-bar');
+                    var activeFilter = document.getElementById('unlimited-active-filter');
+                    var resultsCount = document.getElementById('unlimited-results-count');
+
+                    statusBar.style.display = 'block';
+                    activeFilter.textContent = filterText;
+
+                    // Показываем информацию о количестве результатов
+                    var totalCount = data.total || data.count;
+                    if (limit > 0 && totalCount > limit) {
+                        resultsCount.textContent = data.count + ' из ' + totalCount;
+                    } else {
+                        resultsCount.textContent = totalCount;
+                    }
+
                     if (unlimitedUsers.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="5" class="loading">Пользователей не найдено</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="5" class="loading">Пользователей по выбранному критерию не найдено</td></tr>';
                         return;
                     }
 
@@ -985,9 +1088,16 @@
                             '<td>' + formatDate(user.expiry_time) + '</td>' +
                             '</tr>';
                     }).join('');
+
+                    var message = 'Загружено пользователей: ' + data.count;
+                    if (totalCount > data.count) {
+                        message += ' из ' + totalCount + ' (используйте фильтр для просмотра остальных)';
+                    }
+                    showToast(message, 'success');
                 })
                 .catch(function(error) {
                     console.error('Error:', error);
+                    tbody.innerHTML = '<tr><td colspan="5" class="loading">❌ Ошибка загрузки</td></tr>';
                     showToast('Ошибка загрузки', 'error');
                 });
         }
@@ -1074,6 +1184,105 @@
             .catch(function(error) {
                 console.error('Error:', error);
                 showToast('Ошибка блокировки', 'error');
+            });
+        }
+
+        // Reset traffic for unlimited users
+        function resetTrafficUnlimited() {
+            var checkboxes = document.querySelectorAll('.unlimited-checkbox:checked');
+            var userIds = [];
+            checkboxes.forEach(function(cb) { userIds.push(cb.value); });
+
+            if (userIds.length === 0) {
+                showToast('Выберите пользователей', 'error');
+                return;
+            }
+
+            var newLimit = prompt('Новый лимит трафика (GB):', '100');
+            if (!newLimit) return;
+
+            fetch(API_URL + 'api/users/reset-traffic', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    user_ids: userIds,
+                    new_limit: parseInt(newLimit) * 1024 * 1024 * 1024
+                })
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                showToast('Трафик сброшен для ' + data.updated + ' пользователей. Новый лимит: ' + newLimit + ' GB', 'success');
+                loadUnlimitedUsers();
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                showToast('Ошибка сброса трафика', 'error');
+            });
+        }
+
+        // Add traffic to unlimited users
+        function addTrafficUnlimited() {
+            var checkboxes = document.querySelectorAll('.unlimited-checkbox:checked');
+            var userIds = [];
+            checkboxes.forEach(function(cb) { userIds.push(cb.value); });
+
+            if (userIds.length === 0) {
+                showToast('Выберите пользователей', 'error');
+                return;
+            }
+
+            var additionalTraffic = prompt('Добавить трафик (GB):', '50');
+            if (!additionalTraffic) return;
+
+            fetch(API_URL + 'api/users/add-traffic', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    user_ids: userIds,
+                    additional_traffic: parseInt(additionalTraffic) * 1024 * 1024 * 1024
+                })
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                showToast('Добавлено ' + additionalTraffic + ' GB для ' + data.updated + ' пользователей', 'success');
+                loadUnlimitedUsers();
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                showToast('Ошибка добавления трафика', 'error');
+            });
+        }
+
+        // Set traffic limit for unlimited users
+        function setLimitUnlimited() {
+            var checkboxes = document.querySelectorAll('.unlimited-checkbox:checked');
+            var userIds = [];
+            checkboxes.forEach(function(cb) { userIds.push(cb.value); });
+
+            if (userIds.length === 0) {
+                showToast('Выберите пользователей', 'error');
+                return;
+            }
+
+            var newLimit = prompt('Установить лимит трафика (GB):', '100');
+            if (!newLimit) return;
+
+            fetch(API_URL + 'api/users/set-limit', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    user_ids: userIds,
+                    new_limit: parseInt(newLimit) * 1024 * 1024 * 1024
+                })
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                showToast('Лимит установлен: ' + newLimit + ' GB для ' + data.updated + ' пользователей', 'success');
+                loadUnlimitedUsers();
+            })
+            .catch(function(error) {
+                console.error('Error:', error);
+                showToast('Ошибка установки лимита', 'error');
             });
         }
 

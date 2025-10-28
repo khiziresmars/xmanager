@@ -38,8 +38,23 @@ class XUIDatabase:
             logger.error(f"Database connection error: {e}")
             return False
     
+    # ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
+
+    def _get_table_columns(self, table_name: str) -> List[str]:
+        """Получить список колонок таблицы"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            columns = [row[1] for row in cursor.fetchall()]
+            conn.close()
+            return columns
+        except Exception as e:
+            logger.error(f"Error getting table columns: {e}")
+            return []
+
     # ==================== СТАТИСТИКА ====================
-    
+
     def get_system_stats(self) -> Dict[str, Any]:
         """Получение статистики системы"""
         try:
@@ -160,37 +175,62 @@ class XUIDatabase:
             conn = self._get_connection()
             cursor = conn.cursor()
 
-            # Вставляем в client_traffics (id автоинкремент)
+            # Проверяем что inbound существует
             cursor.execute("""
-                INSERT INTO client_traffics
-                (inbound_id, enable, email, up, down, total, expiry_time, reset, all_time, last_online)
-                VALUES (?, ?, ?, 0, 0, ?, ?, 0, 0, 0)
-            """, (
-                user_data['inbound_id'],
-                1,  # enable по умолчанию
-                user_data['email'],
-                user_data.get('total', 0),
-                user_data.get('expiry_time', 0)
-            ))
+                SELECT id, settings, protocol FROM inbounds WHERE id = ?
+            """, (user_data['inbound_id'],))
+
+            inbound_row = cursor.fetchone()
+            if not inbound_row:
+                logger.error(f"Inbound {user_data['inbound_id']} not found")
+                return {"success": False, "error": f"Inbound {user_data['inbound_id']} не найден"}
+
+            inbound_id, settings_json, protocol = inbound_row
+            logger.info(f"Creating user {user_data['email']} in inbound {inbound_id} (protocol: {protocol})")
+
+            # Получаем список доступных колонок в таблице
+            available_columns = self._get_table_columns('client_traffics')
+
+            # Базовые обязательные поля
+            fields = {
+                'inbound_id': user_data['inbound_id'],
+                'enable': 1,
+                'email': user_data['email'],
+                'up': 0,
+                'down': 0,
+                'expiry_time': user_data.get('expiry_time', 0),
+                'total': user_data.get('total', 0)
+            }
+
+            # Дополнительные поля если они существуют в таблице
+            optional_fields = {
+                'reset': 0,
+                'all_time': 0,
+                'last_online': 0
+            }
+
+            # Добавляем опциональные поля только если они есть в схеме
+            for field, value in optional_fields.items():
+                if field in available_columns:
+                    fields[field] = value
+
+            # Формируем динамический INSERT запрос
+            columns = ', '.join(fields.keys())
+            placeholders = ', '.join(['?' for _ in fields])
+            values = tuple(fields.values())
+
+            cursor.execute(f"""
+                INSERT INTO client_traffics ({columns})
+                VALUES ({placeholders})
+            """, values)
 
             # Получаем созданный ID
             user_id = cursor.lastrowid
-            logger.info(f"Created user in client_traffics with ID: {user_id}")
-            
+            logger.info(f"Created user in client_traffics with ID: {user_id} (used columns: {list(fields.keys())})")
+
             # Обновляем settings в inbound
-            cursor.execute("""
-                SELECT settings FROM inbounds WHERE id = ?
-            """, (user_data['inbound_id'],))
-            
-            settings_json = cursor.fetchone()[0]
             settings = json.loads(settings_json)
-            
-            # Добавляем клиента в зависимости от протокола
-            cursor.execute("""
-                SELECT protocol FROM inbounds WHERE id = ?
-            """, (user_data['inbound_id'],))
-            protocol = cursor.fetchone()[0]
-            
+
             # Создаем клиента с полной структурой для x-ui 2.8.5
             if settings.get('clients') is None:
                 settings['clients'] = []
@@ -220,18 +260,17 @@ class XUIDatabase:
                 new_client["id"] = user_id
 
             settings['clients'].append(new_client)
-            
+
             # Сохраняем обновленные settings
             cursor.execute("""
                 UPDATE inbounds SET settings = ? WHERE id = ?
             """, (json.dumps(settings), user_data['inbound_id']))
-            
+
             conn.commit()
             conn.close()
-            
-            # Перезапускаем x-ui для применения изменений
-            self._update_xui_config()
-            
+
+            logger.info(f"Successfully created user {user_data['email']} with ID {user_id}")
+
             return {
                 "success": True,
                 "user": {
@@ -240,9 +279,9 @@ class XUIDatabase:
                     "inbound_id": user_data['inbound_id']
                 }
             }
-            
+
         except Exception as e:
-            logger.error(f"Error creating user: {e}")
+            logger.error(f"Error creating user {user_data.get('email', 'unknown')}: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
     
     def delete_user(self, user_id: str) -> Dict:
@@ -356,28 +395,48 @@ class XUIDatabase:
             logger.error(f"Error in bulk delete: {e}")
             return {"deleted": 0, "failed": 0}
     
-    def bulk_create_users(self, template: Dict, count: int, 
+    def bulk_create_users(self, template: Dict, count: int,
                           inbound_id: int) -> Dict:
         """Массовое создание пользователей по шаблону"""
         try:
             created = 0
             users = []
-            
+            errors = []
+
+            logger.info(f"Starting bulk create: {count} users for inbound {inbound_id}")
+
             for i in range(count):
                 user_data = template.copy()
                 user_data['inbound_id'] = inbound_id
                 user_data['email'] = f"{template.get('prefix', 'user')}_{i+1:04d}"
-                
+
                 result = self.create_user(user_data)
                 if result["success"]:
                     created += 1
                     users.append(result["user"])
-            
-            return {"created": created, "users": users}
-            
+                else:
+                    error_msg = f"{user_data['email']}: {result.get('error', 'Unknown error')}"
+                    errors.append(error_msg)
+                    logger.error(f"Failed to create user: {error_msg}")
+
+            # После создания всех пользователей, перезапускаем x-ui один раз
+            if created > 0:
+                logger.info(f"Restarting x-ui after creating {created} users")
+                self._update_xui_config()
+
+            logger.info(f"Bulk create completed: {created}/{count} users created")
+            if errors:
+                logger.error(f"Errors during bulk create: {errors[:5]}")  # Показываем первые 5 ошибок
+
+            return {
+                "created": created,
+                "users": users,
+                "errors": errors[:10] if errors else []  # Возвращаем максимум 10 ошибок
+            }
+
         except Exception as e:
-            logger.error(f"Error in bulk create: {e}")
-            return {"created": 0, "users": []}
+            logger.error(f"Error in bulk create: {e}", exc_info=True)
+            return {"created": 0, "users": [], "errors": [str(e)]}
     
     # ==================== ТРАФИК ====================
     
@@ -545,7 +604,65 @@ class XUIDatabase:
         except Exception as e:
             logger.error(f"Error resetting traffic: {e}")
             return {"updated": 0}
-    
+
+    def add_traffic_for_users(self, user_ids: List[str],
+                              additional_traffic: int) -> Dict:
+        """Добавление трафика к существующему лимиту без сброса использованного"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            updated = 0
+            for user_id in user_ids:
+                cursor.execute("""
+                    UPDATE client_traffics
+                    SET total = total + ?
+                    WHERE id = ?
+                """, (additional_traffic, user_id))
+
+                if cursor.rowcount > 0:
+                    # Синхронизируем с JSON
+                    self._sync_client_to_json(cursor, user_id)
+                    updated += 1
+
+            conn.commit()
+            conn.close()
+
+            return {"updated": updated}
+
+        except Exception as e:
+            logger.error(f"Error adding traffic: {e}")
+            return {"updated": 0}
+
+    def set_limit_for_users(self, user_ids: List[str],
+                           new_limit: int) -> Dict:
+        """Установка нового лимита без сброса использованного трафика"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            updated = 0
+            for user_id in user_ids:
+                cursor.execute("""
+                    UPDATE client_traffics
+                    SET total = ?
+                    WHERE id = ?
+                """, (new_limit, user_id))
+
+                if cursor.rowcount > 0:
+                    # Синхронизируем с JSON
+                    self._sync_client_to_json(cursor, user_id)
+                    updated += 1
+
+            conn.commit()
+            conn.close()
+
+            return {"updated": updated}
+
+        except Exception as e:
+            logger.error(f"Error setting limit: {e}")
+            return {"updated": 0}
+
     # ==================== ИНБАУНДЫ ====================
     
     def get_inbounds(self) -> List[Dict]:
