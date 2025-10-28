@@ -225,38 +225,90 @@ fi
 # 8. Настройка Nginx
 print_info "Шаг 8/10: Настройка Nginx..."
 
-# Автоматическое определение домена из 3x-ui
-XUI_DOMAIN=""
-if [ -f "$XUI_DB" ]; then
-    # Пытаемся извлечь домен из настроек 3x-ui
-    XUI_DOMAIN=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webCertFile' OR key='certDomain'" 2>/dev/null | head -1 | grep -oP '(?<=/)([^/]+)(?=/fullchain)' || echo "")
+# Поиск существующей конфигурации Nginx для 3x-ui
+EXISTING_NGINX_CONFIG=""
+DOMAIN=""
+SSL_CERT=""
+SSL_KEY=""
 
-    # Если не нашли в настройках, пробуем из файла конфигурации
-    if [ -z "$XUI_DOMAIN" ] && [ -f "/usr/local/x-ui/bin/config.json" ]; then
-        XUI_DOMAIN=$(grep -oP '"certDomain"\s*:\s*"\K[^"]+' /usr/local/x-ui/bin/config.json 2>/dev/null || echo "")
+print_info "Поиск существующей конфигурации Nginx..."
+
+# Ищем конфигурационные файлы в sites-enabled и sites-available
+for config_file in /etc/nginx/sites-enabled/* /etc/nginx/sites-available/x-ui /etc/nginx/sites-available/3x-ui; do
+    if [ -f "$config_file" ] && [ ! -L "$config_file" -o -f "$(readlink -f "$config_file" 2>/dev/null)" ]; then
+        # Проверяем, содержит ли файл конфигурацию с server_name
+        if grep -q "server_name" "$config_file" 2>/dev/null; then
+            # Извлекаем домен
+            FOUND_DOMAIN=$(grep -m1 "^\s*server_name" "$config_file" | sed 's/^\s*server_name\s*//; s/\s*;.*//; s/\s.*//')
+
+            # Проверяем, что это не localhost или IP адрес
+            if [ -n "$FOUND_DOMAIN" ] && [ "$FOUND_DOMAIN" != "localhost" ] && [ "$FOUND_DOMAIN" != "_" ] && ! echo "$FOUND_DOMAIN" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+                EXISTING_NGINX_CONFIG="$config_file"
+                DOMAIN="$FOUND_DOMAIN"
+
+                # Извлекаем пути к SSL сертификатам
+                SSL_CERT=$(grep -m1 "^\s*ssl_certificate\s" "$config_file" | sed 's/^\s*ssl_certificate\s*//; s/\s*;.*//')
+                SSL_KEY=$(grep -m1 "^\s*ssl_certificate_key\s" "$config_file" | sed 's/^\s*ssl_certificate_key\s*//; s/\s*;.*//')
+
+                print_success "Найдена существующая конфигурация: $config_file"
+                print_success "  • Домен: $DOMAIN"
+                [ -n "$SSL_CERT" ] && print_success "  • SSL сертификат: $SSL_CERT"
+                [ -n "$SSL_KEY" ] && print_success "  • SSL ключ: $SSL_KEY"
+                break
+            fi
+        fi
     fi
+done
+
+# Если не нашли существующую конфигурацию, создаем новую
+if [ -z "$EXISTING_NGINX_CONFIG" ]; then
+    print_warning "Существующая конфигурация Nginx не найдена"
+    print_info "Будет создана новая конфигурация"
+
+    # Автоматическое определение домена из 3x-ui
+    if [ -f "$XUI_DB" ]; then
+        DOMAIN=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webCertFile' OR key='certDomain'" 2>/dev/null | head -1 | grep -oP '(?<=/)([^/]+)(?=/fullchain)' || echo "")
+
+        if [ -z "$DOMAIN" ] && [ -f "/usr/local/x-ui/bin/config.json" ]; then
+            DOMAIN=$(grep -oP '"certDomain"\s*:\s*"\K[^"]+' /usr/local/x-ui/bin/config.json 2>/dev/null || echo "")
+        fi
+    fi
+
+    if [ -z "$DOMAIN" ]; then
+        DOMAIN=$(hostname -f 2>/dev/null || hostname)
+    fi
+
+    read -p "Введите доменное имя [По умолчанию: $DOMAIN]: " INPUT_DOMAIN
+    DOMAIN="${INPUT_DOMAIN:-$DOMAIN}"
+
+    # Проверяем наличие SSL сертификата
+    if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
+        SSL_CERT="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+        SSL_KEY="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+        print_success "Найден Let's Encrypt сертификат"
+    elif [ -f "/etc/ssl/certs/ssl-cert-snakeoil.pem" ]; then
+        SSL_CERT="/etc/ssl/certs/ssl-cert-snakeoil.pem"
+        SSL_KEY="/etc/ssl/private/ssl-cert-snakeoil.key"
+        print_info "Используется временный самоподписанный сертификат"
+    else
+        print_info "Создание временного SSL сертификата..."
+        apt-get install -y ssl-cert -qq
+        make-ssl-cert generate-default-snakeoil --force-overwrite 2>/dev/null
+        if [ -f "/etc/ssl/certs/ssl-cert-snakeoil.pem" ]; then
+            SSL_CERT="/etc/ssl/certs/ssl-cert-snakeoil.pem"
+            SSL_KEY="/etc/ssl/private/ssl-cert-snakeoil.key"
+        fi
+    fi
+
+    EXISTING_NGINX_CONFIG="/etc/nginx/sites-available/xui-manager"
 fi
 
-# Определяем домен по умолчанию
-if [ -n "$XUI_DOMAIN" ]; then
-    DOMAIN="$XUI_DOMAIN"
-    print_success "Обнаружен домен из 3x-ui: $DOMAIN"
-else
-    DOMAIN=$(hostname -f 2>/dev/null || hostname)
-    print_info "Домен из 3x-ui не найден, используем системный: $DOMAIN"
-fi
-
-read -p "Введите доменное имя [По умолчанию: $DOMAIN]: " INPUT_DOMAIN
-DOMAIN="${INPUT_DOMAIN:-$DOMAIN}"
-
-print_info "Настройка для домена: $DOMAIN"
-
-# Проверка существующей конфигурации
-NGINX_CONFIG="/etc/nginx/sites-available/xui-manager"
-
-if [ -f "$NGINX_CONFIG" ]; then
-    print_warning "Конфигурация Nginx уже существует"
-    read -p "Перезаписать конфигурацию? (y/n): " -n 1 -r
+# Проверяем, существует ли уже location /manager/ в конфигурации
+MANAGER_LOCATION_EXISTS=false
+if grep -q "location /manager/" "$EXISTING_NGINX_CONFIG" 2>/dev/null; then
+    MANAGER_LOCATION_EXISTS=true
+    print_warning "Location /manager/ уже существует в конфигурации"
+    read -p "Обновить конфигурацию /manager/? (y/n): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         print_info "Пропускаем настройку Nginx"
@@ -265,49 +317,68 @@ if [ -f "$NGINX_CONFIG" ]; then
 fi
 
 if [ "$SKIP_NGINX" != true ]; then
-    # Определение портов X-UI
-    XUI_PORT=2096
-    if command -v x-ui &> /dev/null; then
-        # Попытка определить порт из конфигурации
-        XUI_PORT_FROM_CONFIG=$(x-ui status 2>/dev/null | grep -oP 'port:\s*\K\d+' || echo "2096")
-        XUI_PORT="${XUI_PORT_FROM_CONFIG:-2096}"
+    # Создаем резервную копию конфигурации
+    if [ -f "$EXISTING_NGINX_CONFIG" ]; then
+        cp "$EXISTING_NGINX_CONFIG" "${EXISTING_NGINX_CONFIG}.backup-$(date +%Y%m%d-%H%M%S)"
+        print_success "Создана резервная копия: ${EXISTING_NGINX_CONFIG}.backup-*"
     fi
 
-    print_info "Порт X-UI: $XUI_PORT"
+    # Определяем, нужно ли добавить location или создать новый конфиг
+    if [ "$MANAGER_LOCATION_EXISTS" = true ]; then
+        # Заменяем существующий location /manager/
+        print_info "Обновление существующего location /manager/..."
 
-    # Проверка наличия SSL сертификата от 3x-ui или Let's Encrypt
-    SSL_CERT=""
-    SSL_KEY=""
+        # Используем sed для замены блока location
+        sed -i '/location \/manager\/ {/,/}/c\
+    # XUI-Manager API\
+    location /manager/ {\
+        proxy_pass http://127.0.0.1:8888/;\
+        proxy_http_version 1.1;\
+        proxy_set_header Upgrade $http_upgrade;\
+        proxy_set_header Connection '"'"'upgrade'"'"';\
+        proxy_set_header Host $host;\
+        proxy_cache_bypass $http_upgrade;\
+        proxy_set_header X-Real-IP $remote_addr;\
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\
+        proxy_set_header X-Forwarded-Proto $scheme;\
+    }' "$EXISTING_NGINX_CONFIG"
 
-    # Проверяем сертификат Let's Encrypt для домена
-    if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ] && [ -f "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]; then
-        SSL_CERT="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
-        SSL_KEY="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
-        print_success "Найден Let's Encrypt сертификат для $DOMAIN"
-    # Проверяем самоподписанный сертификат
-    elif [ -f "/etc/ssl/certs/ssl-cert-snakeoil.pem" ] && [ -f "/etc/ssl/private/ssl-cert-snakeoil.key" ]; then
-        SSL_CERT="/etc/ssl/certs/ssl-cert-snakeoil.pem"
-        SSL_KEY="/etc/ssl/private/ssl-cert-snakeoil.key"
-        print_info "Используется временный самоподписанный сертификат"
+    elif grep -q "server {" "$EXISTING_NGINX_CONFIG" 2>/dev/null; then
+        # Добавляем location к существующему server блоку
+        print_info "Добавление location /manager/ к существующей конфигурации..."
+
+        # Находим последний server блок с SSL (443) и добавляем location перед закрывающей скобкой
+        # Используем awk для точной вставки
+        awk '
+        /listen 443/ { in_ssl_server=1 }
+        in_ssl_server && /^}/ && !manager_added {
+            print "    # XUI-Manager API"
+            print "    location /manager/ {"
+            print "        proxy_pass http://127.0.0.1:8888/;"
+            print "        proxy_http_version 1.1;"
+            print "        proxy_set_header Upgrade $http_upgrade;"
+            print "        proxy_set_header Connection '\''upgrade'\'';"
+            print "        proxy_set_header Host $host;"
+            print "        proxy_cache_bypass $http_upgrade;"
+            print "        proxy_set_header X-Real-IP $remote_addr;"
+            print "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"
+            print "        proxy_set_header X-Forwarded-Proto $scheme;"
+            print "    }"
+            print ""
+            manager_added=1
+            in_ssl_server=0
+        }
+        { print }
+        ' "$EXISTING_NGINX_CONFIG" > "${EXISTING_NGINX_CONFIG}.tmp"
+
+        mv "${EXISTING_NGINX_CONFIG}.tmp" "$EXISTING_NGINX_CONFIG"
+
     else
-        # Создаем временный самоподписанный сертификат
-        print_info "Создание временного SSL сертификата..."
-        apt-get install -y ssl-cert -qq
-        make-ssl-cert generate-default-snakeoil --force-overwrite 2>/dev/null
+        # Создаем новую конфигурацию
+        print_info "Создание новой конфигурации Nginx..."
 
-        if [ -f "/etc/ssl/certs/ssl-cert-snakeoil.pem" ]; then
-            SSL_CERT="/etc/ssl/certs/ssl-cert-snakeoil.pem"
-            SSL_KEY="/etc/ssl/private/ssl-cert-snakeoil.key"
-            print_success "Временный SSL сертификат создан"
-        else
-            print_warning "Не удалось создать SSL сертификат, будет использован только HTTP"
-        fi
-    fi
-
-    # Создаем конфигурацию Nginx
-    if [ -n "$SSL_CERT" ] && [ -f "$SSL_CERT" ]; then
-        # Конфигурация с HTTPS
-        cat > "$NGINX_CONFIG" <<EOF
+        if [ -n "$SSL_CERT" ] && [ -f "$SSL_CERT" ]; then
+            cat > "$EXISTING_NGINX_CONFIG" <<EOF
 # HTTP -> HTTPS redirect
 server {
     listen 80;
@@ -337,20 +408,6 @@ server {
     ssl_prefer_server_ciphers on;
     add_header Strict-Transport-Security "max-age=63072000" always;
 
-    # X-UI Panel
-    location /esmars/ {
-        proxy_pass http://127.0.0.1:$XUI_PORT;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-        proxy_redirect off;
-    }
-
     # XUI-Manager API
     location /manager/ {
         proxy_pass http://127.0.0.1:8888/;
@@ -365,11 +422,9 @@ server {
     }
 }
 EOF
-    else
-        # Конфигурация только с HTTP (без SSL)
-        print_warning "SSL сертификат недоступен, настраиваем только HTTP"
-        cat > "$NGINX_CONFIG" <<EOF
-# HTTP server (без SSL)
+        else
+            cat > "$EXISTING_NGINX_CONFIG" <<EOF
+# HTTP server
 server {
     listen 80;
     listen [::]:80;
@@ -379,20 +434,6 @@ server {
         root /var/www/html;
     }
 
-    # X-UI Panel
-    location /esmars/ {
-        proxy_pass http://127.0.0.1:$XUI_PORT;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-        proxy_redirect off;
-    }
-
     # XUI-Manager API
     location /manager/ {
         proxy_pass http://127.0.0.1:8888/;
@@ -407,18 +448,36 @@ server {
     }
 }
 EOF
+        fi
     fi
 
-    # Активация конфигурации
-    ln -sf "$NGINX_CONFIG" /etc/nginx/sites-enabled/xui-manager
+    # Активируем конфигурацию если это новый файл
+    if [ "$(basename "$EXISTING_NGINX_CONFIG")" = "xui-manager" ]; then
+        ln -sf "$EXISTING_NGINX_CONFIG" /etc/nginx/sites-enabled/xui-manager
+    fi
 
-    # Проверка конфигурации
-    if nginx -t 2>/dev/null; then
+    # Удаляем старую конфликтующую конфигурацию xui-manager если она существует
+    if [ -f "/etc/nginx/sites-enabled/xui-manager" ] && [ "$EXISTING_NGINX_CONFIG" != "/etc/nginx/sites-available/xui-manager" ]; then
+        rm -f /etc/nginx/sites-enabled/xui-manager
+        print_info "Удалена конфликтующая конфигурация /etc/nginx/sites-enabled/xui-manager"
+    fi
+
+    # Проверка и перезагрузка Nginx
+    print_info "Проверка конфигурации Nginx..."
+    if nginx -t 2>&1; then
         systemctl reload nginx
         print_success "Nginx настроен и перезагружен"
+        print_success "XUI-Manager доступен по адресу: https://$DOMAIN/manager/"
     else
         print_error "Ошибка в конфигурации Nginx"
-        nginx -t
+        print_info "Проверьте конфигурацию: nginx -t"
+        # Восстанавливаем из резервной копии
+        if [ -f "${EXISTING_NGINX_CONFIG}.backup-"* ]; then
+            LATEST_BACKUP=$(ls -t "${EXISTING_NGINX_CONFIG}.backup-"* | head -1)
+            cp "$LATEST_BACKUP" "$EXISTING_NGINX_CONFIG"
+            print_info "Восстановлена резервная копия конфигурации"
+            nginx -t
+        fi
     fi
 fi
 

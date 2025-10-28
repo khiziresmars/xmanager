@@ -643,16 +643,22 @@
 
         <!-- Tab: Unlimited -->
         <div id="tab-unlimited" class="tab-content">
-            <h2>Безлимитные пользователи</h2>
+            <h2>Поиск пользователей по критериям</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Найдите пользователей по критериям безлимита (время, трафик или оба параметра)
+            </p>
 
             <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label">Тип фильтра</label>
-                    <select class="form-select" id="unlimited-filter-type">
-                        <option value="expiry">Бессрочные (без даты истечения)</option>
-                        <option value="traffic">Безлимитный трафик</option>
-                        <option value="both">Оба критерия</option>
+                    <label class="form-label">Тип фильтра <span style="color: #999; font-size: 12px;">(выберите критерий поиска)</span></label>
+                    <select class="form-select" id="unlimited-filter-type" onchange="updateFilterDescription()">
+                        <option value="expiry">Бессрочные пользователи (без даты истечения)</option>
+                        <option value="traffic">Безлимитный трафик (нет лимита трафика)</option>
+                        <option value="both">Оба критерия (бессрочные И безлимитный трафик)</option>
                     </select>
+                    <small id="filter-description" style="display: block; margin-top: 8px; color: #0066cc; font-size: 13px;">
+                        📌 Будут найдены пользователи без ограничения по времени (expiry_time = 0)
+                    </small>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Продлить на (дней)</label>
@@ -661,9 +667,15 @@
             </div>
 
             <div class="btn-group" style="margin-top: 20px;">
-                <button class="btn btn-primary" onclick="loadUnlimitedUsers()">🔍 Найти</button>
-                <button class="btn btn-success" onclick="extendUnlimitedExpiry()">📅 Продлить срок</button>
-                <button class="btn btn-danger" onclick="blockUnlimitedSelected()">🚫 Заблокировать</button>
+                <button class="btn btn-primary" onclick="loadUnlimitedUsers()">🔍 Найти пользователей</button>
+                <button class="btn btn-success" onclick="extendUnlimitedExpiry()">📅 Продлить срок выбранным</button>
+                <button class="btn btn-danger" onclick="blockUnlimitedSelected()">🚫 Заблокировать выбранных</button>
+            </div>
+
+            <!-- Status bar showing filter and results -->
+            <div id="unlimited-status-bar" style="display: none; margin: 20px 0; padding: 12px; background: #e8f4fd; border-left: 4px solid #0066cc; border-radius: 4px;">
+                <strong>Активный фильтр:</strong> <span id="unlimited-active-filter"></span> |
+                <strong>Найдено:</strong> <span id="unlimited-results-count">0</span> пользователей
             </div>
 
             <div class="table-container">
@@ -678,7 +690,9 @@
                         </tr>
                     </thead>
                     <tbody id="unlimited-table-body">
-                        <tr><td colspan="5" class="loading">Нажмите "Найти" для поиска</td></tr>
+                        <tr><td colspan="5" class="loading">
+                            Выберите тип фильтра и нажмите "Найти пользователей" для начала поиска
+                        </td></tr>
                     </tbody>
                 </table>
             </div>
@@ -962,17 +976,43 @@
                 });
         }
 
+        // Update filter description based on selected filter type
+        function updateFilterDescription() {
+            var filterType = document.getElementById('unlimited-filter-type').value;
+            var description = document.getElementById('filter-description');
+
+            var descriptions = {
+                'expiry': '📌 Будут найдены пользователи без ограничения по времени (expiry_time = 0)',
+                'traffic': '📌 Будут найдены пользователи без ограничения трафика (total = 0 или NULL)',
+                'both': '📌 Будут найдены пользователи БЕЗ обоих ограничений (бессрочные И безлимитный трафик)'
+            };
+
+            description.textContent = descriptions[filterType] || '';
+        }
+
         // Load unlimited users
         function loadUnlimitedUsers() {
             var filterType = document.getElementById('unlimited-filter-type').value;
+            var filterSelect = document.getElementById('unlimited-filter-type');
+            var filterText = filterSelect.options[filterSelect.selectedIndex].text;
 
             fetch(API_URL + 'api/users/unlimited?filter_type=' + filterType)
                 .then(function(response) { return response.json(); })
                 .then(function(data) {
                     unlimitedUsers = data.users;
                     var tbody = document.getElementById('unlimited-table-body');
+
+                    // Update status bar
+                    var statusBar = document.getElementById('unlimited-status-bar');
+                    var activeFilter = document.getElementById('unlimited-active-filter');
+                    var resultsCount = document.getElementById('unlimited-results-count');
+
+                    statusBar.style.display = 'block';
+                    activeFilter.textContent = filterText;
+                    resultsCount.textContent = unlimitedUsers.length;
+
                     if (unlimitedUsers.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="5" class="loading">Пользователей не найдено</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="5" class="loading">Пользователей по выбранному критерию не найдено</td></tr>';
                         return;
                     }
 
@@ -985,6 +1025,8 @@
                             '<td>' + formatDate(user.expiry_time) + '</td>' +
                             '</tr>';
                     }).join('');
+
+                    showToast('Найдено пользователей: ' + unlimitedUsers.length, 'success');
                 })
                 .catch(function(error) {
                     console.error('Error:', error);
