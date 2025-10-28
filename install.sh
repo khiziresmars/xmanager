@@ -91,15 +91,15 @@ fi
 print_success "Путь к БД: $XUI_DB"
 
 # 2. Установка системных зависимостей
-print_info "Шаг 2/8: Установка системных зависимостей..."
+print_info "Шаг 2/10: Установка системных зависимостей..."
 
 apt update -qq
-apt install -y python3 python3-pip nginx sqlite3 git curl
+apt install -y python3 python3-pip python3-venv nginx sqlite3 git curl rsync
 
 print_success "Системные пакеты установлены"
 
 # 3. Проверка версии Python
-print_info "Шаг 3/9: Проверка версии Python..."
+print_info "Шаг 3/10: Проверка версии Python..."
 
 PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
 PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d. -f1)
@@ -112,15 +112,30 @@ fi
 
 print_success "Python $PYTHON_VERSION - OK"
 
-# 4. Установка Python зависимостей
-print_info "Шаг 4/9: Установка Python зависимостей..."
+# 4. Создание виртуального окружения
+print_info "Шаг 4/10: Создание виртуального окружения Python..."
 
-pip3 install -q fastapi uvicorn pydantic python-multipart pydantic-settings aiofiles jinja2
+INSTALL_DIR="/opt/xui-manager"
+VENV_DIR="$INSTALL_DIR/venv"
 
-print_success "Python пакеты установлены"
+# Создаем директорию если еще не создана
+mkdir -p "$INSTALL_DIR"
+
+# Создаем виртуальное окружение
+if [ ! -d "$VENV_DIR" ]; then
+    python3 -m venv "$VENV_DIR"
+    print_success "Виртуальное окружение создано"
+else
+    print_success "Виртуальное окружение уже существует"
+fi
+
+# Обновляем pip в виртуальном окружении
+"$VENV_DIR/bin/pip" install --upgrade pip -q
+
+print_success "Виртуальное окружение готово"
 
 # 5. Копирование файлов
-print_info "Шаг 5/9: Копирование файлов проекта..."
+print_info "Шаг 5/10: Копирование файлов проекта..."
 
 INSTALL_DIR="/opt/xui-manager"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -164,8 +179,15 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
     print_success "Файл .env создан"
 fi
 
-# 6. Создание systemd сервиса
-print_info "Шаг 6/9: Создание systemd сервиса..."
+# 6. Установка Python зависимостей в виртуальное окружение
+print_info "Шаг 6/10: Установка Python зависимостей..."
+
+"$VENV_DIR/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
+
+print_success "Python пакеты установлены в виртуальное окружение"
+
+# 7. Создание systemd сервиса
+print_info "Шаг 7/10: Создание systemd сервиса..."
 
 cat > /etc/systemd/system/xui-manager.service <<EOF
 [Unit]
@@ -176,7 +198,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=$INSTALL_DIR
-ExecStart=/usr/bin/python3 -m app.main
+ExecStart=$VENV_DIR/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8888
 Restart=always
 RestartSec=5
 StandardOutput=append:/var/log/xui-manager.log
@@ -200,8 +222,8 @@ else
     exit 1
 fi
 
-# 7. Настройка Nginx
-print_info "Шаг 7/9: Настройка Nginx..."
+# 8. Настройка Nginx
+print_info "Шаг 8/10: Настройка Nginx..."
 
 # Получение доменного имени
 DOMAIN=$(hostname -f 2>/dev/null || hostname)
@@ -311,8 +333,8 @@ EOF
     fi
 fi
 
-# 8. Получение SSL сертификата (опционально)
-print_info "Шаг 8/9: SSL сертификат..."
+# 9. Получение SSL сертификата (опционально)
+print_info "Шаг 9/10: SSL сертификат..."
 
 if [ "$SKIP_NGINX" != true ]; then
     read -p "Получить Let's Encrypt SSL сертификат? (y/n): " -n 1 -r
@@ -334,8 +356,8 @@ if [ "$SKIP_NGINX" != true ]; then
     fi
 fi
 
-# 9. Проверка установки
-print_info "Шаг 9/9: Проверка установки..."
+# 10. Проверка установки
+print_info "Шаг 10/10: Проверка установки..."
 
 # Проверка API
 sleep 2
