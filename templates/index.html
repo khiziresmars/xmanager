@@ -922,11 +922,19 @@
             var inboundId = parseInt(document.getElementById('bulk-inbound').value);
             var method = document.getElementById('bulk-method').value;
 
+            if (!inboundId || isNaN(inboundId)) {
+                showToast('Пожалуйста, выберите Inbound', 'error');
+                return;
+            }
+
             // Calculate expiry time
             var expiryTime = 0;
             if (expiryDays > 0) {
                 expiryTime = Date.now() + (expiryDays * 24 * 60 * 60 * 1000);
             }
+
+            // Показываем что идёт создание
+            showToast('⏳ Создание ' + count + ' пользователей...', 'info');
 
             fetch(API_URL + 'api/users/bulk-create', {
                 method: 'POST',
@@ -944,14 +952,42 @@
                     inbound_id: inboundId
                 })
             })
-            .then(function(response) { return response.json(); })
+            .then(function(response) {
+                if (!response.ok) {
+                    return response.json().then(function(err) {
+                        throw new Error(err.detail || 'Server error');
+                    });
+                }
+                return response.json();
+            })
             .then(function(data) {
-                showToast('Создано пользователей: ' + data.created, 'success');
+                var message = 'Создано пользователей: ' + data.created + ' из ' + count;
+
+                if (data.created === 0) {
+                    showToast('❌ Не удалось создать ни одного пользователя', 'error');
+                    if (data.errors && data.errors.length > 0) {
+                        console.error('Errors:', data.errors);
+                        alert('Ошибки:\n' + data.errors.join('\n'));
+                    }
+                } else if (data.created < count) {
+                    showToast('⚠️ ' + message + ' (есть ошибки)', 'warning');
+                    if (data.errors && data.errors.length > 0) {
+                        console.error('Errors:', data.errors);
+                    }
+                } else {
+                    showToast('✅ ' + message, 'success');
+                }
+
                 loadStats();
+                // Очищаем форму при успешном создании
+                if (data.created > 0) {
+                    document.getElementById('bulk-prefix').value = 'user';
+                    document.getElementById('bulk-count').value = '10';
+                }
             })
             .catch(function(error) {
                 console.error('Error creating users:', error);
-                showToast('Ошибка создания пользователей', 'error');
+                showToast('Ошибка создания пользователей: ' + error.message, 'error');
             });
         }
 

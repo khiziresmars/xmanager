@@ -160,6 +160,19 @@ class XUIDatabase:
             conn = self._get_connection()
             cursor = conn.cursor()
 
+            # Проверяем что inbound существует
+            cursor.execute("""
+                SELECT id, settings, protocol FROM inbounds WHERE id = ?
+            """, (user_data['inbound_id'],))
+
+            inbound_row = cursor.fetchone()
+            if not inbound_row:
+                logger.error(f"Inbound {user_data['inbound_id']} not found")
+                return {"success": False, "error": f"Inbound {user_data['inbound_id']} не найден"}
+
+            inbound_id, settings_json, protocol = inbound_row
+            logger.info(f"Creating user {user_data['email']} in inbound {inbound_id} (protocol: {protocol})")
+
             # Вставляем в client_traffics (id автоинкремент)
             cursor.execute("""
                 INSERT INTO client_traffics
@@ -176,21 +189,10 @@ class XUIDatabase:
             # Получаем созданный ID
             user_id = cursor.lastrowid
             logger.info(f"Created user in client_traffics with ID: {user_id}")
-            
+
             # Обновляем settings в inbound
-            cursor.execute("""
-                SELECT settings FROM inbounds WHERE id = ?
-            """, (user_data['inbound_id'],))
-            
-            settings_json = cursor.fetchone()[0]
             settings = json.loads(settings_json)
-            
-            # Добавляем клиента в зависимости от протокола
-            cursor.execute("""
-                SELECT protocol FROM inbounds WHERE id = ?
-            """, (user_data['inbound_id'],))
-            protocol = cursor.fetchone()[0]
-            
+
             # Создаем клиента с полной структурой для x-ui 2.8.5
             if settings.get('clients') is None:
                 settings['clients'] = []
@@ -220,18 +222,17 @@ class XUIDatabase:
                 new_client["id"] = user_id
 
             settings['clients'].append(new_client)
-            
+
             # Сохраняем обновленные settings
             cursor.execute("""
                 UPDATE inbounds SET settings = ? WHERE id = ?
             """, (json.dumps(settings), user_data['inbound_id']))
-            
+
             conn.commit()
             conn.close()
-            
-            # Перезапускаем x-ui для применения изменений
-            self._update_xui_config()
-            
+
+            logger.info(f"Successfully created user {user_data['email']} with ID {user_id}")
+
             return {
                 "success": True,
                 "user": {
@@ -240,9 +241,9 @@ class XUIDatabase:
                     "inbound_id": user_data['inbound_id']
                 }
             }
-            
+
         except Exception as e:
-            logger.error(f"Error creating user: {e}")
+            logger.error(f"Error creating user {user_data.get('email', 'unknown')}: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
     
     def delete_user(self, user_id: str) -> Dict:
@@ -356,28 +357,48 @@ class XUIDatabase:
             logger.error(f"Error in bulk delete: {e}")
             return {"deleted": 0, "failed": 0}
     
-    def bulk_create_users(self, template: Dict, count: int, 
+    def bulk_create_users(self, template: Dict, count: int,
                           inbound_id: int) -> Dict:
         """Массовое создание пользователей по шаблону"""
         try:
             created = 0
             users = []
-            
+            errors = []
+
+            logger.info(f"Starting bulk create: {count} users for inbound {inbound_id}")
+
             for i in range(count):
                 user_data = template.copy()
                 user_data['inbound_id'] = inbound_id
                 user_data['email'] = f"{template.get('prefix', 'user')}_{i+1:04d}"
-                
+
                 result = self.create_user(user_data)
                 if result["success"]:
                     created += 1
                     users.append(result["user"])
-            
-            return {"created": created, "users": users}
-            
+                else:
+                    error_msg = f"{user_data['email']}: {result.get('error', 'Unknown error')}"
+                    errors.append(error_msg)
+                    logger.error(f"Failed to create user: {error_msg}")
+
+            # После создания всех пользователей, перезапускаем x-ui один раз
+            if created > 0:
+                logger.info(f"Restarting x-ui after creating {created} users")
+                self._update_xui_config()
+
+            logger.info(f"Bulk create completed: {created}/{count} users created")
+            if errors:
+                logger.error(f"Errors during bulk create: {errors[:5]}")  # Показываем первые 5 ошибок
+
+            return {
+                "created": created,
+                "users": users,
+                "errors": errors[:10] if errors else []  # Возвращаем максимум 10 ошибок
+            }
+
         except Exception as e:
-            logger.error(f"Error in bulk create: {e}")
-            return {"created": 0, "users": []}
+            logger.error(f"Error in bulk create: {e}", exc_info=True)
+            return {"created": 0, "users": [], "errors": [str(e)]}
     
     # ==================== ТРАФИК ====================
     
