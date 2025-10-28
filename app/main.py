@@ -184,15 +184,26 @@ async def get_unlimited_users(
     enabled_only: bool = Query(False, description="Только активные"),
     sort_by: str = Query("used", description="Поле для сортировки"),
     order: str = Query("desc", description="Порядок сортировки (asc/desc)"),
-    filter_type: str = Query("expiry", description="Тип фильтра: expiry (бессрочные), traffic (без лимита трафика), both (оба)")
+    filter_type: str = Query("expiry", description="Тип фильтра: expiry (бессрочные), traffic (без лимита трафика), both (оба)"),
+    limit: Optional[int] = Query(None, ge=1, le=10000, description="Максимальное количество результатов"),
+    offset: Optional[int] = Query(0, ge=0, description="Смещение для пагинации")
 ):
     """Получение пользователей с безлимитным трафиком или бессрочных"""
     try:
         users = db.get_unlimited_traffic_users(inbound_id, enabled_only, sort_by, order, filter_type)
+
+        # Применяем пагинацию если указан limit
+        total_count = len(users)
+        if limit is not None:
+            users = users[offset:offset + limit]
+
         return {
             "users": users,
             "count": len(users),
-            "filter_type": filter_type
+            "total": total_count,
+            "filter_type": filter_type,
+            "limit": limit,
+            "offset": offset
         }
     except Exception as e:
         logger.error(f"Error getting unlimited users: {e}")

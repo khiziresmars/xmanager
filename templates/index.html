@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>XUI Manager - Управление 3x-ui</title>
     <style>
         * {
@@ -661,6 +664,10 @@
                     </small>
                 </div>
                 <div class="form-group">
+                    <label class="form-label">Макс. результатов <span style="color: #999; font-size: 12px;">(0 = все)</span></label>
+                    <input type="number" class="form-input" id="unlimited-limit" value="100" min="0" max="10000">
+                </div>
+                <div class="form-group">
                     <label class="form-label">Продлить на (дней)</label>
                     <input type="number" class="form-input" id="unlimited-extend-days" value="30" min="1">
                 </div>
@@ -998,12 +1005,22 @@
             var filterType = document.getElementById('unlimited-filter-type').value;
             var filterSelect = document.getElementById('unlimited-filter-type');
             var filterText = filterSelect.options[filterSelect.selectedIndex].text;
+            var limit = parseInt(document.getElementById('unlimited-limit').value) || 0;
 
-            fetch(API_URL + 'api/users/unlimited?filter_type=' + filterType)
+            // Показываем индикатор загрузки
+            var tbody = document.getElementById('unlimited-table-body');
+            tbody.innerHTML = '<tr><td colspan="5" class="loading">⏳ Загрузка...</td></tr>';
+
+            // Формируем URL с параметрами
+            var url = API_URL + 'api/users/unlimited?filter_type=' + filterType;
+            if (limit > 0) {
+                url += '&limit=' + limit;
+            }
+
+            fetch(url)
                 .then(function(response) { return response.json(); })
                 .then(function(data) {
                     unlimitedUsers = data.users;
-                    var tbody = document.getElementById('unlimited-table-body');
 
                     // Update status bar
                     var statusBar = document.getElementById('unlimited-status-bar');
@@ -1012,7 +1029,14 @@
 
                     statusBar.style.display = 'block';
                     activeFilter.textContent = filterText;
-                    resultsCount.textContent = unlimitedUsers.length;
+
+                    // Показываем информацию о количестве результатов
+                    var totalCount = data.total || data.count;
+                    if (limit > 0 && totalCount > limit) {
+                        resultsCount.textContent = data.count + ' из ' + totalCount;
+                    } else {
+                        resultsCount.textContent = totalCount;
+                    }
 
                     if (unlimitedUsers.length === 0) {
                         tbody.innerHTML = '<tr><td colspan="5" class="loading">Пользователей по выбранному критерию не найдено</td></tr>';
@@ -1029,10 +1053,15 @@
                             '</tr>';
                     }).join('');
 
-                    showToast('Найдено пользователей: ' + unlimitedUsers.length, 'success');
+                    var message = 'Загружено пользователей: ' + data.count;
+                    if (totalCount > data.count) {
+                        message += ' из ' + totalCount + ' (используйте фильтр для просмотра остальных)';
+                    }
+                    showToast(message, 'success');
                 })
                 .catch(function(error) {
                     console.error('Error:', error);
+                    tbody.innerHTML = '<tr><td colspan="5" class="loading">❌ Ошибка загрузки</td></tr>';
                     showToast('Ошибка загрузки', 'error');
                 });
         }
