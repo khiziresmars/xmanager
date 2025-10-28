@@ -485,21 +485,40 @@ fi
 print_info "Шаг 9/10: SSL сертификат..."
 
 if [ "$SKIP_NGINX" != true ]; then
-    read -p "Получить Let's Encrypt SSL сертификат? (y/n): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    # Проверяем нужно ли получать сертификат
+    NEED_CERT=false
+
+    if [ ! -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
+        # Сертификат Let's Encrypt не найден
+        if [ -n "$SSL_CERT" ] && [[ "$SSL_CERT" == *"snakeoil"* ]]; then
+            print_info "Обнаружен временный сертификат, получаем настоящий Let's Encrypt..."
+            NEED_CERT=true
+        elif [ -z "$SSL_CERT" ]; then
+            print_info "SSL сертификат не найден, получаем Let's Encrypt..."
+            NEED_CERT=true
+        fi
+    else
+        print_success "Let's Encrypt сертификат уже установлен для $DOMAIN"
+    fi
+
+    if [ "$NEED_CERT" = true ]; then
         print_info "Установка certbot..."
-        apt install -y certbot python3-certbot-nginx
+        apt install -y certbot python3-certbot-nginx -qq
 
         print_info "Получение сертификата для $DOMAIN..."
-        certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email || print_warning "Не удалось получить SSL сертификат автоматически"
+        if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email; then
+            print_success "SSL сертификат успешно получен и установлен"
 
-        # Обновление конфигурации Nginx с настоящими путями
-        if [ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
-            sed -i "s|# ssl_certificate /etc/letsencrypt|ssl_certificate /etc/letsencrypt|g" "$NGINX_CONFIG"
-            sed -i "/ssl-cert-snakeoil/d" "$NGINX_CONFIG"
+            # Перезагружаем nginx чтобы применить новый сертификат
             systemctl reload nginx
-            print_success "SSL сертификат установлен"
+        else
+            print_warning "Не удалось получить SSL сертификат автоматически"
+            print_info "Возможные причины:"
+            print_info "  • Домен не направлен на этот сервер (проверьте DNS)"
+            print_info "  • Порты 80/443 закрыты файрволом"
+            print_info "  • Nginx не запущен"
+            print_info ""
+            print_info "Попробуйте позже вручную: certbot --nginx -d $DOMAIN"
         fi
     fi
 fi
