@@ -23,6 +23,7 @@ from database import XUIDatabase
 from models import *
 from config import settings
 from auth import SessionManager, TokenManager, authenticate_user, get_current_user, optional_user, ADMIN_USERNAME
+from queue import queue_manager, QueueStatus
 
 # Настройка логирования
 logging.basicConfig(
@@ -273,8 +274,15 @@ async def bulk_delete_users(request: BulkDeleteRequest):
 
 @app.post("/api/users/bulk-create")
 async def bulk_create_users(request: BulkCreateRequest):
-    """Массовое создание пользователей по шаблону"""
+    """Массовое создание пользователей по шаблону (до 100 пользователей)"""
     try:
+        # Для малых объемов (до 100) используем прямое создание
+        if request.count > 100:
+            raise HTTPException(
+                status_code=400,
+                detail="For more than 100 users, use /api/queues/bulk-create endpoint"
+            )
+
         result = db.bulk_create_users(
             request.template.model_dump(),
             request.count,
@@ -454,6 +462,96 @@ async def get_inbound(inbound_id: int):
             raise HTTPException(status_code=404, detail="Inbound not found")
     except Exception as e:
         logger.error(f"Error getting inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== УПРАВЛЕНИЕ ОЧЕРЕДЯМИ ====================
+
+@app.post("/api/queues/bulk-create")
+async def create_bulk_queue(request: BulkCreateRequest):
+    """Создание очереди для массового создания пользователей (до 5000)"""
+    try:
+        if request.count > 5000:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum 5000 users allowed"
+            )
+
+        if request.count <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Count must be greater than 0"
+            )
+
+        # Создаем очередь
+        queue_id = queue_manager.create_queue(
+            "bulk_create",
+            {
+                "template": request.template.model_dump(),
+                "count": request.count,
+                "inbound_id": request.inbound_id
+            }
+        )
+
+        # Запускаем обработку
+        queue_manager.start_queue_processing(queue_id, db)
+
+        return {
+            "queue_id": queue_id,
+            "message": "Queue created and processing started",
+            "count": request.count
+        }
+
+    except Exception as e:
+        logger.error(f"Error creating bulk queue: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/queues")
+async def list_queues(status: Optional[str] = Query(None, description="Filter by status")):
+    """Получение списка всех очередей"""
+    try:
+        queues = queue_manager.list_queues(status)
+        return {"queues": queues}
+    except Exception as e:
+        logger.error(f"Error listing queues: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/queues/{queue_id}")
+async def get_queue_status(queue_id: str):
+    """Получение статуса очереди"""
+    try:
+        queue = queue_manager.get_queue(queue_id)
+        if queue:
+            return queue
+        else:
+            raise HTTPException(status_code=404, detail="Queue not found")
+    except Exception as e:
+        logger.error(f"Error getting queue status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/queues/{queue_id}/cancel")
+async def cancel_queue(queue_id: str):
+    """Отмена очереди"""
+    try:
+        success = queue_manager.cancel_queue(queue_id)
+        if success:
+            return {"message": "Queue cancelled", "queue_id": queue_id}
+        else:
+            raise HTTPException(status_code=400, detail="Cannot cancel queue")
+    except Exception as e:
+        logger.error(f"Error cancelling queue: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/queues/{queue_id}")
+async def delete_queue(queue_id: str):
+    """Удаление очереди"""
+    try:
+        success = queue_manager.delete_queue(queue_id)
+        if success:
+            return {"message": "Queue deleted", "queue_id": queue_id}
+        else:
+            raise HTTPException(status_code=400, detail="Cannot delete queue (may be processing)")
+    except Exception as e:
+        logger.error(f"Error deleting queue: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== СИСТЕМНЫЕ ОПЕРАЦИИ ====================

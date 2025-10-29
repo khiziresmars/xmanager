@@ -627,8 +627,9 @@
                         <input type="text" class="form-input" id="bulk-prefix" value="user" required>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Количество *</label>
-                        <input type="number" class="form-input" id="bulk-count" min="1" max="100" value="10" required>
+                        <label class="form-label">Количество * <span style="color: #999; font-size: 12px;">(макс. 5000)</span></label>
+                        <input type="number" class="form-input" id="bulk-count" min="1" max="5000" value="10" required>
+                        <small style="color: var(--text-secondary); font-size: 12px;">Более 100 пользователей создаются через систему очередей</small>
                     </div>
                 </div>
 
@@ -663,6 +664,25 @@
 
                 <button type="submit" class="btn btn-success">✨ Создать пользователей</button>
             </form>
+
+            <h3 style="margin-top: 40px;">Активные очереди</h3>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID очереди</th>
+                            <th>Количество</th>
+                            <th>Прогресс</th>
+                            <th>Статус</th>
+                            <th>Создана</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="queues-table-body">
+                        <tr><td colspan="6" class="loading">Загрузка очередей...</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <!-- Tab: Low Traffic -->
@@ -897,10 +917,16 @@
             if (tabName === 'api-tokens') {
                 loadTokens();
                 stopMonitoring();
+                stopQueuePolling();
             } else if (tabName === 'monitoring') {
                 startMonitoring();
+                stopQueuePolling();
+            } else if (tabName === 'bulk-create') {
+                startQueuePolling();
+                stopMonitoring();
             } else {
                 stopMonitoring();
+                stopQueuePolling();
             }
         }
 
@@ -1126,10 +1152,50 @@
                 expiryTime = Date.now() + (expiryDays * 24 * 60 * 60 * 1000);
             }
 
-            // Показываем что идёт создание
+            var template = {
+                name: "Bulk Create",
+                prefix: prefix,
+                total: traffic,
+                expiry_time: expiryTime,
+                method: method,
+                limitIp: 0
+            };
+
+            // Для больших объемов (>100) используем систему очередей
+            if (count > 100) {
+                showToast('⏳ Создание очереди для ' + count + ' пользователей...', 'info');
+
+                fetch(API_URL + '/api/queues/bulk-create', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        template: template,
+                        count: count,
+                        inbound_id: inboundId
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    showToast('✅ Очередь создана! Обработка началась...', 'success');
+                    // Обновляем список очередей
+                    loadQueues();
+                    // Очищаем форму
+                    document.getElementById('bulk-prefix').value = 'user';
+                    document.getElementById('bulk-count').value = '10';
+                })
+                .catch(error => {
+                    console.error('Error creating queue:', error);
+                    showToast('Ошибка создания очереди', 'error');
+                });
+
+                return;
+            }
+
+            // Для малых объемов (≤100) используем прямое создание
             showToast('⏳ Создание ' + count + ' пользователей...', 'info');
 
-            fetch(API_URL + 'api/users/bulk-create', {
+            fetch(API_URL + '/api/users/bulk-create', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
@@ -1627,6 +1693,133 @@
             if (monitoringInterval) {
                 clearInterval(monitoringInterval);
                 monitoringInterval = null;
+            }
+        }
+
+        // ==================== QUEUE MANAGEMENT ====================
+
+        let queuePollingInterval = null;
+
+        async function loadQueues() {
+            try {
+                const response = await fetch(API_URL + '/api/queues', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                const tbody = document.getElementById('queues-table-body');
+                tbody.innerHTML = '';
+
+                if (data.queues && data.queues.length > 0) {
+                    data.queues.forEach(queue => {
+                        const progress = queue.progress;
+                        const percent = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
+
+                        const statusBadge = getQueueStatusBadge(queue.status);
+                        const actions = getQueueActions(queue);
+
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td><code>${queue.id.substring(0, 8)}...</code></td>
+                            <td>${progress.total}</td>
+                            <td>
+                                <div style="width: 100%;">
+                                    ${progress.completed} / ${progress.total} (${percent}%)
+                                    <div style="background: var(--bg-primary); height: 6px; border-radius: 3px; margin-top: 4px; overflow: hidden;">
+                                        <div style="background: var(--accent); height: 100%; width: ${percent}%; transition: width 0.3s;"></div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>${statusBadge}</td>
+                            <td>${formatDate(queue.created_at)}</td>
+                            <td>${actions}</td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="6">Нет очередей</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error loading queues:', error);
+            }
+        }
+
+        function getQueueStatusBadge(status) {
+            const badges = {
+                'pending': '<span class="badge" style="background: rgba(251, 191, 36, 0.2); color: #f59e0b;">Ожидание</span>',
+                'processing': '<span class="badge" style="background: rgba(59, 130, 246, 0.2); color: #3b82f6;">Обработка...</span>',
+                'completed': '<span class="badge badge-success">Завершено</span>',
+                'failed': '<span class="badge badge-danger">Ошибка</span>',
+                'cancelled': '<span class="badge" style="background: rgba(156, 163, 175, 0.2); color: #9ca3af;">Отменено</span>'
+            };
+            return badges[status] || status;
+        }
+
+        function getQueueActions(queue) {
+            if (queue.status === 'processing' || queue.status === 'pending') {
+                return `<button class="btn btn-sm btn-danger" onclick="cancelQueue('${queue.id}')">Отменить</button>`;
+            } else {
+                return `<button class="btn btn-sm btn-secondary" onclick="deleteQueue('${queue.id}')">Удалить</button>`;
+            }
+        }
+
+        async function cancelQueue(queueId) {
+            if (!confirm('Отменить эту очередь?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(API_URL + `/api/queues/${queueId}/cancel`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    showToast('Очередь отменена', 'success');
+                    loadQueues();
+                } else {
+                    showToast('Ошибка отмены очереди', 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка отмены очереди', 'error');
+            }
+        }
+
+        async function deleteQueue(queueId) {
+            if (!confirm('Удалить эту очередь?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(API_URL + `/api/queues/${queueId}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    showToast('Очередь удалена', 'success');
+                    loadQueues();
+                } else {
+                    showToast('Ошибка удаления очереди', 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка удаления очереди', 'error');
+            }
+        }
+
+        function startQueuePolling() {
+            loadQueues();
+            // Обновляем каждые 3 секунды
+            if (queuePollingInterval) clearInterval(queuePollingInterval);
+            queuePollingInterval = setInterval(loadQueues, 3000);
+        }
+
+        function stopQueuePolling() {
+            if (queuePollingInterval) {
+                clearInterval(queuePollingInterval);
+                queuePollingInterval = null;
             }
         }
 
