@@ -164,7 +164,8 @@
             const password = formData.get('password');
 
             try {
-                const response = await fetch('/api/auth/login', {
+                // Используем относительный путь для поддержки работы через прокси
+                const response = await fetch('./api/auth/login', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -173,8 +174,8 @@
                 });
 
                 if (response.ok) {
-                    // Перенаправляем на главную страницу
-                    window.location.href = '/';
+                    // Перенаправляем на главную страницу (относительный путь)
+                    window.location.href = './';
                 } else {
                     const data = await response.json();
                     showError(data.detail || 'Ошибка входа');
