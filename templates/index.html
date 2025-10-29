@@ -944,19 +944,19 @@
         // Logout function
         async function logout() {
             try {
-                const response = await fetch('/api/auth/logout', {
+                const response = await fetch('./api/auth/logout', {
                     method: 'POST',
                     credentials: 'include'
                 });
 
                 if (response.ok) {
-                    window.location.href = '/login';
+                    window.location.href = './login';
                 } else {
                     showToast('Ошибка выхода', 'error');
                 }
             } catch (error) {
                 console.error('Logout error:', error);
-                window.location.href = '/login';
+                window.location.href = './login';
             }
         }
 
