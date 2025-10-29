@@ -267,6 +267,48 @@
             flex-wrap: wrap;
         }
 
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .btn-info {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-warning {
+            background: var(--warning);
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #d97706;
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+
+        .badge-danger {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+        }
+
         /* Table */
         .table-container {
             overflow-x: auto;
@@ -512,6 +554,7 @@
             <button class="tab-btn" onclick="showTab('bulk-create')">➕ Массовое создание</button>
             <button class="tab-btn" onclick="showTab('low-traffic')">📉 Низкий трафик</button>
             <button class="tab-btn" onclick="showTab('unlimited')">♾️ Безлимитные</button>
+            <button class="tab-btn" onclick="showTab('api-tokens')">🔑 API Токены</button>
         </div>
 
         <!-- Tab: Users -->
@@ -727,6 +770,54 @@
                 </table>
             </div>
         </div>
+
+        <!-- Tab: API Tokens -->
+        <div id="tab-api-tokens" class="tab-content">
+            <h2>Управление API Токенами</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Создавайте API токены для программного доступа к API. Используйте заголовок: <code>Authorization: Bearer &lt;token&gt;</code>
+            </p>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Название токена</label>
+                    <input type="text" class="form-input" id="token-name" placeholder="Например: Production Server">
+                </div>
+                <div class="form-group" style="display: flex; align-items: flex-end;">
+                    <button class="btn btn-primary" onclick="generateToken()">🔑 Создать токен</button>
+                </div>
+            </div>
+
+            <!-- Token display modal -->
+            <div id="token-display" style="display: none; margin: 20px 0; padding: 20px; background: #e8f4fd; border-left: 4px solid #0066cc; border-radius: 4px;">
+                <strong>✅ Токен успешно создан!</strong>
+                <p style="margin: 10px 0; color: #c33;">⚠️ Сохраните токен в безопасном месте. Он больше не будет показан!</p>
+                <div style="background: white; padding: 12px; border-radius: 4px; margin: 10px 0; font-family: monospace; word-break: break-all;">
+                    <span id="new-token-value"></span>
+                </div>
+                <button class="btn btn-secondary" onclick="copyToken()">📋 Копировать</button>
+                <button class="btn btn-success" onclick="closeTokenDisplay()">✅ Понятно, сохранил</button>
+            </div>
+
+            <h3 style="margin-top: 30px;">Активные токены</h3>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Название</th>
+                            <th>Токен (начало)</th>
+                            <th>Создан</th>
+                            <th>Последнее использование</th>
+                            <th>Статус</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tokens-table-body">
+                        <tr><td colspan="6" class="loading">Загрузка...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -748,6 +839,11 @@
 
             document.getElementById('tab-' + tabName).classList.add('active');
             event.target.classList.add('active');
+
+            // Load tokens when API tokens tab is opened
+            if (tabName === 'api-tokens') {
+                loadTokens();
+            }
         }
 
         // Toast notifications
@@ -1400,6 +1496,168 @@
                 showToast('Ошибка удаления', 'error');
             });
         }
+
+        // ==================== API TOKEN MANAGEMENT ====================
+
+        async function generateToken() {
+            const tokenName = document.getElementById('token-name').value.trim();
+
+            if (!tokenName) {
+                showToast('Введите название токена', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(API_URL + '/api/tokens/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ name: tokenName })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Display the new token
+                    document.getElementById('new-token-value').textContent = data.token;
+                    document.getElementById('token-display').style.display = 'block';
+                    document.getElementById('token-name').value = '';
+
+                    // Store token in hidden field for copying
+                    window.currentToken = data.token;
+                } else {
+                    showToast(data.detail || 'Ошибка создания токена', 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка создания токена', 'error');
+            }
+        }
+
+        function copyToken() {
+            const tokenValue = window.currentToken;
+            navigator.clipboard.writeText(tokenValue).then(() => {
+                showToast('Токен скопирован в буфер обмена', 'success');
+            }).catch(() => {
+                showToast('Не удалось скопировать токен', 'error');
+            });
+        }
+
+        function closeTokenDisplay() {
+            document.getElementById('token-display').style.display = 'none';
+            window.currentToken = null;
+            loadTokens();
+        }
+
+        async function loadTokens() {
+            try {
+                const response = await fetch(API_URL + '/api/tokens', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                const tbody = document.getElementById('tokens-table-body');
+                tbody.innerHTML = '';
+
+                if (data.tokens && data.tokens.length > 0) {
+                    data.tokens.forEach(token => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${escapeHtml(token.name)}</td>
+                            <td><code>${escapeHtml(token.token_preview)}</code></td>
+                            <td>${formatDate(token.created_at)}</td>
+                            <td>${token.last_used ? formatDate(token.last_used) : 'Не использовался'}</td>
+                            <td>
+                                <span class="badge ${token.active ? 'badge-success' : 'badge-danger'}">
+                                    ${token.active ? 'Активен' : 'Отозван'}
+                                </span>
+                            </td>
+                            <td>
+                                ${token.active ?
+                                    `<button class="btn btn-sm btn-warning" onclick="revokeToken('${token.full_token}')">Отозвать</button>` :
+                                    ''}
+                                <button class="btn btn-sm btn-danger" onclick="deleteToken('${token.full_token}')">Удалить</button>
+                                <button class="btn btn-sm btn-secondary" onclick="copyFullToken('${token.full_token}')">Копировать</button>
+                            </td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="6">Нет токенов</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка загрузки токенов', 'error');
+            }
+        }
+
+        async function revokeToken(token) {
+            if (!confirm('Отозвать этот токен? Он больше не будет работать.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(API_URL + `/api/tokens/${encodeURIComponent(token)}/revoke`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    showToast('Токен отозван', 'success');
+                    loadTokens();
+                } else {
+                    showToast('Ошибка отзыва токена', 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка отзыва токена', 'error');
+            }
+        }
+
+        async function deleteToken(token) {
+            if (!confirm('Удалить этот токен? Это действие нельзя отменить.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(API_URL + `/api/tokens/${encodeURIComponent(token)}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    showToast('Токен удален', 'success');
+                    loadTokens();
+                } else {
+                    showToast('Ошибка удаления токена', 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка удаления токена', 'error');
+            }
+        }
+
+        function copyFullToken(token) {
+            navigator.clipboard.writeText(token).then(() => {
+                showToast('Токен скопирован', 'success');
+            }).catch(() => {
+                showToast('Не удалось скопировать', 'error');
+            });
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            const date = new Date(dateString);
+            return date.toLocaleString('ru-RU');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ==================== INITIALIZATION ====================
 
         // Initialize
         window.onload = function() {

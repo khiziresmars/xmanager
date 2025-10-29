@@ -22,7 +22,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from database import XUIDatabase
 from models import *
 from config import settings
-from auth import SessionManager, authenticate_user, get_current_user, optional_user
+from auth import SessionManager, TokenManager, authenticate_user, get_current_user, optional_user, ADMIN_USERNAME
 
 # Настройка логирования
 logging.basicConfig(
@@ -60,8 +60,16 @@ async def auth_middleware(request, call_next):
     if request.url.path in public_paths:
         return await call_next(request)
 
-    # Для API маршрутов проверяем сессию
+    # Для API маршрутов проверяем сессию или API токен
     if request.url.path.startswith("/api/"):
+        # Сначала проверяем API токен в заголовке Authorization
+        authorization = request.headers.get("Authorization")
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization[7:]
+            if TokenManager.validate_token(token):
+                return await call_next(request)
+
+        # Если токена нет или он невалидный, проверяем сессию
         session_id = request.cookies.get("xui_session")
         if not SessionManager.validate_session(session_id):
             return JSONResponse(
@@ -117,6 +125,45 @@ async def logout(response: Response, session_id: Optional[str] = Cookie(None, al
         SessionManager.destroy_session(session_id)
     response.delete_cookie(key="xui_session")
     return {"success": True, "message": "Logged out"}
+
+# ==================== API TOKEN MANAGEMENT ====================
+
+class TokenCreateRequest(BaseModel):
+    """Запрос на создание токена"""
+    name: str = Field(..., description="Название токена")
+
+@app.post("/api/tokens/generate")
+async def generate_api_token(request: TokenCreateRequest):
+    """Генерация нового API токена (требует аутентификации через сессию)"""
+    result = TokenManager.generate_token(request.name, ADMIN_USERNAME)
+    return {
+        "success": True,
+        "token": result["token"],
+        "name": result["name"],
+        "message": "Token generated successfully. Save it securely - it won't be shown again!"
+    }
+
+@app.get("/api/tokens")
+async def list_api_tokens():
+    """Получение списка всех токенов"""
+    tokens = TokenManager.list_tokens()
+    return {"tokens": tokens}
+
+@app.post("/api/tokens/{token}/revoke")
+async def revoke_api_token(token: str):
+    """Отзыв токена (деактивация)"""
+    success = TokenManager.revoke_token(token)
+    if success:
+        return {"success": True, "message": "Token revoked"}
+    raise HTTPException(status_code=404, detail="Token not found")
+
+@app.delete("/api/tokens/{token}")
+async def delete_api_token(token: str):
+    """Удаление токена"""
+    success = TokenManager.delete_token(token)
+    if success:
+        return {"success": True, "message": "Token deleted"}
+    raise HTTPException(status_code=404, detail="Token not found")
 
 @app.get("/", response_class=HTMLResponse)
 async def web_interface(username: Optional[str] = Depends(optional_user)):
