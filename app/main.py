@@ -566,18 +566,102 @@ async def delete_queue(queue_id: str):
 
 # ==================== СИСТЕМНЫЕ ОПЕРАЦИИ ====================
 
-@app.post("/api/system/restart-xui")
+@app.post("/api/system/xui/restart")
 async def restart_xui():
     """Перезапуск сервиса x-ui"""
     try:
         result = db.restart_xui_service()
         if result["success"]:
-            return {"message": "X-UI service restarted successfully"}
+            return result
         else:
             raise HTTPException(status_code=500, detail=result["error"])
     except Exception as e:
         logger.error(f"Error restarting x-ui: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/system/xui/start")
+async def start_xui():
+    """Запуск сервиса x-ui"""
+    try:
+        result = db.start_xui_service()
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+    except Exception as e:
+        logger.error(f"Error starting x-ui: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/system/xui/stop")
+async def stop_xui():
+    """Остановка сервиса x-ui"""
+    try:
+        result = db.stop_xui_service()
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+    except Exception as e:
+        logger.error(f"Error stopping x-ui: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/xui/status")
+async def get_xui_status():
+    """Получение статуса сервиса x-ui"""
+    try:
+        result = db.get_xui_service_status()
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+    except Exception as e:
+        logger.error(f"Error getting x-ui status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/system/xray/update")
+async def update_xray():
+    """Обновление Xray core"""
+    try:
+        result = db.update_xray_core()
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result.get("error", "Update failed"))
+    except Exception as e:
+        logger.error(f"Error updating Xray: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/xray/version")
+async def get_xray_version():
+    """Получение версии Xray"""
+    try:
+        result = db.get_xray_version()
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+    except Exception as e:
+        logger.error(f"Error getting Xray version: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/xui/version")
+async def get_xui_version():
+    """Получение версии x-ui"""
+    try:
+        result = db.get_xui_version()
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=404, detail=result["error"])
+    except Exception as e:
+        logger.error(f"Error getting x-ui version: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Keep old endpoint for backwards compatibility
+@app.post("/api/system/restart-xui")
+async def restart_xui_old():
+    """Перезапуск сервиса x-ui (deprecated - use /api/system/xui/restart)"""
+    return await restart_xui()
 
 @app.post("/api/system/backup")
 async def create_backup():

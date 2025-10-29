@@ -818,11 +818,136 @@ class XUIDatabase:
         """Перезапуск сервиса x-ui"""
         try:
             subprocess.run(["systemctl", "restart", "x-ui"], check=True)
-            return {"success": True}
+            return {"success": True, "message": "X-UI service restarted"}
         except Exception as e:
             logger.error(f"Error restarting x-ui: {e}")
             return {"success": False, "error": str(e)}
-    
+
+    def stop_xui_service(self) -> Dict:
+        """Остановка сервиса x-ui"""
+        try:
+            subprocess.run(["systemctl", "stop", "x-ui"], check=True)
+            return {"success": True, "message": "X-UI service stopped"}
+        except Exception as e:
+            logger.error(f"Error stopping x-ui: {e}")
+            return {"success": False, "error": str(e)}
+
+    def start_xui_service(self) -> Dict:
+        """Запуск сервиса x-ui"""
+        try:
+            subprocess.run(["systemctl", "start", "x-ui"], check=True)
+            return {"success": True, "message": "X-UI service started"}
+        except Exception as e:
+            logger.error(f"Error starting x-ui: {e}")
+            return {"success": False, "error": str(e)}
+
+    def get_xui_service_status(self) -> Dict:
+        """Получение статуса сервиса x-ui"""
+        try:
+            result = subprocess.run(
+                ["systemctl", "is-active", "x-ui"],
+                capture_output=True,
+                text=True
+            )
+            is_active = result.stdout.strip() == "active"
+
+            # Получаем детальную информацию
+            status_result = subprocess.run(
+                ["systemctl", "status", "x-ui", "--no-pager"],
+                capture_output=True,
+                text=True
+            )
+
+            return {
+                "success": True,
+                "active": is_active,
+                "status": result.stdout.strip(),
+                "details": status_result.stdout
+            }
+        except Exception as e:
+            logger.error(f"Error getting x-ui status: {e}")
+            return {"success": False, "error": str(e)}
+
+    def update_xray_core(self) -> Dict:
+        """Обновление Xray core"""
+        try:
+            logger.info("Starting Xray core update...")
+
+            # Скачиваем и устанавливаем последнюю версию Xray
+            result = subprocess.run(
+                ["bash", "-c", "bash <(curl -Ls https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh) install"],
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+
+            if result.returncode == 0:
+                # Перезапускаем x-ui после обновления
+                self.restart_xui_service()
+                return {
+                    "success": True,
+                    "message": "Xray core updated successfully",
+                    "output": result.stdout
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Xray update failed",
+                    "output": result.stderr
+                }
+
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": "Update timeout (5 minutes)"}
+        except Exception as e:
+            logger.error(f"Error updating Xray: {e}")
+            return {"success": False, "error": str(e)}
+
+    def get_xray_version(self) -> Dict:
+        """Получение версии Xray"""
+        try:
+            result = subprocess.run(
+                ["xray", "version"],
+                capture_output=True,
+                text=True
+            )
+
+            if result.returncode == 0:
+                # Парсим вывод чтобы получить версию
+                version_line = result.stdout.split('\n')[0]
+                return {
+                    "success": True,
+                    "version": version_line,
+                    "full_output": result.stdout
+                }
+            else:
+                return {"success": False, "error": "Failed to get Xray version"}
+
+        except Exception as e:
+            logger.error(f"Error getting Xray version: {e}")
+            return {"success": False, "error": str(e)}
+
+    def get_xui_version(self) -> Dict:
+        """Получение версии x-ui"""
+        try:
+            # Пытаемся получить версию из БД
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT value FROM settings WHERE key = 'xrayVersion' LIMIT 1")
+            row = cursor.fetchone()
+
+            if row:
+                version = row[0]
+                conn.close()
+                return {"success": True, "version": version}
+
+            conn.close()
+            return {"success": False, "error": "Version not found in database"}
+
+        except Exception as e:
+            logger.error(f"Error getting x-ui version: {e}")
+            return {"success": False, "error": str(e)}
+
     def create_backup(self) -> Dict:
         """Создание резервной копии БД"""
         try:
