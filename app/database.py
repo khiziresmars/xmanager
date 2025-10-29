@@ -231,33 +231,40 @@ class XUIDatabase:
             # Обновляем settings в inbound
             settings = json.loads(settings_json)
 
-            # Создаем клиента с полной структурой для x-ui 2.8.5
+            # Создаем клиента с полной структурой для x-ui
             if settings.get('clients') is None:
                 settings['clients'] = []
 
-            current_time = int(datetime.now().timestamp() * 1000)
+            # Базовая структура клиента (общая для всех протоколов)
             new_client = {
                 "email": user_data['email'],
                 "enable": True,
                 "expiryTime": user_data.get('expiry_time', 0),
                 "totalGB": user_data.get('total', 0),
                 "limitIp": user_data.get('limitIp', 0),
-                "reset": 0,
-                "comment": user_data.get('comment', ''),
-                "tgId": user_data.get('tgId', ''),
-                "subId": user_data.get('subId', ''),
-                "created_at": current_time,
-                "updated_at": current_time
+                "reset": 0
             }
 
+            # Добавляем специфичные для протокола поля
             if protocol == 'shadowsocks':
-                # Для shadowsocks добавляем специфичные поля
+                # Shadowsocks: использует database id, method и password
                 new_client["id"] = user_id
                 new_client["method"] = user_data.get('method', 'chacha20-ietf-poly1305')
                 new_client["password"] = user_data.get('password', self._generate_password())
+            elif protocol == 'vless':
+                # VLESS: использует UUID и flow
+                new_client["id"] = str(uuid.uuid4())
+                new_client["flow"] = user_data.get('flow', 'xtls-rprx-vision')
+            elif protocol == 'trojan':
+                # Trojan: использует только password, без id/uuid
+                new_client["password"] = user_data.get('password', self._generate_password())
+            elif protocol == 'vmess':
+                # VMess: использует UUID
+                new_client["id"] = str(uuid.uuid4())
             else:
-                # Для других протоколов (vmess, vless, trojan)
-                new_client["id"] = user_id
+                # Fallback для неизвестных протоколов
+                logger.warning(f"Unknown protocol: {protocol}, using UUID")
+                new_client["id"] = str(uuid.uuid4())
 
             settings['clients'].append(new_client)
 
