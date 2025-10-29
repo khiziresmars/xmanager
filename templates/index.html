@@ -1139,7 +1139,7 @@
             var traffic = parseInt(document.getElementById('bulk-traffic').value) * 1024 * 1024 * 1024;
             var expiryDays = parseInt(document.getElementById('bulk-expiry-days').value);
             var inboundId = parseInt(document.getElementById('bulk-inbound').value);
-            var method = document.getElementById('bulk-method').value;
+            var protocol = document.getElementById('bulk-protocol').value;
 
             if (!inboundId || isNaN(inboundId)) {
                 showToast('Пожалуйста, выберите Inbound', 'error');
@@ -1152,12 +1152,24 @@
                 expiryTime = Date.now() + (expiryDays * 24 * 60 * 60 * 1000);
             }
 
+            // Get protocol-specific settings
+            var protocolSettings = {};
+            if (protocol === 'vless') {
+                protocolSettings.flow = document.getElementById('bulk-flow').value;
+            } else if (protocol === 'trojan') {
+                protocolSettings.password_length = parseInt(document.getElementById('bulk-password-length').value);
+            } else if (protocol === 'shadowsocks') {
+                protocolSettings.method = document.getElementById('bulk-method').value;
+                protocolSettings.password_length = parseInt(document.getElementById('bulk-ss-password-length').value);
+            }
+
+            // Create template with all settings
             var template = {
                 name: "Bulk Create",
                 prefix: prefix,
                 total: traffic,
                 expiry_time: expiryTime,
-                method: method,
+                ...protocolSettings,
                 limitIp: 0
             };
 
@@ -1165,7 +1177,7 @@
             if (count > 100) {
                 showToast('⏳ Создание очереди для ' + count + ' пользователей...', 'info');
 
-                fetch(API_URL + '/api/queues/bulk-create', {
+                fetch(API_URL + 'api/queues/bulk-create', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     credentials: 'include',
@@ -1195,18 +1207,11 @@
             // Для малых объемов (≤100) используем прямое создание
             showToast('⏳ Создание ' + count + ' пользователей...', 'info');
 
-            fetch(API_URL + '/api/users/bulk-create', {
+            fetch(API_URL + 'api/users/bulk-create', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
-                    template: {
-                        name: "Bulk Create",
-                        prefix: prefix,
-                        total: traffic,
-                        expiry_time: expiryTime,
-                        method: method,
-                        limitIp: 0
-                    },
+                    template: template,
                     count: count,
                     inbound_id: inboundId
                 })

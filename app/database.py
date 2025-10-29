@@ -250,14 +250,16 @@ class XUIDatabase:
                 # Shadowsocks: использует database id, method и password
                 new_client["id"] = user_id
                 new_client["method"] = user_data.get('method', 'chacha20-ietf-poly1305')
-                new_client["password"] = user_data.get('password', self._generate_password())
+                password_length = user_data.get('password_length', 32)
+                new_client["password"] = user_data.get('password', self._generate_password(password_length))
             elif protocol == 'vless':
                 # VLESS: использует UUID и flow
                 new_client["id"] = str(uuid.uuid4())
-                new_client["flow"] = user_data.get('flow', 'xtls-rprx-vision')
+                new_client["flow"] = user_data.get('flow', '')
             elif protocol == 'trojan':
                 # Trojan: использует только password, без id/uuid
-                new_client["password"] = user_data.get('password', self._generate_password())
+                password_length = user_data.get('password_length', 16)
+                new_client["password"] = user_data.get('password', self._generate_password(password_length))
             elif protocol == 'vmess':
                 # VMess: использует UUID
                 new_client["id"] = str(uuid.uuid4())
