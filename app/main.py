@@ -38,7 +38,8 @@ app = FastAPI(
     description="API для управления пользователями 3x-ui",
     version="1.0.0",
     docs_url="/api/docs",
-    redoc_url="/api/redoc"
+    redoc_url="/api/redoc",
+    root_path="/manager"  # Поддержка работы через nginx прокси с префиксом /manager
 )
 
 # Настройка CORS
@@ -49,6 +50,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Middleware для корректной работы с префиксом через nginx proxy
+@app.middleware("http")
+async def add_root_path_middleware(request, call_next):
+    """Middleware для корректировки redirect URLs с учетом root_path"""
+    response = await call_next(request)
+
+    # Если это редирект и URL начинается с /, добавляем префикс
+    if response.status_code in (301, 302, 303, 307, 308):
+        location = response.headers.get("location")
+        if location and location.startswith("/") and not location.startswith("/manager"):
+            # Добавляем префикс /manager к относительным URL
+            response.headers["location"] = f"/manager{location}"
+
+    return response
 
 # Middleware для проверки аутентификации
 @app.middleware("http")
