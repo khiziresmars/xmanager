@@ -23,7 +23,7 @@ from database import XUIDatabase
 from models import *
 from config import settings, SERVER_ID
 from auth import SessionManager, TokenManager, authenticate_user, get_current_user, optional_user, ADMIN_USERNAME
-from queue import queue_manager, QueueStatus
+from app.queue import queue_manager, QueueStatus
 
 # Настройка логирования
 logging.basicConfig(
