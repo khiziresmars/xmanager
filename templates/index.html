@@ -647,18 +647,58 @@
 
                 <div class="form-row">
                     <div class="form-group">
+                        <label class="form-label">Протокол *</label>
+                        <select class="form-select" id="bulk-protocol" onchange="updateProtocolFields()" required>
+                            <option value="vless">VLESS</option>
+                            <option value="trojan">Trojan</option>
+                            <option value="shadowsocks">Shadowsocks</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label class="form-label">Inbound *</label>
                         <select class="form-select" id="bulk-inbound" required>
                             <option value="">Загрузка...</option>
                         </select>
                     </div>
+                </div>
+
+                <!-- VLESS specific settings -->
+                <div id="vless-settings" class="form-row protocol-settings">
                     <div class="form-group">
-                        <label class="form-label">Метод шифрования</label>
+                        <label class="form-label">Flow</label>
+                        <select class="form-select" id="bulk-flow">
+                            <option value="">None</option>
+                            <option value="xtls-rprx-vision">xtls-rprx-vision</option>
+                            <option value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
+                        </select>
+                        <small style="color: var(--text-secondary); font-size: 12px;">Рекомендуется: xtls-rprx-vision для лучшей производительности</small>
+                    </div>
+                </div>
+
+                <!-- Trojan specific settings -->
+                <div id="trojan-settings" class="form-row protocol-settings" style="display: none;">
+                    <div class="form-group">
+                        <label class="form-label">Длина пароля</label>
+                        <input type="number" class="form-input" id="bulk-password-length" value="16" min="8" max="64">
+                        <small style="color: var(--text-secondary); font-size: 12px;">Автоматическая генерация надежных паролей</small>
+                    </div>
+                </div>
+
+                <!-- Shadowsocks specific settings -->
+                <div id="shadowsocks-settings" class="form-row protocol-settings" style="display: none;">
+                    <div class="form-group">
+                        <label class="form-label">Метод шифрования *</label>
                         <select class="form-select" id="bulk-method">
-                            <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
+                            <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305 (рекомендуется)</option>
                             <option value="aes-256-gcm">aes-256-gcm</option>
                             <option value="aes-128-gcm">aes-128-gcm</option>
+                            <option value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm (новый)</option>
+                            <option value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm (новый)</option>
                         </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Длина пароля</label>
+                        <input type="number" class="form-input" id="bulk-ss-password-length" value="32" min="16" max="64">
                     </div>
                 </div>
 
@@ -1128,6 +1168,25 @@
             pageSize = parseInt(document.getElementById('page-size-select').value);
             currentPage = 1;
             loadUsers();
+        }
+
+        // Update protocol-specific fields visibility
+        function updateProtocolFields() {
+            const protocol = document.getElementById('bulk-protocol').value;
+
+            // Hide all protocol-specific sections
+            document.querySelectorAll('.protocol-settings').forEach(el => {
+                el.style.display = 'none';
+            });
+
+            // Show relevant section
+            if (protocol === 'vless') {
+                document.getElementById('vless-settings').style.display = 'flex';
+            } else if (protocol === 'trojan') {
+                document.getElementById('trojan-settings').style.display = 'flex';
+            } else if (protocol === 'shadowsocks') {
+                document.getElementById('shadowsocks-settings').style.display = 'flex';
+            }
         }
 
         // Bulk create users
