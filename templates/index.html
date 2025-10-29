@@ -43,23 +43,18 @@
 
         /* Header */
         .header {
-            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d3f 100%);
+            background: var(--bg-secondary);
             padding: 20px;
             border-radius: 12px;
             margin-bottom: 30px;
             border: 1px solid var(--border);
             position: relative;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
         }
 
         .header h1 {
             font-size: 28px;
             font-weight: 600;
             margin-bottom: 10px;
-            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
         }
 
         .logout-btn {
@@ -92,13 +87,6 @@
             padding: 15px;
             border-radius: 8px;
             border: 1px solid var(--border);
-            transition: all 0.3s ease;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
-            border-color: var(--accent);
         }
 
         .stat-label {
@@ -152,22 +140,10 @@
             padding: 25px;
             border-radius: 12px;
             border: 1px solid var(--border);
-            animation: fadeIn 0.3s ease-in;
         }
 
         .tab-content.active {
             display: block;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
         }
 
         /* Forms */
@@ -671,58 +647,18 @@
 
                 <div class="form-row">
                     <div class="form-group">
-                        <label class="form-label">Протокол *</label>
-                        <select class="form-select" id="bulk-protocol" onchange="updateProtocolFields()" required>
-                            <option value="vless">VLESS</option>
-                            <option value="trojan">Trojan</option>
-                            <option value="shadowsocks">Shadowsocks</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
                         <label class="form-label">Inbound *</label>
                         <select class="form-select" id="bulk-inbound" required>
                             <option value="">Загрузка...</option>
                         </select>
                     </div>
-                </div>
-
-                <!-- VLESS specific settings -->
-                <div id="vless-settings" class="form-row protocol-settings">
                     <div class="form-group">
-                        <label class="form-label">Flow</label>
-                        <select class="form-select" id="bulk-flow">
-                            <option value="">None</option>
-                            <option value="xtls-rprx-vision">xtls-rprx-vision</option>
-                            <option value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
-                        </select>
-                        <small style="color: var(--text-secondary); font-size: 12px;">Рекомендуется: xtls-rprx-vision для лучшей производительности</small>
-                    </div>
-                </div>
-
-                <!-- Trojan specific settings -->
-                <div id="trojan-settings" class="form-row protocol-settings" style="display: none;">
-                    <div class="form-group">
-                        <label class="form-label">Длина пароля</label>
-                        <input type="number" class="form-input" id="bulk-password-length" value="16" min="8" max="64">
-                        <small style="color: var(--text-secondary); font-size: 12px;">Автоматическая генерация надежных паролей</small>
-                    </div>
-                </div>
-
-                <!-- Shadowsocks specific settings -->
-                <div id="shadowsocks-settings" class="form-row protocol-settings" style="display: none;">
-                    <div class="form-group">
-                        <label class="form-label">Метод шифрования *</label>
+                        <label class="form-label">Метод шифрования</label>
                         <select class="form-select" id="bulk-method">
-                            <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305 (рекомендуется)</option>
+                            <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
                             <option value="aes-256-gcm">aes-256-gcm</option>
                             <option value="aes-128-gcm">aes-128-gcm</option>
-                            <option value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm (новый)</option>
-                            <option value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm (новый)</option>
                         </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Длина пароля</label>
-                        <input type="number" class="form-input" id="bulk-ss-password-length" value="32" min="16" max="64">
                     </div>
                 </div>
 
@@ -959,7 +895,7 @@
 
     <script>
         // Use relative URLs - nginx proxies /manager/ to API service
-        const API_URL = './';
+        const API_URL = '';
         let currentUsers = [];
         let lowTrafficUsers = [];
         let unlimitedUsers = [];
@@ -1008,19 +944,19 @@
         // Logout function
         async function logout() {
             try {
-                const response = await fetch('./api/auth/logout', {
+                const response = await fetch('/api/auth/logout', {
                     method: 'POST',
                     credentials: 'include'
                 });
 
                 if (response.ok) {
-                    window.location.href = './login';
+                    window.location.href = '/login';
                 } else {
                     showToast('Ошибка выхода', 'error');
                 }
             } catch (error) {
                 console.error('Logout error:', error);
-                window.location.href = './login';
+                window.location.href = '/login';
             }
         }
 
@@ -1195,25 +1131,6 @@
         }
 
         // Bulk create users
-        // Update protocol-specific fields visibility
-        function updateProtocolFields() {
-            const protocol = document.getElementById('bulk-protocol').value;
-
-            // Hide all protocol-specific sections
-            document.querySelectorAll('.protocol-settings').forEach(el => {
-                el.style.display = 'none';
-            });
-
-            // Show relevant section
-            if (protocol === 'vless') {
-                document.getElementById('vless-settings').style.display = 'flex';
-            } else if (protocol === 'trojan') {
-                document.getElementById('trojan-settings').style.display = 'flex';
-            } else if (protocol === 'shadowsocks') {
-                document.getElementById('shadowsocks-settings').style.display = 'flex';
-            }
-        }
-
         function bulkCreateUsers(event) {
             event.preventDefault();
 
@@ -1223,17 +1140,6 @@
             var expiryDays = parseInt(document.getElementById('bulk-expiry-days').value);
             var inboundId = parseInt(document.getElementById('bulk-inbound').value);
             var protocol = document.getElementById('bulk-protocol').value;
-
-            // Get protocol-specific settings
-            var protocolSettings = {};
-            if (protocol === 'vless') {
-                protocolSettings.flow = document.getElementById('bulk-flow').value;
-            } else if (protocol === 'trojan') {
-                protocolSettings.password_length = parseInt(document.getElementById('bulk-password-length').value);
-            } else if (protocol === 'shadowsocks') {
-                protocolSettings.method = document.getElementById('bulk-method').value;
-                protocolSettings.password_length = parseInt(document.getElementById('bulk-ss-password-length').value);
-            }
 
             if (!inboundId || isNaN(inboundId)) {
                 showToast('Пожалуйста, выберите Inbound', 'error');
@@ -1246,12 +1152,23 @@
                 expiryTime = Date.now() + (expiryDays * 24 * 60 * 60 * 1000);
             }
 
+            // Get protocol-specific settings
+            var protocolSettings = {};
+            if (protocol === 'vless') {
+                protocolSettings.flow = document.getElementById('bulk-flow').value;
+            } else if (protocol === 'trojan') {
+                protocolSettings.password_length = parseInt(document.getElementById('bulk-password-length').value);
+            } else if (protocol === 'shadowsocks') {
+                protocolSettings.method = document.getElementById('bulk-method').value;
+                protocolSettings.password_length = parseInt(document.getElementById('bulk-ss-password-length').value);
+            }
+
+            // Create template with all settings
             var template = {
                 name: "Bulk Create",
                 prefix: prefix,
                 total: traffic,
                 expiry_time: expiryTime,
-                protocol: protocol,
                 ...protocolSettings,
                 limitIp: 0
             };
@@ -1294,14 +1211,7 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
-                    template: {
-                        name: "Bulk Create",
-                        prefix: prefix,
-                        total: traffic,
-                        expiry_time: expiryTime,
-                        method: method,
-                        limitIp: 0
-                    },
+                    template: template,
                     count: count,
                     inbound_id: inboundId
                 })
@@ -1723,68 +1633,43 @@
         async function loadServerMonitoring() {
             try {
                 // Load online users
-                const onlineResponse = await fetch(API_URL + 'api/monitoring/online-users', {
+                const onlineResponse = await fetch(API_URL + '/api/monitoring/online-users', {
                     credentials: 'include'
                 });
-
-                if (!onlineResponse.ok) {
-                    throw new Error(`HTTP error! status: ${onlineResponse.status}`);
-                }
-
                 const onlineData = await onlineResponse.json();
                 document.getElementById('online-users-count').textContent = onlineData.online_users || 0;
 
                 // Load server health
-                const healthResponse = await fetch(API_URL + 'api/monitoring/health', {
+                const healthResponse = await fetch(API_URL + '/api/monitoring/health', {
                     credentials: 'include'
                 });
-
-                if (!healthResponse.ok) {
-                    throw new Error(`HTTP error! status: ${healthResponse.status}`);
-                }
-
                 const health = await healthResponse.json();
 
                 // CPU
-                const cpuPercent = health.cpu_percent || 0;
-                document.getElementById('cpu-usage').textContent = cpuPercent.toFixed(1) + '%';
-                document.getElementById('cpu-bar').style.width = cpuPercent + '%';
-                // Color code CPU bar
-                const cpuBar = document.getElementById('cpu-bar');
-                cpuBar.style.background = cpuPercent > 80 ? 'var(--danger)' : cpuPercent > 60 ? 'var(--warning)' : 'var(--accent)';
+                document.getElementById('cpu-usage').textContent = health.cpu_percent + '%';
+                document.getElementById('cpu-bar').style.width = health.cpu_percent + '%';
 
                 // Memory
                 const memoryUsedGB = (health.memory_used / (1024**3)).toFixed(2);
                 const memoryTotalGB = (health.memory_total / (1024**3)).toFixed(2);
-                const memoryPercent = health.memory_percent || 0;
                 document.getElementById('memory-usage').textContent = `${memoryUsedGB} / ${memoryTotalGB} GB`;
-                document.getElementById('memory-bar').style.width = memoryPercent + '%';
-                const memBar = document.getElementById('memory-bar');
-                memBar.style.background = memoryPercent > 80 ? 'var(--danger)' : memoryPercent > 60 ? 'var(--warning)' : 'var(--accent)';
+                document.getElementById('memory-bar').style.width = health.memory_percent + '%';
 
                 // Disk
                 const diskUsedGB = (health.disk_used / (1024**3)).toFixed(2);
                 const diskTotalGB = (health.disk_total / (1024**3)).toFixed(2);
-                const diskPercent = health.disk_percent || 0;
                 document.getElementById('disk-usage').textContent = `${diskUsedGB} / ${diskTotalGB} GB`;
-                document.getElementById('disk-bar').style.width = diskPercent + '%';
-                const diskBar = document.getElementById('disk-bar');
-                diskBar.style.background = diskPercent > 80 ? 'var(--danger)' : diskPercent > 60 ? 'var(--warning)' : 'var(--accent)';
+                document.getElementById('disk-bar').style.width = health.disk_percent + '%';
 
                 // Network
-                document.getElementById('network-sent').textContent = formatBytes(health.network_sent || 0);
-                document.getElementById('network-recv').textContent = formatBytes(health.network_recv || 0);
+                document.getElementById('network-sent').textContent = formatBytes(health.network_sent);
+                document.getElementById('network-recv').textContent = formatBytes(health.network_recv);
 
                 // Uptime
-                document.getElementById('server-uptime').textContent = formatUptime(health.uptime_seconds || 0);
+                document.getElementById('server-uptime').textContent = formatUptime(health.uptime_seconds);
 
             } catch (error) {
                 console.error('Error loading monitoring data:', error);
-                // Show error in UI
-                document.getElementById('online-users-count').textContent = 'Ошибка';
-                document.getElementById('cpu-usage').textContent = 'Ошибка загрузки';
-                document.getElementById('memory-usage').textContent = '-';
-                document.getElementById('disk-usage').textContent = '-';
             }
         }
 
@@ -1822,7 +1707,7 @@
 
         async function loadQueues() {
             try {
-                const response = await fetch(API_URL + 'api/queues', {
+                const response = await fetch(API_URL + '/api/queues', {
                     credentials: 'include'
                 });
                 const data = await response.json();
@@ -1889,7 +1774,7 @@
             }
 
             try {
-                const response = await fetch(API_URL + `api/queues/${queueId}/cancel`, {
+                const response = await fetch(API_URL + `/api/queues/${queueId}/cancel`, {
                     method: 'POST',
                     credentials: 'include'
                 });
@@ -1912,7 +1797,7 @@
             }
 
             try {
-                const response = await fetch(API_URL + `api/queues/${queueId}`, {
+                const response = await fetch(API_URL + `/api/queues/${queueId}`, {
                     method: 'DELETE',
                     credentials: 'include'
                 });
@@ -1954,7 +1839,7 @@
             }
 
             try {
-                const response = await fetch(API_URL + 'api/tokens/generate', {
+                const response = await fetch(API_URL + '/api/tokens/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',
@@ -1997,7 +1882,7 @@
 
         async function loadTokens() {
             try {
-                const response = await fetch(API_URL + 'api/tokens', {
+                const response = await fetch(API_URL + '/api/tokens', {
                     credentials: 'include'
                 });
                 const data = await response.json();
@@ -2043,7 +1928,7 @@
             }
 
             try {
-                const response = await fetch(API_URL + `api/tokens/${encodeURIComponent(token)}/revoke`, {
+                const response = await fetch(API_URL + `/api/tokens/${encodeURIComponent(token)}/revoke`, {
                     method: 'POST',
                     credentials: 'include'
                 });
@@ -2066,7 +1951,7 @@
             }
 
             try {
-                const response = await fetch(API_URL + `api/tokens/${encodeURIComponent(token)}`, {
+                const response = await fetch(API_URL + `/api/tokens/${encodeURIComponent(token)}`, {
                     method: 'DELETE',
                     credentials: 'include'
                 });
