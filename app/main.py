@@ -194,6 +194,26 @@ async def get_stats():
         logger.error(f"Error getting stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/monitoring/health")
+async def get_server_health():
+    """Получение информации о состоянии сервера"""
+    try:
+        health = db.get_server_health()
+        return health
+    except Exception as e:
+        logger.error(f"Error getting server health: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/monitoring/online-users")
+async def get_online_users():
+    """Получение количества онлайн пользователей"""
+    try:
+        online_count = db.get_online_users_count()
+        return {"online_users": online_count}
+    except Exception as e:
+        logger.error(f"Error getting online users: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==================== УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ ====================
 
 @app.get("/api/users")

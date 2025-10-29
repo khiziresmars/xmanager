@@ -554,6 +554,7 @@
             <button class="tab-btn" onclick="showTab('bulk-create')">➕ Массовое создание</button>
             <button class="tab-btn" onclick="showTab('low-traffic')">📉 Низкий трафик</button>
             <button class="tab-btn" onclick="showTab('unlimited')">♾️ Безлимитные</button>
+            <button class="tab-btn" onclick="showTab('monitoring')">📊 Мониторинг</button>
             <button class="tab-btn" onclick="showTab('api-tokens')">🔑 API Токены</button>
         </div>
 
@@ -771,6 +772,58 @@
             </div>
         </div>
 
+        <!-- Tab: Monitoring -->
+        <div id="tab-monitoring" class="tab-content">
+            <h2>Мониторинг сервера</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Информация о состоянии сервера и активных пользователях
+            </p>
+
+            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); margin-bottom: 30px;">
+                <div class="stat-card">
+                    <div class="stat-label">Онлайн пользователей</div>
+                    <div class="stat-value" id="online-users-count" style="color: var(--success)">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Загрузка CPU</div>
+                    <div class="stat-value" id="cpu-usage">-</div>
+                    <div style="background: var(--bg-primary); height: 6px; border-radius: 3px; margin-top: 8px; overflow: hidden;">
+                        <div id="cpu-bar" style="background: var(--accent); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Память</div>
+                    <div class="stat-value" id="memory-usage">-</div>
+                    <div style="background: var(--bg-primary); height: 6px; border-radius: 3px; margin-top: 8px; overflow: hidden;">
+                        <div id="memory-bar" style="background: var(--success); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Диск</div>
+                    <div class="stat-value" id="disk-usage">-</div>
+                    <div style="background: var(--bg-primary); height: 6px; border-radius: 3px; margin-top: 8px; overflow: hidden;">
+                        <div id="disk-bar" style="background: var(--warning); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Сеть (отправлено)</div>
+                    <div class="stat-value" id="network-sent" style="font-size: 20px;">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Сеть (получено)</div>
+                    <div class="stat-value" id="network-recv" style="font-size: 20px;">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Время работы</div>
+                    <div class="stat-value" id="server-uptime" style="font-size: 20px;">-</div>
+                </div>
+            </div>
+
+            <div style="text-align: center; color: #666; font-size: 13px;">
+                Автообновление каждые 5 секунд
+            </div>
+        </div>
+
         <!-- Tab: API Tokens -->
         <div id="tab-api-tokens" class="tab-content">
             <h2>Управление API Токенами</h2>
@@ -840,9 +893,14 @@
             document.getElementById('tab-' + tabName).classList.add('active');
             event.target.classList.add('active');
 
-            // Load tokens when API tokens tab is opened
+            // Handle tab-specific actions
             if (tabName === 'api-tokens') {
                 loadTokens();
+                stopMonitoring();
+            } else if (tabName === 'monitoring') {
+                startMonitoring();
+            } else {
+                stopMonitoring();
             }
         }
 
@@ -1495,6 +1553,81 @@
                 console.error('Error:', error);
                 showToast('Ошибка удаления', 'error');
             });
+        }
+
+        // ==================== SERVER MONITORING ====================
+
+        let monitoringInterval = null;
+
+        async function loadServerMonitoring() {
+            try {
+                // Load online users
+                const onlineResponse = await fetch(API_URL + '/api/monitoring/online-users', {
+                    credentials: 'include'
+                });
+                const onlineData = await onlineResponse.json();
+                document.getElementById('online-users-count').textContent = onlineData.online_users || 0;
+
+                // Load server health
+                const healthResponse = await fetch(API_URL + '/api/monitoring/health', {
+                    credentials: 'include'
+                });
+                const health = await healthResponse.json();
+
+                // CPU
+                document.getElementById('cpu-usage').textContent = health.cpu_percent + '%';
+                document.getElementById('cpu-bar').style.width = health.cpu_percent + '%';
+
+                // Memory
+                const memoryUsedGB = (health.memory_used / (1024**3)).toFixed(2);
+                const memoryTotalGB = (health.memory_total / (1024**3)).toFixed(2);
+                document.getElementById('memory-usage').textContent = `${memoryUsedGB} / ${memoryTotalGB} GB`;
+                document.getElementById('memory-bar').style.width = health.memory_percent + '%';
+
+                // Disk
+                const diskUsedGB = (health.disk_used / (1024**3)).toFixed(2);
+                const diskTotalGB = (health.disk_total / (1024**3)).toFixed(2);
+                document.getElementById('disk-usage').textContent = `${diskUsedGB} / ${diskTotalGB} GB`;
+                document.getElementById('disk-bar').style.width = health.disk_percent + '%';
+
+                // Network
+                document.getElementById('network-sent').textContent = formatBytes(health.network_sent);
+                document.getElementById('network-recv').textContent = formatBytes(health.network_recv);
+
+                // Uptime
+                document.getElementById('server-uptime').textContent = formatUptime(health.uptime_seconds);
+
+            } catch (error) {
+                console.error('Error loading monitoring data:', error);
+            }
+        }
+
+        function formatUptime(seconds) {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+
+            if (days > 0) {
+                return `${days}д ${hours}ч`;
+            } else if (hours > 0) {
+                return `${hours}ч ${minutes}м`;
+            } else {
+                return `${minutes}м`;
+            }
+        }
+
+        function startMonitoring() {
+            loadServerMonitoring();
+            // Update every 5 seconds
+            if (monitoringInterval) clearInterval(monitoringInterval);
+            monitoringInterval = setInterval(loadServerMonitoring, 5000);
+        }
+
+        function stopMonitoring() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+                monitoringInterval = null;
+            }
         }
 
         // ==================== API TOKEN MANAGEMENT ====================

@@ -738,7 +738,82 @@ class XUIDatabase:
             return None
     
     # ==================== СИСТЕМНЫЕ ОПЕРАЦИИ ====================
-    
+
+    def get_server_health(self) -> Dict:
+        """Получение информации о состоянии сервера"""
+        try:
+            import psutil
+
+            # CPU usage
+            cpu_percent = psutil.cpu_percent(interval=1)
+
+            # Memory usage
+            memory = psutil.virtual_memory()
+
+            # Disk usage
+            disk = psutil.disk_usage('/')
+
+            # Network IO
+            network = psutil.net_io_counters()
+
+            # System uptime
+            import time
+            boot_time = psutil.boot_time()
+            uptime_seconds = time.time() - boot_time
+
+            return {
+                "cpu_percent": round(cpu_percent, 2),
+                "memory_total": memory.total,
+                "memory_used": memory.used,
+                "memory_percent": round(memory.percent, 2),
+                "disk_total": disk.total,
+                "disk_used": disk.used,
+                "disk_percent": round(disk.percent, 2),
+                "network_sent": network.bytes_sent,
+                "network_recv": network.bytes_recv,
+                "uptime_seconds": int(uptime_seconds)
+            }
+        except Exception as e:
+            logger.error(f"Error getting server health: {e}")
+            return {}
+
+    def get_online_users_count(self) -> int:
+        """Получение количества онлайн пользователей"""
+        try:
+            # Получаем список пользователей с недавней активностью
+            # Используем поле last_online если оно доступно
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            # Проверяем наличие колонки last_online
+            available_columns = self._get_table_columns('client_traffics')
+
+            if 'last_online' in available_columns:
+                # Считаем онлайн если активность была в последние 5 минут
+                import time
+                five_minutes_ago = int((time.time() - 300) * 1000)
+
+                cursor.execute("""
+                    SELECT COUNT(*) FROM client_traffics
+                    WHERE enable = 1 AND last_online > ?
+                """, (five_minutes_ago,))
+
+                online_count = cursor.fetchone()[0]
+            else:
+                # Если last_online недоступен, возвращаем количество активных
+                cursor.execute("""
+                    SELECT COUNT(*) FROM client_traffics
+                    WHERE enable = 1
+                """)
+                online_count = cursor.fetchone()[0]
+
+            conn.close()
+            return online_count
+
+        except Exception as e:
+            logger.error(f"Error getting online users: {e}")
+            return 0
+
     def restart_xui_service(self) -> Dict:
         """Перезапуск сервиса x-ui"""
         try:
