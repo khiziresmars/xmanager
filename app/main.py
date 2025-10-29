@@ -4,9 +4,9 @@ X-UI Manager API - Управление пользователями 3x-ui
 Универсальный инструмент для управления базой пользователей 3x-ui
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, Response, Cookie
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -21,7 +21,9 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from database import XUIDatabase
 from models import *
-from config import settings
+from config import settings, SERVER_ID
+from auth import SessionManager, TokenManager, authenticate_user, get_current_user, optional_user, ADMIN_USERNAME
+from queue import queue_manager, QueueStatus
 
 # Настройка логирования
 logging.basicConfig(
@@ -48,6 +50,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Middleware для проверки аутентификации
+@app.middleware("http")
+async def auth_middleware(request, call_next):
+    """Middleware для проверки аутентификации на всех защищенных маршрутах"""
+    # Публичные маршруты, не требующие аутентификации
+    public_paths = ["/login", "/api/auth/login", "/api/health"]
+
+    # Проверяем, является ли путь публичным
+    if request.url.path in public_paths:
+        return await call_next(request)
+
+    # Для API маршрутов проверяем сессию или API токен
+    if request.url.path.startswith("/api/"):
+        # Сначала проверяем API токен в заголовке Authorization
+        authorization = request.headers.get("Authorization")
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization[7:]
+            if TokenManager.validate_token(token):
+                return await call_next(request)
+
+        # Если токена нет или он невалидный, проверяем сессию
+        session_id = request.cookies.get("xui_session")
+        if not SessionManager.validate_session(session_id):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Not authenticated"}
+            )
+
+    # Для главной страницы перенаправление обрабатывается в самом роуте
+    return await call_next(request)
+
 # Подключение статических файлов
 if os.path.exists("/opt/xui-manager/static"):
     app.mount("/static", StaticFiles(directory="/opt/xui-manager/static"), name="static")
@@ -57,9 +90,89 @@ db = XUIDatabase()
 
 # ========================= API ENDPOINTS =========================
 
+# ==================== AUTHENTICATION ====================
+
+class LoginRequest(BaseModel):
+    """Запрос на вход"""
+    username: str
+    password: str
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page():
+    """Страница входа"""
+    with open("/opt/xui-manager/templates/login.html", "r") as f:
+        return HTMLResponse(content=f.read())
+
+@app.post("/api/auth/login")
+async def login(credentials: LoginRequest, response: Response):
+    """Аутентификация пользователя"""
+    if authenticate_user(credentials.username, credentials.password):
+        session_id = SessionManager.create_session(credentials.username)
+        response.set_cookie(
+            key="xui_session",
+            value=session_id,
+            httponly=True,
+            max_age=86400,  # 24 часа
+            samesite="lax"
+        )
+        return {"success": True, "message": "Login successful"}
+    else:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+@app.post("/api/auth/logout")
+async def logout(response: Response, session_id: Optional[str] = Cookie(None, alias="xui_session")):
+    """Выход из системы"""
+    if session_id:
+        SessionManager.destroy_session(session_id)
+    response.delete_cookie(key="xui_session")
+    return {"success": True, "message": "Logged out"}
+
+# ==================== API TOKEN MANAGEMENT ====================
+
+class TokenCreateRequest(BaseModel):
+    """Запрос на создание токена"""
+    name: str = Field(..., description="Название токена")
+
+@app.post("/api/tokens/generate")
+async def generate_api_token(request: TokenCreateRequest):
+    """Генерация нового API токена (требует аутентификации через сессию)"""
+    result = TokenManager.generate_token(request.name, ADMIN_USERNAME)
+    return {
+        "success": True,
+        "token": result["token"],
+        "name": result["name"],
+        "message": "Token generated successfully. Save it securely - it won't be shown again!"
+    }
+
+@app.get("/api/tokens")
+async def list_api_tokens():
+    """Получение списка всех токенов"""
+    tokens = TokenManager.list_tokens()
+    return {"tokens": tokens}
+
+@app.post("/api/tokens/{token}/revoke")
+async def revoke_api_token(token: str):
+    """Отзыв токена (деактивация)"""
+    success = TokenManager.revoke_token(token)
+    if success:
+        return {"success": True, "message": "Token revoked"}
+    raise HTTPException(status_code=404, detail="Token not found")
+
+@app.delete("/api/tokens/{token}")
+async def delete_api_token(token: str):
+    """Удаление токена"""
+    success = TokenManager.delete_token(token)
+    if success:
+        return {"success": True, "message": "Token deleted"}
+    raise HTTPException(status_code=404, detail="Token not found")
+
 @app.get("/", response_class=HTMLResponse)
-async def web_interface():
+async def web_interface(username: Optional[str] = Depends(optional_user)):
     """Веб-интерфейс для управления"""
+    # Если пользователь не авторизован, перенаправляем на страницу входа
+    if not username:
+        return RedirectResponse(url="/login", status_code=302)
+
     with open("/opt/xui-manager/templates/index.html", "r") as f:
         return HTMLResponse(content=f.read())
 
@@ -69,7 +182,17 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "database": db.check_connection()
+        "database": db.check_connection(),
+        "server_id": SERVER_ID
+    }
+
+@app.get("/api/server/info")
+async def get_server_info():
+    """Получение информации о сервере"""
+    return {
+        "server_id": SERVER_ID,
+        "app_name": settings.APP_NAME,
+        "app_version": settings.APP_VERSION
     }
 
 @app.get("/api/stats")
@@ -80,6 +203,26 @@ async def get_stats():
         return stats
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/monitoring/health")
+async def get_server_health():
+    """Получение информации о состоянии сервера"""
+    try:
+        health = db.get_server_health()
+        return health
+    except Exception as e:
+        logger.error(f"Error getting server health: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/monitoring/online-users")
+async def get_online_users():
+    """Получение количества онлайн пользователей"""
+    try:
+        online_count = db.get_online_users_count()
+        return {"online_users": online_count}
+    except Exception as e:
+        logger.error(f"Error getting online users: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ ====================
@@ -141,8 +284,15 @@ async def bulk_delete_users(request: BulkDeleteRequest):
 
 @app.post("/api/users/bulk-create")
 async def bulk_create_users(request: BulkCreateRequest):
-    """Массовое создание пользователей по шаблону"""
+    """Массовое создание пользователей по шаблону (до 100 пользователей)"""
     try:
+        # Для малых объемов (до 100) используем прямое создание
+        if request.count > 100:
+            raise HTTPException(
+                status_code=400,
+                detail="For more than 100 users, use /api/queues/bulk-create endpoint"
+            )
+
         result = db.bulk_create_users(
             request.template.model_dump(),
             request.count,
@@ -324,20 +474,194 @@ async def get_inbound(inbound_id: int):
         logger.error(f"Error getting inbound: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ==================== УПРАВЛЕНИЕ ОЧЕРЕДЯМИ ====================
+
+@app.post("/api/queues/bulk-create")
+async def create_bulk_queue(request: BulkCreateRequest):
+    """Создание очереди для массового создания пользователей (до 5000)"""
+    try:
+        if request.count > 5000:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum 5000 users allowed"
+            )
+
+        if request.count <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Count must be greater than 0"
+            )
+
+        # Создаем очередь
+        queue_id = queue_manager.create_queue(
+            "bulk_create",
+            {
+                "template": request.template.model_dump(),
+                "count": request.count,
+                "inbound_id": request.inbound_id
+            }
+        )
+
+        # Запускаем обработку
+        queue_manager.start_queue_processing(queue_id, db)
+
+        return {
+            "queue_id": queue_id,
+            "message": "Queue created and processing started",
+            "count": request.count
+        }
+
+    except Exception as e:
+        logger.error(f"Error creating bulk queue: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/queues")
+async def list_queues(status: Optional[str] = Query(None, description="Filter by status")):
+    """Получение списка всех очередей"""
+    try:
+        queues = queue_manager.list_queues(status)
+        return {"queues": queues}
+    except Exception as e:
+        logger.error(f"Error listing queues: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/queues/{queue_id}")
+async def get_queue_status(queue_id: str):
+    """Получение статуса очереди"""
+    try:
+        queue = queue_manager.get_queue(queue_id)
+        if queue:
+            return queue
+        else:
+            raise HTTPException(status_code=404, detail="Queue not found")
+    except Exception as e:
+        logger.error(f"Error getting queue status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/queues/{queue_id}/cancel")
+async def cancel_queue(queue_id: str):
+    """Отмена очереди"""
+    try:
+        success = queue_manager.cancel_queue(queue_id)
+        if success:
+            return {"message": "Queue cancelled", "queue_id": queue_id}
+        else:
+            raise HTTPException(status_code=400, detail="Cannot cancel queue")
+    except Exception as e:
+        logger.error(f"Error cancelling queue: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/queues/{queue_id}")
+async def delete_queue(queue_id: str):
+    """Удаление очереди"""
+    try:
+        success = queue_manager.delete_queue(queue_id)
+        if success:
+            return {"message": "Queue deleted", "queue_id": queue_id}
+        else:
+            raise HTTPException(status_code=400, detail="Cannot delete queue (may be processing)")
+    except Exception as e:
+        logger.error(f"Error deleting queue: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ==================== СИСТЕМНЫЕ ОПЕРАЦИИ ====================
 
-@app.post("/api/system/restart-xui")
+@app.post("/api/system/xui/restart")
 async def restart_xui():
     """Перезапуск сервиса x-ui"""
     try:
         result = db.restart_xui_service()
         if result["success"]:
-            return {"message": "X-UI service restarted successfully"}
+            return result
         else:
             raise HTTPException(status_code=500, detail=result["error"])
     except Exception as e:
         logger.error(f"Error restarting x-ui: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/system/xui/start")
+async def start_xui():
+    """Запуск сервиса x-ui"""
+    try:
+        result = db.start_xui_service()
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+    except Exception as e:
+        logger.error(f"Error starting x-ui: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/system/xui/stop")
+async def stop_xui():
+    """Остановка сервиса x-ui"""
+    try:
+        result = db.stop_xui_service()
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+    except Exception as e:
+        logger.error(f"Error stopping x-ui: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/xui/status")
+async def get_xui_status():
+    """Получение статуса сервиса x-ui"""
+    try:
+        result = db.get_xui_service_status()
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+    except Exception as e:
+        logger.error(f"Error getting x-ui status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/system/xray/update")
+async def update_xray():
+    """Обновление Xray core"""
+    try:
+        result = db.update_xray_core()
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result.get("error", "Update failed"))
+    except Exception as e:
+        logger.error(f"Error updating Xray: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/xray/version")
+async def get_xray_version():
+    """Получение версии Xray"""
+    try:
+        result = db.get_xray_version()
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+    except Exception as e:
+        logger.error(f"Error getting Xray version: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/xui/version")
+async def get_xui_version():
+    """Получение версии x-ui"""
+    try:
+        result = db.get_xui_version()
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=404, detail=result["error"])
+    except Exception as e:
+        logger.error(f"Error getting x-ui version: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Keep old endpoint for backwards compatibility
+@app.post("/api/system/restart-xui")
+async def restart_xui_old():
+    """Перезапуск сервиса x-ui (deprecated - use /api/system/xui/restart)"""
+    return await restart_xui()
 
 @app.post("/api/system/backup")
 async def create_backup():

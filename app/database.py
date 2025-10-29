@@ -231,33 +231,40 @@ class XUIDatabase:
             # Обновляем settings в inbound
             settings = json.loads(settings_json)
 
-            # Создаем клиента с полной структурой для x-ui 2.8.5
+            # Создаем клиента с полной структурой для x-ui
             if settings.get('clients') is None:
                 settings['clients'] = []
 
-            current_time = int(datetime.now().timestamp() * 1000)
+            # Базовая структура клиента (общая для всех протоколов)
             new_client = {
                 "email": user_data['email'],
                 "enable": True,
                 "expiryTime": user_data.get('expiry_time', 0),
                 "totalGB": user_data.get('total', 0),
                 "limitIp": user_data.get('limitIp', 0),
-                "reset": 0,
-                "comment": user_data.get('comment', ''),
-                "tgId": user_data.get('tgId', ''),
-                "subId": user_data.get('subId', ''),
-                "created_at": current_time,
-                "updated_at": current_time
+                "reset": 0
             }
 
+            # Добавляем специфичные для протокола поля
             if protocol == 'shadowsocks':
-                # Для shadowsocks добавляем специфичные поля
+                # Shadowsocks: использует database id, method и password
                 new_client["id"] = user_id
                 new_client["method"] = user_data.get('method', 'chacha20-ietf-poly1305')
                 new_client["password"] = user_data.get('password', self._generate_password())
+            elif protocol == 'vless':
+                # VLESS: использует UUID и flow
+                new_client["id"] = str(uuid.uuid4())
+                new_client["flow"] = user_data.get('flow', 'xtls-rprx-vision')
+            elif protocol == 'trojan':
+                # Trojan: использует только password, без id/uuid
+                new_client["password"] = user_data.get('password', self._generate_password())
+            elif protocol == 'vmess':
+                # VMess: использует UUID
+                new_client["id"] = str(uuid.uuid4())
             else:
-                # Для других протоколов (vmess, vless, trojan)
-                new_client["id"] = user_id
+                # Fallback для неизвестных протоколов
+                logger.warning(f"Unknown protocol: {protocol}, using UUID")
+                new_client["id"] = str(uuid.uuid4())
 
             settings['clients'].append(new_client)
 
@@ -731,16 +738,216 @@ class XUIDatabase:
             return None
     
     # ==================== СИСТЕМНЫЕ ОПЕРАЦИИ ====================
-    
+
+    def get_server_health(self) -> Dict:
+        """Получение информации о состоянии сервера"""
+        try:
+            import psutil
+
+            # CPU usage
+            cpu_percent = psutil.cpu_percent(interval=1)
+
+            # Memory usage
+            memory = psutil.virtual_memory()
+
+            # Disk usage
+            disk = psutil.disk_usage('/')
+
+            # Network IO
+            network = psutil.net_io_counters()
+
+            # System uptime
+            import time
+            boot_time = psutil.boot_time()
+            uptime_seconds = time.time() - boot_time
+
+            return {
+                "cpu_percent": round(cpu_percent, 2),
+                "memory_total": memory.total,
+                "memory_used": memory.used,
+                "memory_percent": round(memory.percent, 2),
+                "disk_total": disk.total,
+                "disk_used": disk.used,
+                "disk_percent": round(disk.percent, 2),
+                "network_sent": network.bytes_sent,
+                "network_recv": network.bytes_recv,
+                "uptime_seconds": int(uptime_seconds)
+            }
+        except Exception as e:
+            logger.error(f"Error getting server health: {e}")
+            return {}
+
+    def get_online_users_count(self) -> int:
+        """Получение количества онлайн пользователей"""
+        try:
+            # Получаем список пользователей с недавней активностью
+            # Используем поле last_online если оно доступно
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            # Проверяем наличие колонки last_online
+            available_columns = self._get_table_columns('client_traffics')
+
+            if 'last_online' in available_columns:
+                # Считаем онлайн если активность была в последние 5 минут
+                import time
+                five_minutes_ago = int((time.time() - 300) * 1000)
+
+                cursor.execute("""
+                    SELECT COUNT(*) FROM client_traffics
+                    WHERE enable = 1 AND last_online > ?
+                """, (five_minutes_ago,))
+
+                online_count = cursor.fetchone()[0]
+            else:
+                # Если last_online недоступен, возвращаем количество активных
+                cursor.execute("""
+                    SELECT COUNT(*) FROM client_traffics
+                    WHERE enable = 1
+                """)
+                online_count = cursor.fetchone()[0]
+
+            conn.close()
+            return online_count
+
+        except Exception as e:
+            logger.error(f"Error getting online users: {e}")
+            return 0
+
     def restart_xui_service(self) -> Dict:
         """Перезапуск сервиса x-ui"""
         try:
             subprocess.run(["systemctl", "restart", "x-ui"], check=True)
-            return {"success": True}
+            return {"success": True, "message": "X-UI service restarted"}
         except Exception as e:
             logger.error(f"Error restarting x-ui: {e}")
             return {"success": False, "error": str(e)}
-    
+
+    def stop_xui_service(self) -> Dict:
+        """Остановка сервиса x-ui"""
+        try:
+            subprocess.run(["systemctl", "stop", "x-ui"], check=True)
+            return {"success": True, "message": "X-UI service stopped"}
+        except Exception as e:
+            logger.error(f"Error stopping x-ui: {e}")
+            return {"success": False, "error": str(e)}
+
+    def start_xui_service(self) -> Dict:
+        """Запуск сервиса x-ui"""
+        try:
+            subprocess.run(["systemctl", "start", "x-ui"], check=True)
+            return {"success": True, "message": "X-UI service started"}
+        except Exception as e:
+            logger.error(f"Error starting x-ui: {e}")
+            return {"success": False, "error": str(e)}
+
+    def get_xui_service_status(self) -> Dict:
+        """Получение статуса сервиса x-ui"""
+        try:
+            result = subprocess.run(
+                ["systemctl", "is-active", "x-ui"],
+                capture_output=True,
+                text=True
+            )
+            is_active = result.stdout.strip() == "active"
+
+            # Получаем детальную информацию
+            status_result = subprocess.run(
+                ["systemctl", "status", "x-ui", "--no-pager"],
+                capture_output=True,
+                text=True
+            )
+
+            return {
+                "success": True,
+                "active": is_active,
+                "status": result.stdout.strip(),
+                "details": status_result.stdout
+            }
+        except Exception as e:
+            logger.error(f"Error getting x-ui status: {e}")
+            return {"success": False, "error": str(e)}
+
+    def update_xray_core(self) -> Dict:
+        """Обновление Xray core"""
+        try:
+            logger.info("Starting Xray core update...")
+
+            # Скачиваем и устанавливаем последнюю версию Xray
+            result = subprocess.run(
+                ["bash", "-c", "bash <(curl -Ls https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh) install"],
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+
+            if result.returncode == 0:
+                # Перезапускаем x-ui после обновления
+                self.restart_xui_service()
+                return {
+                    "success": True,
+                    "message": "Xray core updated successfully",
+                    "output": result.stdout
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Xray update failed",
+                    "output": result.stderr
+                }
+
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": "Update timeout (5 minutes)"}
+        except Exception as e:
+            logger.error(f"Error updating Xray: {e}")
+            return {"success": False, "error": str(e)}
+
+    def get_xray_version(self) -> Dict:
+        """Получение версии Xray"""
+        try:
+            result = subprocess.run(
+                ["xray", "version"],
+                capture_output=True,
+                text=True
+            )
+
+            if result.returncode == 0:
+                # Парсим вывод чтобы получить версию
+                version_line = result.stdout.split('\n')[0]
+                return {
+                    "success": True,
+                    "version": version_line,
+                    "full_output": result.stdout
+                }
+            else:
+                return {"success": False, "error": "Failed to get Xray version"}
+
+        except Exception as e:
+            logger.error(f"Error getting Xray version: {e}")
+            return {"success": False, "error": str(e)}
+
+    def get_xui_version(self) -> Dict:
+        """Получение версии x-ui"""
+        try:
+            # Пытаемся получить версию из БД
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT value FROM settings WHERE key = 'xrayVersion' LIMIT 1")
+            row = cursor.fetchone()
+
+            if row:
+                version = row[0]
+                conn.close()
+                return {"success": True, "version": version}
+
+            conn.close()
+            return {"success": False, "error": "Version not found in database"}
+
+        except Exception as e:
+            logger.error(f"Error getting x-ui version: {e}")
+            return {"success": False, "error": str(e)}
+
     def create_backup(self) -> Dict:
         """Создание резервной копии БД"""
         try:
