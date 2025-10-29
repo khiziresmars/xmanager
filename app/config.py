@@ -20,8 +20,13 @@ class Settings(BaseSettings):
     
     # База данных
     XUI_DB_PATH: str = "/etc/x-ui/x-ui.db"
+    DB_PATH: str = "/etc/x-ui/x-ui.db"  # Alias для совместимости
     XUI_CONFIG_PATH: str = "/usr/local/x-ui/bin/config.json"
-    
+
+    # Аутентификация
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_PASSWORD: str = "admin"
+
     # API ключ для защиты (опционально)
     API_KEY: str = os.getenv("XUI_MANAGER_API_KEY", "")
     
