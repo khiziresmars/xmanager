@@ -21,7 +21,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from database import XUIDatabase
 from models import *
-from config import settings
+from config import settings, SERVER_ID
 from auth import SessionManager, TokenManager, authenticate_user, get_current_user, optional_user, ADMIN_USERNAME
 from queue import queue_manager, QueueStatus
 
@@ -182,7 +182,17 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "database": db.check_connection()
+        "database": db.check_connection(),
+        "server_id": SERVER_ID
+    }
+
+@app.get("/api/server/info")
+async def get_server_info():
+    """Получение информации о сервере"""
+    return {
+        "server_id": SERVER_ID,
+        "app_name": settings.APP_NAME,
+        "app_version": settings.APP_VERSION
     }
 
 @app.get("/api/stats")

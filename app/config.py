@@ -33,10 +33,47 @@ class Settings(BaseSettings):
     # Лимиты
     MAX_BULK_CREATE: int = 100
     MAX_BULK_DELETE: int = 500
-    
+
+    # Server ID
+    SERVER_ID_FILE: str = "/opt/xui-manager/server_id.txt"
+
     class Config:
         env_file = "/opt/xui-manager/.env"
         env_file_encoding = 'utf-8'
 
 # Создаем экземпляр настроек
 settings = Settings()
+
+def get_or_create_server_id() -> str:
+    """Получить или создать уникальный ID сервера"""
+    import os
+    import random
+
+    server_id_file = settings.SERVER_ID_FILE
+
+    # Если файл существует, читаем ID
+    if os.path.exists(server_id_file):
+        try:
+            with open(server_id_file, 'r') as f:
+                server_id = f.read().strip()
+                if server_id and len(server_id) == 10 and server_id.isdigit():
+                    return server_id
+        except Exception as e:
+            print(f"Error reading server ID: {e}")
+
+    # Генерируем новый 10-значный ID
+    server_id = ''.join([str(random.randint(0, 9)) for _ in range(10)])
+
+    # Сохраняем в файл
+    try:
+        os.makedirs(os.path.dirname(server_id_file), exist_ok=True)
+        with open(server_id_file, 'w') as f:
+            f.write(server_id)
+        print(f"Generated new server ID: {server_id}")
+    except Exception as e:
+        print(f"Error saving server ID: {e}")
+
+    return server_id
+
+# Генерируем или загружаем Server ID при запуске
+SERVER_ID = get_or_create_server_id()
