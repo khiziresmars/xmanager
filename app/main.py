@@ -4,9 +4,9 @@ X-UI Manager API - Управление пользователями 3x-ui
 Универсальный инструмент для управления базой пользователей 3x-ui
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, Response, Cookie
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -22,6 +22,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from database import XUIDatabase
 from models import *
 from config import settings
+from auth import SessionManager, authenticate_user, get_current_user, optional_user
 
 # Настройка логирования
 logging.basicConfig(
@@ -48,6 +49,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Middleware для проверки аутентификации
+@app.middleware("http")
+async def auth_middleware(request, call_next):
+    """Middleware для проверки аутентификации на всех защищенных маршрутах"""
+    # Публичные маршруты, не требующие аутентификации
+    public_paths = ["/login", "/api/auth/login", "/api/health"]
+
+    # Проверяем, является ли путь публичным
+    if request.url.path in public_paths:
+        return await call_next(request)
+
+    # Для API маршрутов проверяем сессию
+    if request.url.path.startswith("/api/"):
+        session_id = request.cookies.get("xui_session")
+        if not SessionManager.validate_session(session_id):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Not authenticated"}
+            )
+
+    # Для главной страницы перенаправление обрабатывается в самом роуте
+    return await call_next(request)
+
 # Подключение статических файлов
 if os.path.exists("/opt/xui-manager/static"):
     app.mount("/static", StaticFiles(directory="/opt/xui-manager/static"), name="static")
@@ -57,9 +81,50 @@ db = XUIDatabase()
 
 # ========================= API ENDPOINTS =========================
 
+# ==================== AUTHENTICATION ====================
+
+class LoginRequest(BaseModel):
+    """Запрос на вход"""
+    username: str
+    password: str
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page():
+    """Страница входа"""
+    with open("/opt/xui-manager/templates/login.html", "r") as f:
+        return HTMLResponse(content=f.read())
+
+@app.post("/api/auth/login")
+async def login(credentials: LoginRequest, response: Response):
+    """Аутентификация пользователя"""
+    if authenticate_user(credentials.username, credentials.password):
+        session_id = SessionManager.create_session(credentials.username)
+        response.set_cookie(
+            key="xui_session",
+            value=session_id,
+            httponly=True,
+            max_age=86400,  # 24 часа
+            samesite="lax"
+        )
+        return {"success": True, "message": "Login successful"}
+    else:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+@app.post("/api/auth/logout")
+async def logout(response: Response, session_id: Optional[str] = Cookie(None, alias="xui_session")):
+    """Выход из системы"""
+    if session_id:
+        SessionManager.destroy_session(session_id)
+    response.delete_cookie(key="xui_session")
+    return {"success": True, "message": "Logged out"}
+
 @app.get("/", response_class=HTMLResponse)
-async def web_interface():
+async def web_interface(username: Optional[str] = Depends(optional_user)):
     """Веб-интерфейс для управления"""
+    # Если пользователь не авторизован, перенаправляем на страницу входа
+    if not username:
+        return RedirectResponse(url="/login", status_code=302)
+
     with open("/opt/xui-manager/templates/index.html", "r") as f:
         return HTMLResponse(content=f.read())
 

@@ -48,12 +48,31 @@
             border-radius: 12px;
             margin-bottom: 30px;
             border: 1px solid var(--border);
+            position: relative;
         }
 
         .header h1 {
             font-size: 28px;
             font-weight: 600;
             margin-bottom: 10px;
+        }
+
+        .logout-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            background: var(--danger);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .logout-btn:hover {
+            background: #dc2626;
         }
 
         .stats-grid {
@@ -463,6 +482,7 @@
     <div class="container">
         <!-- Header -->
         <div class="header">
+            <button class="logout-btn" onclick="logout()">🚪 Выход</button>
             <h1>🚀 XUI Manager</h1>
             <p style="color: var(--text-secondary)">Управление пользователями 3x-ui</p>
 
@@ -739,6 +759,25 @@
             document.body.appendChild(toast);
 
             setTimeout(function() { toast.remove(); }, 3000);
+        }
+
+        // Logout function
+        async function logout() {
+            try {
+                const response = await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    window.location.href = '/login';
+                } else {
+                    showToast('Ошибка выхода', 'error');
+                }
+            } catch (error) {
+                console.error('Logout error:', error);
+                window.location.href = '/login';
+            }
         }
 
         // Format bytes
