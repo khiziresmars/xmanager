@@ -287,20 +287,6 @@ async def delete_user(user_id: str):
         logger.error(f"Error deleting user: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/users/bulk-delete")
-async def bulk_delete_users(request: BulkDeleteRequest):
-    """Массовое удаление пользователей"""
-    try:
-        result = db.bulk_delete_users(request.user_ids, request.filters)
-        return {
-            "message": f"Deleted {result['deleted']} users",
-            "deleted": result['deleted'],
-            "failed": result['failed']
-        }
-    except Exception as e:
-        logger.error(f"Error in bulk delete: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.post("/api/users/bulk-create")
 async def bulk_create_users(request: BulkCreateRequest):
     """Массовое создание пользователей по шаблону (до 100 пользователей)"""
@@ -324,6 +310,70 @@ async def bulk_create_users(request: BulkCreateRequest):
         }
     except Exception as e:
         logger.error(f"Error in bulk create: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/users/bulk-create-all-inbounds")
+async def bulk_create_users_all_inbounds(request: Dict[str, Any]):
+    """Массовое создание пользователей сразу во всех inbounds
+
+    Создает одного пользователя с одинаковым email во всех указанных inbound'ах
+
+    Request body:
+    {
+        "template": {...},  # Шаблон пользователя
+        "count": 10,        # Количество пользователей
+        "inbound_ids": [1, 2, 3]  # Список inbound ID (или "all")
+    }
+    """
+    try:
+        template = request.get("template", {})
+        count = request.get("count", 0)
+        inbound_ids_input = request.get("inbound_ids", [])
+
+        if count <= 0 or count > 1000:
+            raise HTTPException(
+                status_code=400,
+                detail="Count must be between 1 and 1000"
+            )
+
+        # Если inbound_ids == "all", получаем все inbounds
+        if inbound_ids_input == "all":
+            inbounds = db.get_inbounds()
+            inbound_ids = [inbound['id'] for inbound in inbounds]
+        else:
+            inbound_ids = inbound_ids_input
+
+        if not inbound_ids or len(inbound_ids) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one inbound_id is required"
+            )
+
+        if len(inbound_ids) > 10:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum 10 inbounds allowed"
+            )
+
+        result = db.bulk_create_users_all_inbounds(
+            template,
+            count,
+            inbound_ids
+        )
+
+        return {
+            "message": f"Created {result['created']} users across {result['inbounds_count']} inbounds",
+            "created": result['created'],
+            "total_users": result['total_users'],
+            "inbounds_count": result['inbounds_count'],
+            "users": result['users'][:50],  # Ограничиваем вывод первыми 50
+            "errors": result.get('errors', [])
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in multi-inbound bulk create: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== УПРАВЛЕНИЕ ТРАФИКОМ ====================
@@ -376,6 +426,73 @@ async def get_unlimited_users(
         }
     except Exception as e:
         logger.error(f"Error getting unlimited users: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/users/expired")
+async def get_expired_users(
+    inbound_id: Optional[int] = Query(None, description="Фильтр по инбаунду")
+):
+    """Получение пользователей с истекшим сроком действия"""
+    try:
+        users = db.get_expired_users(inbound_id)
+        return {
+            "users": users,
+            "count": len(users)
+        }
+    except Exception as e:
+        logger.error(f"Error getting expired users: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/users/disabled")
+async def get_disabled_users(
+    inbound_id: Optional[int] = Query(None, description="Фильтр по инбаунду")
+):
+    """Получение отключенных пользователей"""
+    try:
+        users = db.get_disabled_users(inbound_id)
+        return {
+            "users": users,
+            "count": len(users)
+        }
+    except Exception as e:
+        logger.error(f"Error getting disabled users: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/users/bulk-delete")
+async def bulk_delete_users(
+    request: Dict[str, List[int]],
+    username: str = Depends(get_current_user)
+):
+    """Массовое удаление пользователей
+
+    Request body: {"user_ids": [1, 2, 3, ...]}
+    """
+    try:
+        user_ids = request.get("user_ids", [])
+        if not user_ids:
+            raise HTTPException(status_code=400, detail="user_ids list is required")
+
+        if len(user_ids) > 1000:
+            raise HTTPException(status_code=400, detail="Maximum 1000 users can be deleted at once")
+
+        result = db.bulk_delete_users(user_ids)
+
+        if result["success"]:
+            return {
+                "message": f"Successfully deleted {result['deleted']} users",
+                "deleted": result["deleted"],
+                "errors": result.get("errors", [])
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Deletion failed: {result.get('errors', ['Unknown error'])}"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in bulk delete: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/api/users/{user_id}/traffic")
