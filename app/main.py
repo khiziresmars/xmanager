@@ -314,9 +314,10 @@ async def bulk_create_users(request: BulkCreateRequest):
 
 @app.post("/api/users/bulk-create-all-inbounds")
 async def bulk_create_users_all_inbounds(request: Dict[str, Any]):
-    """Массовое создание пользователей сразу во всех inbounds
+    """Массовое создание пользователей сразу во всех inbounds через очереди
 
     Создает одного пользователя с одинаковым email во всех указанных inbound'ах
+    ВСЕГДА использует систему очередей для избежания таймаутов
 
     Request body:
     {
@@ -330,10 +331,10 @@ async def bulk_create_users_all_inbounds(request: Dict[str, Any]):
         count = request.get("count", 0)
         inbound_ids_input = request.get("inbound_ids", [])
 
-        if count <= 0 or count > 100:
+        if count <= 0 or count > 1000:
             raise HTTPException(
                 status_code=400,
-                detail="Count must be between 1 and 100 for multi-inbound creation"
+                detail="Count must be between 1 and 1000"
             )
 
         # Если inbound_ids == "all", получаем все inbounds
@@ -357,31 +358,37 @@ async def bulk_create_users_all_inbounds(request: Dict[str, Any]):
 
         # Проверяем общее количество операций
         total_operations = count * len(inbound_ids)
-        if total_operations > 500:
+        if total_operations > 5000:
             raise HTTPException(
                 status_code=400,
-                detail=f"Too many operations ({total_operations}). Maximum 500 (count * inbounds). Try reducing count or number of inbounds."
+                detail=f"Too many operations ({total_operations}). Maximum 5000 (count * inbounds). Try reducing count or number of inbounds."
             )
 
-        result = db.bulk_create_users_all_inbounds(
-            template,
-            count,
-            inbound_ids
+        # Создаем очередь для асинхронной обработки
+        queue_id = queue_manager.create_queue(
+            "multi_inbound_create",
+            {
+                "template": template,
+                "count": count,
+                "inbound_ids": inbound_ids
+            }
         )
 
+        # Запускаем обработку в фоне
+        queue_manager.start_queue_processing(queue_id, db)
+
         return {
-            "message": f"Created {result['created']} users across {result['inbounds_count']} inbounds",
-            "created": result['created'],
-            "total_users": result['total_users'],
-            "inbounds_count": result['inbounds_count'],
-            "users": result['users'][:50],  # Ограничиваем вывод первыми 50
-            "errors": result.get('errors', [])
+            "queue_id": queue_id,
+            "message": f"Queue created for {count} users across {len(inbound_ids)} inbounds ({total_operations} total operations)",
+            "count": count,
+            "inbound_ids": inbound_ids,
+            "total_operations": total_operations
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in multi-inbound bulk create: {e}", exc_info=True)
+        logger.error(f"Error creating multi-inbound queue: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== УПРАВЛЕНИЕ ТРАФИКОМ ====================
