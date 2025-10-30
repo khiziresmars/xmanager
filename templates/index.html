@@ -1165,7 +1165,7 @@
             if (count > 100) {
                 showToast('⏳ Создание очереди для ' + count + ' пользователей...', 'info');
 
-                fetch(API_URL + '/api/queues/bulk-create', {
+                fetch(API_URL + 'api/queues/bulk-create', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     credentials: 'include',
@@ -1195,7 +1195,7 @@
             // Для малых объемов (≤100) используем прямое создание
             showToast('⏳ Создание ' + count + ' пользователей...', 'info');
 
-            fetch(API_URL + '/api/users/bulk-create', {
+            fetch(API_URL + 'api/users/bulk-create', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
@@ -1628,14 +1628,14 @@
         async function loadServerMonitoring() {
             try {
                 // Load online users
-                const onlineResponse = await fetch(API_URL + '/api/monitoring/online-users', {
+                const onlineResponse = await fetch(API_URL + 'api/monitoring/online-users', {
                     credentials: 'include'
                 });
                 const onlineData = await onlineResponse.json();
                 document.getElementById('online-users-count').textContent = onlineData.online_users || 0;
 
                 // Load server health
-                const healthResponse = await fetch(API_URL + '/api/monitoring/health', {
+                const healthResponse = await fetch(API_URL + 'api/monitoring/health', {
                     credentials: 'include'
                 });
                 const health = await healthResponse.json();
@@ -1702,7 +1702,7 @@
 
         async function loadQueues() {
             try {
-                const response = await fetch(API_URL + '/api/queues', {
+                const response = await fetch(API_URL + 'api/queues', {
                     credentials: 'include'
                 });
                 const data = await response.json();
@@ -1769,7 +1769,7 @@
             }
 
             try {
-                const response = await fetch(API_URL + `/api/queues/${queueId}/cancel`, {
+                const response = await fetch(API_URL + `api/queues/${queueId}/cancel`, {
                     method: 'POST',
                     credentials: 'include'
                 });
@@ -1792,7 +1792,7 @@
             }
 
             try {
-                const response = await fetch(API_URL + `/api/queues/${queueId}`, {
+                const response = await fetch(API_URL + `api/queues/${queueId}`, {
                     method: 'DELETE',
                     credentials: 'include'
                 });
@@ -1834,7 +1834,7 @@
             }
 
             try {
-                const response = await fetch(API_URL + '/api/tokens/generate', {
+                const response = await fetch(API_URL + 'api/tokens/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',
@@ -1877,7 +1877,7 @@
 
         async function loadTokens() {
             try {
-                const response = await fetch(API_URL + '/api/tokens', {
+                const response = await fetch(API_URL + 'api/tokens', {
                     credentials: 'include'
                 });
                 const data = await response.json();
@@ -1923,7 +1923,7 @@
             }
 
             try {
-                const response = await fetch(API_URL + `/api/tokens/${encodeURIComponent(token)}/revoke`, {
+                const response = await fetch(API_URL + `api/tokens/${encodeURIComponent(token)}/revoke`, {
                     method: 'POST',
                     credentials: 'include'
                 });
@@ -1946,7 +1946,7 @@
             }
 
             try {
-                const response = await fetch(API_URL + `/api/tokens/${encodeURIComponent(token)}`, {
+                const response = await fetch(API_URL + `api/tokens/${encodeURIComponent(token)}`, {
                     method: 'DELETE',
                     credentials: 'include'
                 });
