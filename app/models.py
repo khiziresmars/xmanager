@@ -31,9 +31,15 @@ class UserTemplate(BaseModel):
     limitIp: Optional[int] = Field(0)
 
 class BulkCreateRequest(BaseModel):
-    """Запрос на массовое создание пользователей"""
+    """Запрос на массовое создание пользователей (до 100)"""
     template: UserTemplate
     count: int = Field(..., ge=1, le=100, description="Количество пользователей")
+    inbound_id: int = Field(..., description="ID инбаунда")
+
+class QueueBulkCreateRequest(BaseModel):
+    """Запрос на массовое создание через систему очередей (101-5000)"""
+    template: UserTemplate
+    count: int = Field(..., ge=1, le=5000, description="Количество пользователей (макс. 5000)")
     inbound_id: int = Field(..., description="ID инбаунда")
 
 class BulkDeleteRequest(BaseModel):
