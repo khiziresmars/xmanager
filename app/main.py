@@ -330,10 +330,10 @@ async def bulk_create_users_all_inbounds(request: Dict[str, Any]):
         count = request.get("count", 0)
         inbound_ids_input = request.get("inbound_ids", [])
 
-        if count <= 0 or count > 1000:
+        if count <= 0 or count > 100:
             raise HTTPException(
                 status_code=400,
-                detail="Count must be between 1 and 1000"
+                detail="Count must be between 1 and 100 for multi-inbound creation"
             )
 
         # Если inbound_ids == "all", получаем все inbounds
@@ -353,6 +353,14 @@ async def bulk_create_users_all_inbounds(request: Dict[str, Any]):
             raise HTTPException(
                 status_code=400,
                 detail="Maximum 10 inbounds allowed"
+            )
+
+        # Проверяем общее количество операций
+        total_operations = count * len(inbound_ids)
+        if total_operations > 500:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Too many operations ({total_operations}). Maximum 500 (count * inbounds). Try reducing count or number of inbounds."
             )
 
         result = db.bulk_create_users_all_inbounds(
