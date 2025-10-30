@@ -2567,6 +2567,13 @@
                     credentials: 'include'
                 });
 
+                // Ignore 502/401 errors during service restart
+                if (response.status === 502 || response.status === 401) {
+                    // Service is restarting, continue polling
+                    console.log('Service restarting (502/401), will retry...');
+                    return;
+                }
+
                 if (!response.ok) return;
 
                 const data = await response.json();
@@ -2599,7 +2606,9 @@
                 }
 
             } catch (error) {
-                console.error('Error polling update status:', error);
+                // Network errors during restart are expected
+                console.log('Polling error (service restarting):', error.message);
+                // Continue polling, don't show error
             }
         }
 

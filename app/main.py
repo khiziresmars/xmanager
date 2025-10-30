@@ -592,14 +592,31 @@ async def set_limit(request: SetLimitRequest):
 async def toggle_user_status(user_id: int, username: str = Depends(get_current_user)):
     """Переключение статуса одного пользователя (enable/disable)"""
     try:
-        # Get current user to toggle status
-        user = db.get_user(user_id)
-        if not user:
+        # Get current user status from database directly
+        conn = db._get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, email, enable, inbound_id
+            FROM client_traffics
+            WHERE id = ?
+        """, (user_id,))
+
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Toggle: if enabled -> disable, if disabled -> enable
-        new_status = not bool(user.get('enable', 0))
+        current_enable = row[2]
 
+        # Toggle: if enabled (1 or 'true') -> disable (0), if disabled -> enable (1)
+        if current_enable == 1 or current_enable == 'true' or current_enable == True:
+            new_status = False
+        else:
+            new_status = True
+
+        # Use bulk_toggle_users to update
         result = db.bulk_toggle_users([user_id], new_status)
         action = "enabled" if new_status else "disabled"
 
@@ -612,7 +629,7 @@ async def toggle_user_status(user_id: int, username: str = Depends(get_current_u
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error toggling user status: {e}")
+        logger.error(f"Error toggling user status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/users/toggle-status")
