@@ -256,8 +256,10 @@ class XUIDatabase:
                 new_client["id"] = str(uuid.uuid4())
                 new_client["flow"] = user_data.get('flow', 'xtls-rprx-vision')
             elif protocol == 'trojan':
-                # Trojan: использует только password, без id/uuid
+                # Trojan: использует password для аутентификации и email для идентификации
                 new_client["password"] = user_data.get('password', self._generate_password())
+                # Добавляем id как строку для совместимости с 3x-ui (используем email)
+                new_client["id"] = user_data['email']
             elif protocol == 'vmess':
                 # VMess: использует UUID
                 new_client["id"] = str(uuid.uuid4())
@@ -1112,10 +1114,21 @@ class XUIDatabase:
     def _update_xui_config(self):
         """Обновление конфигурации xray"""
         try:
-            # Генерируем новый config.json из БД
-            subprocess.run(["/usr/local/x-ui/x-ui", "migrate"], check=True)
+            logger.info("Running x-ui migrate command...")
+            # Генерируем новый config.json из БД с timeout 30 секунд
+            result = subprocess.run(
+                ["/usr/local/x-ui/x-ui", "migrate"],
+                check=True,
+                timeout=30,
+                capture_output=True,
+                text=True
+            )
+            logger.info(f"x-ui migrate completed successfully: {result.stdout}")
+        except subprocess.TimeoutExpired:
+            logger.error("x-ui migrate timed out after 30 seconds")
+            raise
         except Exception as e:
-            logger.error(f"Error updating config: {e}")
+            logger.error(f"Error updating config: {e}", exc_info=True)
 
     def _sync_client_to_json(self, cursor, user_id: str, email: str = None) -> bool:
         """Синхронизация данных клиента из client_traffics в inbounds.settings JSON
