@@ -256,10 +256,8 @@ class XUIDatabase:
                 new_client["id"] = str(uuid.uuid4())
                 new_client["flow"] = user_data.get('flow', 'xtls-rprx-vision')
             elif protocol == 'trojan':
-                # Trojan: использует password для аутентификации и email для идентификации
+                # Trojan: использует только password, без id/uuid
                 new_client["password"] = user_data.get('password', self._generate_password())
-                # Добавляем id как строку для совместимости с 3x-ui (используем email)
-                new_client["id"] = user_data['email']
             elif protocol == 'vmess':
                 # VMess: использует UUID
                 new_client["id"] = str(uuid.uuid4())
