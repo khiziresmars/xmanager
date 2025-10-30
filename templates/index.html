@@ -648,17 +648,30 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label">Inbound *</label>
-                        <select class="form-select" id="bulk-inbound" required>
+                        <select class="form-select" id="bulk-inbound" required onchange="handleInboundChange()">
                             <option value="">Загрузка...</option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">Метод шифрования</label>
-                        <select class="form-select" id="bulk-method">
-                            <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
-                            <option value="aes-256-gcm">aes-256-gcm</option>
-                            <option value="aes-128-gcm">aes-128-gcm</option>
-                        </select>
+                    <div class="form-group" id="protocol-field-container">
+                        <div id="shadowsocks-fields" style="display: none;">
+                            <label class="form-label">Метод шифрования (Shadowsocks)</label>
+                            <select class="form-select" id="bulk-method">
+                                <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
+                                <option value="aes-256-gcm">aes-256-gcm</option>
+                                <option value="aes-128-gcm">aes-128-gcm</option>
+                            </select>
+                        </div>
+                        <div id="vless-fields" style="display: none;">
+                            <label class="form-label">Flow (VLESS)</label>
+                            <select class="form-select" id="bulk-flow">
+                                <option value="">None</option>
+                                <option value="xtls-rprx-vision" selected>xtls-rprx-vision</option>
+                                <option value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
+                            </select>
+                        </div>
+                        <div id="protocol-info" style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px; border: 1px solid var(--border); color: var(--text-secondary); font-size: 13px;">
+                            <span id="protocol-name">Выберите inbound</span>
+                        </div>
                     </div>
                 </div>
 
@@ -944,19 +957,19 @@
         // Logout function
         async function logout() {
             try {
-                const response = await fetch('/api/auth/logout', {
+                const response = await fetch('api/auth/logout', {
                     method: 'POST',
                     credentials: 'include'
                 });
 
                 if (response.ok) {
-                    window.location.href = '/login';
+                    window.location.href = 'login';
                 } else {
                     showToast('Ошибка выхода', 'error');
                 }
             } catch (error) {
                 console.error('Logout error:', error);
-                window.location.href = '/login';
+                window.location.href = 'login';
             }
         }
 
@@ -991,19 +1004,71 @@
                 });
         }
 
+        // Store inbounds data globally
+        let inboundsData = [];
+
         // Load inbounds
         function loadInbounds() {
             fetch(API_URL + 'api/inbounds')
                 .then(function(response) { return response.json(); })
                 .then(function(data) {
+                    inboundsData = data.inbounds;
                     var select = document.getElementById('bulk-inbound');
                     select.innerHTML = data.inbounds.map(function(inbound) {
-                        return '<option value="' + inbound.id + '">' + inbound.remark + ' (' + inbound.protocol + ':' + inbound.port + ')</option>';
+                        return '<option value="' + inbound.id + '" data-protocol="' + inbound.protocol + '">' +
+                               inbound.remark + ' (' + inbound.protocol + ':' + inbound.port + ')</option>';
                     }).join('');
+
+                    // Trigger change event to show appropriate fields
+                    if (data.inbounds.length > 0) {
+                        handleInboundChange();
+                    }
                 })
                 .catch(function(error) {
                     console.error('Error loading inbounds:', error);
                 });
+        }
+
+        // Handle inbound selection change
+        function handleInboundChange() {
+            var select = document.getElementById('bulk-inbound');
+            var selectedId = parseInt(select.value);
+
+            if (!selectedId) {
+                document.getElementById('shadowsocks-fields').style.display = 'none';
+                document.getElementById('vless-fields').style.display = 'none';
+                document.getElementById('protocol-info').style.display = 'block';
+                document.getElementById('protocol-name').textContent = 'Выберите inbound';
+                return;
+            }
+
+            var selectedInbound = inboundsData.find(function(inbound) {
+                return inbound.id === selectedId;
+            });
+
+            if (!selectedInbound) return;
+
+            var protocol = selectedInbound.protocol.toLowerCase();
+
+            // Hide all protocol-specific fields first
+            document.getElementById('shadowsocks-fields').style.display = 'none';
+            document.getElementById('vless-fields').style.display = 'none';
+            document.getElementById('protocol-info').style.display = 'block';
+
+            // Show fields based on protocol
+            if (protocol === 'shadowsocks') {
+                document.getElementById('shadowsocks-fields').style.display = 'block';
+                document.getElementById('protocol-info').style.display = 'none';
+            } else if (protocol === 'vless') {
+                document.getElementById('vless-fields').style.display = 'block';
+                document.getElementById('protocol-info').style.display = 'none';
+            } else if (protocol === 'vmess') {
+                document.getElementById('protocol-name').innerHTML = '✅ <strong>VMess</strong>: UUID генерируется автоматически';
+            } else if (protocol === 'trojan') {
+                document.getElementById('protocol-name').innerHTML = '✅ <strong>Trojan</strong>: Пароль генерируется автоматически';
+            } else {
+                document.getElementById('protocol-name').innerHTML = '✅ Протокол: <strong>' + protocol.toUpperCase() + '</strong>';
+            }
         }
 
         // Load users
@@ -1139,12 +1204,23 @@
             var traffic = parseInt(document.getElementById('bulk-traffic').value) * 1024 * 1024 * 1024;
             var expiryDays = parseInt(document.getElementById('bulk-expiry-days').value);
             var inboundId = parseInt(document.getElementById('bulk-inbound').value);
-            var method = document.getElementById('bulk-method').value;
 
             if (!inboundId || isNaN(inboundId)) {
                 showToast('Пожалуйста, выберите Inbound', 'error');
                 return;
             }
+
+            // Get selected inbound protocol
+            var selectedInbound = inboundsData.find(function(inbound) {
+                return inbound.id === inboundId;
+            });
+
+            if (!selectedInbound) {
+                showToast('Ошибка: Inbound не найден', 'error');
+                return;
+            }
+
+            var protocol = selectedInbound.protocol.toLowerCase();
 
             // Calculate expiry time
             var expiryTime = 0;
@@ -1152,14 +1228,26 @@
                 expiryTime = Date.now() + (expiryDays * 24 * 60 * 60 * 1000);
             }
 
+            // Base template
             var template = {
                 name: "Bulk Create",
                 prefix: prefix,
                 total: traffic,
                 expiry_time: expiryTime,
-                method: method,
                 limitIp: 0
             };
+
+            // Add protocol-specific fields
+            if (protocol === 'shadowsocks') {
+                var method = document.getElementById('bulk-method').value;
+                template.method = method;
+            } else if (protocol === 'vless') {
+                var flow = document.getElementById('bulk-flow').value;
+                if (flow) {
+                    template.flow = flow;
+                }
+            }
+            // For VMess and Trojan, no additional fields needed (handled by backend)
 
             // Для больших объемов (>100) используем систему очередей
             if (count > 100) {
@@ -1199,14 +1287,7 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
-                    template: {
-                        name: "Bulk Create",
-                        prefix: prefix,
-                        total: traffic,
-                        expiry_time: expiryTime,
-                        method: method,
-                        limitIp: 0
-                    },
+                    template: template,
                     count: count,
                     inbound_id: inboundId
                 })

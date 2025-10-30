@@ -477,7 +477,7 @@ async def get_inbound(inbound_id: int):
 # ==================== УПРАВЛЕНИЕ ОЧЕРЕДЯМИ ====================
 
 @app.post("/api/queues/bulk-create")
-async def create_bulk_queue(request: BulkCreateRequest):
+async def create_bulk_queue(request: QueueBulkCreateRequest):
     """Создание очереди для массового создания пользователей (до 5000)"""
     try:
         if request.count > 5000:
