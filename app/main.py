@@ -985,17 +985,20 @@ async def perform_update(username: str = Depends(get_current_user)):
 @app.get("/api/system/update/status")
 async def get_update_status(username: str = Depends(get_current_user)):
     """
-    Получение статуса обновления
+    Получение статуса обновления с прогрессом
 
     Требует авторизации
 
     Returns:
-        Информация о статусе обновления
+        Информация о статусе обновления и прогрессе
     """
+    update_progress = update_manager.get_update_status()
+
     return {
         "update_in_progress": update_manager.is_update_in_progress(),
         "current_version": CURRENT_VERSION,
-        "last_check": update_manager.last_check_data
+        "last_check": update_manager.last_check_data,
+        "progress": update_progress
     }
 
 @app.get("/api/system/background-tasks")

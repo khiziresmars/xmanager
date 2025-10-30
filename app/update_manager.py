@@ -9,8 +9,11 @@ import subprocess
 import os
 import json
 import logging
+import tarfile
+import tempfile
+import shutil
 from datetime import datetime, timedelta
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Callable
 from pathlib import Path
 
 from app.version import (
@@ -27,6 +30,30 @@ logger = logging.getLogger(__name__)
 UPDATE_CHECK_INTERVAL = 24 * 60 * 60  # 24 hours in seconds
 LAST_CHECK_FILE = "/opt/xui-manager/last_update_check.json"
 UPDATE_LOCK_FILE = "/opt/xui-manager/.update_lock"
+UPDATE_STATUS_FILE = "/opt/xui-manager/.update_status.json"
+
+# Files/directories to update (only code, not config or data)
+FILES_TO_UPDATE = [
+    "app/",
+    "templates/",
+    "requirements.txt",
+    "README.md"
+]
+
+# Files/directories to NEVER touch
+FILES_TO_SKIP = [
+    "config.json",
+    "xui.db",
+    ".env",
+    "venv/",
+    "__pycache__/",
+    "*.pyc",
+    "backups/",
+    ".git/",
+    "last_update_check.json",
+    ".update_lock",
+    ".update_status.json"
+]
 
 
 class UpdateManager:
@@ -59,6 +86,42 @@ class UpdateManager:
                 json.dump(data, f, indent=2)
         except Exception as e:
             logger.error(f"Error saving last check data: {e}", exc_info=True)
+
+    def _update_status(self, status: str, progress: int = 0, message: str = "", details: Dict = None):
+        """Update and save current update status for progress tracking"""
+        try:
+            status_data = {
+                "status": status,  # downloading, extracting, installing, restarting, completed, failed
+                "progress": progress,  # 0-100
+                "message": message,
+                "timestamp": datetime.now().isoformat(),
+                "details": details or {}
+            }
+
+            os.makedirs(os.path.dirname(UPDATE_STATUS_FILE), exist_ok=True)
+            with open(UPDATE_STATUS_FILE, 'w') as f:
+                json.dump(status_data, f, indent=2)
+
+            logger.info(f"Update status: {status} - {progress}% - {message}")
+        except Exception as e:
+            logger.error(f"Error saving update status: {e}", exc_info=True)
+
+    def get_update_status(self) -> Dict:
+        """Get current update status"""
+        try:
+            if os.path.exists(UPDATE_STATUS_FILE):
+                with open(UPDATE_STATUS_FILE, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading update status: {e}")
+
+        return {
+            "status": "idle",
+            "progress": 0,
+            "message": "",
+            "timestamp": None,
+            "details": {}
+        }
 
     async def check_for_updates(self, force: bool = False) -> Dict:
         """
@@ -167,7 +230,15 @@ class UpdateManager:
 
     async def perform_update(self) -> Dict:
         """
-        Perform system update using git pull
+        Perform system update by downloading from GitHub release
+
+        Process:
+        1. Check for updates
+        2. Create backup
+        3. Download tarball from GitHub
+        4. Extract only code files (app/, templates/, requirements.txt)
+        5. Install dependencies if requirements.txt changed
+        6. Restart service
 
         Returns:
             Dict with update result
@@ -180,11 +251,13 @@ class UpdateManager:
 
         try:
             self._create_update_lock()
+            self._update_status("checking", 5, "Проверка обновлений...")
 
             # Check if update is available
             update_info = await self.check_for_updates(force=True)
             if not update_info.get("update_available"):
                 self._remove_update_lock()
+                self._update_status("failed", 0, "Обновления не найдены")
                 return {
                     "success": False,
                     "error": "No update available",
@@ -192,45 +265,75 @@ class UpdateManager:
                 }
 
             logger.info(f"Starting update from {CURRENT_VERSION} to {update_info['latest_version']}")
+            self._update_status("backup", 10, "Создание резервной копии...")
 
             # Create backup before update
             backup_result = self._create_backup()
             if not backup_result["success"]:
                 self._remove_update_lock()
+                self._update_status("failed", 0, f"Ошибка бэкапа: {backup_result['error']}")
                 return {
                     "success": False,
                     "error": f"Backup failed: {backup_result['error']}"
                 }
 
-            # Perform git pull
-            update_result = self._git_pull_update()
+            self._update_status("downloading", 20, "Скачивание обновления с GitHub...")
 
-            if update_result["success"]:
-                # Restart service
-                restart_result = self._restart_service()
-
+            # Download update from GitHub
+            download_result = await self._download_update(update_info["download_url"])
+            if not download_result["success"]:
                 self._remove_update_lock()
-
-                return {
-                    "success": True,
-                    "message": "Update completed successfully",
-                    "previous_version": CURRENT_VERSION,
-                    "new_version": update_info["latest_version"],
-                    "backup_file": backup_result.get("backup_file"),
-                    "service_restarted": restart_result["success"],
-                    "changes": update_result.get("changes", [])
-                }
-            else:
-                self._remove_update_lock()
+                self._update_status("failed", 0, f"Ошибка загрузки: {download_result['error']}")
                 return {
                     "success": False,
-                    "error": update_result.get("error", "Unknown error"),
+                    "error": f"Download failed: {download_result['error']}",
                     "backup_file": backup_result.get("backup_file")
                 }
+
+            self._update_status("extracting", 50, "Распаковка файлов...")
+
+            # Extract and install files
+            install_result = await self._install_update(download_result["temp_dir"])
+            if not install_result["success"]:
+                self._remove_update_lock()
+                self._update_status("failed", 0, f"Ошибка установки: {install_result['error']}")
+                return {
+                    "success": False,
+                    "error": f"Installation failed: {install_result['error']}",
+                    "backup_file": backup_result.get("backup_file")
+                }
+
+            self._update_status("dependencies", 80, "Установка зависимостей...")
+
+            # Install dependencies if requirements changed
+            if install_result.get("requirements_changed"):
+                deps_result = self._install_dependencies()
+                if not deps_result["success"]:
+                    logger.warning(f"Dependencies installation warning: {deps_result.get('error')}")
+
+            self._update_status("restarting", 90, "Перезапуск сервиса...")
+
+            # Restart service
+            restart_result = self._restart_service()
+
+            self._remove_update_lock()
+            self._update_status("completed", 100, "Обновление завершено!")
+
+            return {
+                "success": True,
+                "message": "Update completed successfully",
+                "previous_version": CURRENT_VERSION,
+                "new_version": update_info["latest_version"],
+                "backup_file": backup_result.get("backup_file"),
+                "service_restarted": restart_result["success"],
+                "files_updated": install_result.get("files_updated", []),
+                "requirements_changed": install_result.get("requirements_changed", False)
+            }
 
         except Exception as e:
             logger.error(f"Error during update: {e}", exc_info=True)
             self._remove_update_lock()
+            self._update_status("failed", 0, f"Ошибка: {str(e)}")
             return {
                 "success": False,
                 "error": str(e)
@@ -279,65 +382,161 @@ class UpdateManager:
                 "error": str(e)
             }
 
-    def _git_pull_update(self) -> Dict:
-        """Pull latest changes from git repository"""
+    async def _download_update(self, tarball_url: str) -> Dict:
+        """Download release tarball from GitHub"""
         try:
-            # Fetch latest changes
-            fetch_result = subprocess.run(
-                ["git", "fetch", "origin"],
-                cwd="/opt/xui-manager",
+            temp_dir = tempfile.mkdtemp(prefix="xui-update-")
+            tarball_path = os.path.join(temp_dir, "release.tar.gz")
+
+            logger.info(f"Downloading from {tarball_url}")
+
+            timeout = aiohttp.ClientTimeout(total=300)  # 5 minutes
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(tarball_url) as response:
+                    if response.status != 200:
+                        raise Exception(f"HTTP {response.status}")
+
+                    # Download with progress tracking
+                    total_size = int(response.headers.get('content-length', 0))
+                    downloaded = 0
+
+                    with open(tarball_path, 'wb') as f:
+                        async for chunk in response.content.iter_chunked(8192):
+                            f.write(chunk)
+                            downloaded += len(chunk)
+
+                            if total_size > 0:
+                                progress = 20 + int(30 * downloaded / total_size)  # 20-50%
+                                self._update_status("downloading", progress,
+                                                  f"Скачано {downloaded // 1024} KB из {total_size // 1024} KB")
+
+            logger.info(f"Downloaded to {tarball_path}")
+
+            # Extract tarball
+            extract_dir = os.path.join(temp_dir, "extracted")
+            os.makedirs(extract_dir, exist_ok=True)
+
+            with tarfile.open(tarball_path, 'r:gz') as tar:
+                tar.extractall(extract_dir)
+
+            # GitHub tarballs have a root directory, find it
+            extracted_items = os.listdir(extract_dir)
+            if len(extracted_items) == 1:
+                source_dir = os.path.join(extract_dir, extracted_items[0])
+            else:
+                source_dir = extract_dir
+
+            return {
+                "success": True,
+                "temp_dir": source_dir,
+                "tarball_path": tarball_path
+            }
+
+        except asyncio.TimeoutError:
+            return {
+                "success": False,
+                "error": "Download timeout"
+            }
+        except Exception as e:
+            logger.error(f"Download error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def _install_update(self, source_dir: str) -> Dict:
+        """Install update by copying only code files"""
+        try:
+            install_dir = "/opt/xui-manager"
+            files_updated = []
+            requirements_changed = False
+
+            # Check if requirements.txt will change
+            old_req = os.path.join(install_dir, "requirements.txt")
+            new_req = os.path.join(source_dir, "requirements.txt")
+            if os.path.exists(old_req) and os.path.exists(new_req):
+                with open(old_req, 'r') as f1, open(new_req, 'r') as f2:
+                    requirements_changed = (f1.read() != f2.read())
+
+            # Update only code files
+            for item in FILES_TO_UPDATE:
+                source_path = os.path.join(source_dir, item)
+                dest_path = os.path.join(install_dir, item)
+
+                if not os.path.exists(source_path):
+                    logger.warning(f"Source path not found: {source_path}")
+                    continue
+
+                # If it's a directory, copy recursively
+                if item.endswith('/'):
+                    if os.path.exists(dest_path):
+                        shutil.rmtree(dest_path)
+                    shutil.copytree(source_path, dest_path)
+                    files_updated.append(item)
+                    logger.info(f"Updated directory: {item}")
+                else:
+                    # Copy file
+                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                    shutil.copy2(source_path, dest_path)
+                    files_updated.append(item)
+                    logger.info(f"Updated file: {item}")
+
+            # Clean up temp directory
+            try:
+                shutil.rmtree(os.path.dirname(os.path.dirname(source_dir)))
+            except:
+                pass
+
+            return {
+                "success": True,
+                "files_updated": files_updated,
+                "requirements_changed": requirements_changed
+            }
+
+        except Exception as e:
+            logger.error(f"Installation error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def _install_dependencies(self) -> Dict:
+        """Install Python dependencies from requirements.txt"""
+        try:
+            venv_python = "/opt/xui-manager/venv/bin/python"
+            requirements_file = "/opt/xui-manager/requirements.txt"
+
+            # Check if venv exists
+            if not os.path.exists(venv_python):
+                venv_python = "python3"  # Fallback to system python
+
+            logger.info("Installing dependencies...")
+
+            result = subprocess.run(
+                [venv_python, "-m", "pip", "install", "-r", requirements_file, "--no-cache-dir"],
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=180  # 3 minutes
             )
 
-            if fetch_result.returncode != 0:
-                return {
-                    "success": False,
-                    "error": f"Git fetch failed: {fetch_result.stderr}"
-                }
-
-            # Get current branch
-            branch_result = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                cwd="/opt/xui-manager",
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-
-            current_branch = branch_result.stdout.strip()
-
-            # Pull changes
-            pull_result = subprocess.run(
-                ["git", "pull", "origin", current_branch],
-                cwd="/opt/xui-manager",
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-
-            if pull_result.returncode == 0:
-                # Get list of changed files
-                changes = pull_result.stdout.strip().split('\n')
-
+            if result.returncode == 0:
                 return {
                     "success": True,
-                    "branch": current_branch,
-                    "changes": changes
+                    "output": result.stdout
                 }
             else:
                 return {
                     "success": False,
-                    "error": pull_result.stderr
+                    "error": result.stderr
                 }
 
         except subprocess.TimeoutExpired:
             return {
                 "success": False,
-                "error": "Git operation timed out"
+                "error": "Pip install timeout"
             }
         except Exception as e:
+            logger.error(f"Dependencies installation error: {e}")
             return {
                 "success": False,
                 "error": str(e)
