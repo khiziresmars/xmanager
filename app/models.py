@@ -16,6 +16,7 @@ class UserCreate(BaseModel):
     total: Optional[int] = Field(0, description="Лимит трафика в байтах")
     expiry_time: Optional[int] = Field(0, description="Время истечения в миллисекундах")
     method: Optional[str] = Field("chacha20-ietf-poly1305", description="Метод шифрования для Shadowsocks")
+    flow: Optional[str] = Field(None, description="Flow для VLESS (например: xtls-rprx-vision)")
     password: Optional[str] = Field(None, description="Пароль для Shadowsocks")
     limitIp: Optional[int] = Field(0, description="Лимит IP адресов")
 
@@ -25,7 +26,8 @@ class UserTemplate(BaseModel):
     prefix: str = Field("user", description="Префикс для имени")
     total: int = Field(0, description="Лимит трафика")
     expiry_time: int = Field(0, description="Время истечения")
-    method: Optional[str] = Field("chacha20-ietf-poly1305")
+    method: Optional[str] = Field("chacha20-ietf-poly1305", description="Метод для Shadowsocks")
+    flow: Optional[str] = Field(None, description="Flow для VLESS (например: xtls-rprx-vision)")
     limitIp: Optional[int] = Field(0)
 
 class BulkCreateRequest(BaseModel):
