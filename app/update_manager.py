@@ -340,7 +340,11 @@ class UpdateManager:
             }
 
     def _create_backup(self) -> Dict:
-        """Create backup of current installation"""
+        """Create backup of current installation
+
+        Excludes temporary files, logs, and backups directory to avoid conflicts
+        tar exit code 1 (file changed as we read it) is considered success
+        """
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_file = f"/opt/xui-manager/backups/backup_{timestamp}.tar.gz"
@@ -348,6 +352,7 @@ class UpdateManager:
             os.makedirs("/opt/xui-manager/backups", exist_ok=True)
 
             # Create tar archive of important files
+            # Exclude changing files to prevent "file changed as we read it" errors
             result = subprocess.run(
                 [
                     "tar", "-czf", backup_file,
@@ -356,6 +361,15 @@ class UpdateManager:
                     "--exclude=.git",
                     "--exclude=__pycache__",
                     "--exclude=*.pyc",
+                    "--exclude=*.log",
+                    "--exclude=backups",  # Don't backup backups!
+                    "--exclude=.update_status.json",
+                    "--exclude=.update_lock",
+                    "--exclude=last_update_check.json",
+                    "--exclude=queues.json",
+                    "--exclude=*.db-journal",
+                    "--exclude=*.db-wal",
+                    "--exclude=*.db-shm",
                     "."
                 ],
                 capture_output=True,
@@ -363,13 +377,20 @@ class UpdateManager:
                 timeout=60
             )
 
-            if result.returncode == 0:
-                logger.info(f"Backup created: {backup_file}")
+            # tar exit codes:
+            # 0 = success
+            # 1 = some files changed during archival (acceptable)
+            # 2+ = critical error
+            if result.returncode == 0 or result.returncode == 1:
+                logger.info(f"Backup created: {backup_file} (exit code: {result.returncode})")
+                if result.returncode == 1:
+                    logger.info("Some files changed during backup (expected for active system)")
                 return {
                     "success": True,
                     "backup_file": backup_file
                 }
             else:
+                logger.error(f"Backup failed with exit code {result.returncode}: {result.stderr}")
                 return {
                     "success": False,
                     "error": result.stderr
