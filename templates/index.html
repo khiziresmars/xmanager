@@ -681,14 +681,31 @@
                 <div class="form-row" style="margin-top: 20px;">
                     <div class="form-group">
                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                            <input type="checkbox" id="bulk-all-inbounds" class="checkbox" onchange="updateMultiInboundLimits()">
-                            <span style="font-weight: 500;">Создать во всех inbounds сразу</span>
+                            <input type="checkbox" id="bulk-all-inbounds" class="checkbox" onchange="toggleMultiInboundSelection()">
+                            <span style="font-weight: 500;">Создать в нескольких inbounds</span>
                         </label>
                         <small style="color: var(--text-secondary); font-size: 12px; display: block; margin-top: 4px;">
-                            Каждый пользователь будет создан во всех доступных inbound'ах с одинаковым email
+                            Каждый пользователь будет создан в выбранных inbound'ах с одинаковым email
                         </small>
-                        <small id="multi-inbound-limit-warning" style="color: var(--warning); font-size: 12px; display: none; margin-top: 4px;">
-                            ⚠️ Макс. 100 пользователей или 500 операций (пользователи × inbounds)
+
+                        <!-- Выбор инбаундов -->
+                        <div id="multi-inbound-selector" style="display: none; margin-top: 12px; padding: 12px; background: var(--bg-primary); border-radius: 8px;">
+                            <div style="margin-bottom: 8px;">
+                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
+                                    <input type="checkbox" id="select-all-inbounds" onchange="toggleAllInbounds()" checked>
+                                    <span style="font-weight: 600;">Выбрать все</span>
+                                </label>
+                            </div>
+                            <div id="inbounds-checkboxes" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-top: 8px;">
+                                <!-- Список инбаундов будет загружен динамически -->
+                            </div>
+                            <small id="multi-inbound-info" style="color: var(--success); font-size: 12px; display: block; margin-top: 8px;">
+                                Выбрано: <span id="selected-inbounds-count">0</span> инбаундов
+                            </small>
+                        </div>
+
+                        <small id="multi-inbound-limit-warning" style="color: var(--warning); font-size: 12px; display: none; margin-top: 8px;">
+                            ⚠️ Макс. 1000 пользователей или 5000 операций (пользователи × inbounds)
                         </small>
                     </div>
                 </div>
@@ -909,6 +926,46 @@
                         <tr><td colspan="5" class="loading">Нажмите "Обновить список" для загрузки</td></tr>
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        <!-- Update Progress Modal -->
+        <div id="update-progress-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2000; align-items: center; justify-content: center;">
+            <div style="background: var(--bg-secondary); padding: 40px; border-radius: 12px; max-width: 600px; width: 90%; box-shadow: 0 10px 40px rgba(0,0,0,0.5);">
+                <h3 style="margin-top: 0; text-align: center;">🔄 Обновление системы</h3>
+
+                <div id="update-progress-stage" style="text-align: center; margin: 20px 0; font-size: 16px; color: var(--accent); font-weight: 500;">
+                    Подготовка...
+                </div>
+
+                <!-- Progress Bar -->
+                <div style="background: var(--bg-primary); height: 30px; border-radius: 15px; margin: 20px 0; overflow: hidden; position: relative;">
+                    <div id="update-progress-bar" style="background: linear-gradient(90deg, var(--accent), var(--success)); height: 100%; width: 0%; transition: width 0.5s; border-radius: 15px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px;">
+                        0%
+                    </div>
+                </div>
+
+                <div id="update-progress-message" style="text-align: center; color: var(--text-secondary); font-size: 14px; min-height: 40px; margin: 15px 0;">
+                    Начало обновления...
+                </div>
+
+                <div id="update-success-message" style="display: none; text-align: center; color: var(--success); font-size: 16px; margin: 20px 0; padding: 15px; background: rgba(76, 175, 80, 0.1); border-radius: 8px;">
+                    ✅ Обновление успешно завершено!<br>
+                    <small style="font-size: 13px;">Страница перезагрузится через <span id="reload-countdown">5</span> сек...</small>
+                </div>
+
+                <div id="update-error-message" style="display: none; text-align: center; color: var(--danger); font-size: 14px; margin: 20px 0; padding: 15px; background: rgba(244, 67, 54, 0.1); border-radius: 8px; white-space: pre-wrap;">
+                </div>
+
+                <div style="text-align: center; margin-top: 25px;">
+                    <button id="close-update-modal-btn" class="btn btn-secondary" onclick="closeUpdateModal()" style="display: none;">
+                        Закрыть
+                    </button>
+                </div>
+
+                <div style="margin-top: 20px; padding: 15px; background: var(--bg-primary); border-radius: 8px; font-size: 12px; color: var(--text-secondary);">
+                    <strong>ℹ️ Важно:</strong> Не закрывайте это окно и не перезагружайте страницу до завершения обновления.
+                </div>
             </div>
         </div>
 
@@ -1354,20 +1411,93 @@
             loadUsers();
         }
 
-        function updateMultiInboundLimits() {
+        // Toggle multi-inbound selection UI
+        function toggleMultiInboundSelection() {
             var checkbox = document.getElementById('bulk-all-inbounds');
+            var selector = document.getElementById('multi-inbound-selector');
             var warning = document.getElementById('multi-inbound-limit-warning');
-            var countInput = document.getElementById('bulk-count');
 
             if (checkbox.checked) {
+                selector.style.display = 'block';
                 warning.style.display = 'block';
-                countInput.max = 100;
-                if (parseInt(countInput.value) > 100) {
-                    countInput.value = 100;
-                }
+                loadInboundsCheckboxes();
             } else {
+                selector.style.display = 'none';
                 warning.style.display = 'none';
-                countInput.max = 5000;
+            }
+        }
+
+        // Load inbounds as checkboxes
+        function loadInboundsCheckboxes() {
+            var container = document.getElementById('inbounds-checkboxes');
+            container.innerHTML = '';
+
+            inboundsData.forEach(function(inbound) {
+                var label = document.createElement('label');
+                label.style.cssText = 'display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; padding: 6px; border-radius: 4px; background: var(--bg-secondary);';
+
+                var checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = inbound.id;
+                checkbox.className = 'inbound-checkbox';
+                checkbox.checked = true;
+                checkbox.onchange = updateSelectedInboundsCount;
+
+                var protocolBadge = '';
+                if (inbound.protocol === 'vless') protocolBadge = '🔵 VLESS';
+                else if (inbound.protocol === 'vmess') protocolBadge = '🟢 VMess';
+                else if (inbound.protocol === 'trojan') protocolBadge = '🔴 Trojan';
+                else if (inbound.protocol === 'shadowsocks') protocolBadge = '🟣 SS';
+                else protocolBadge = '⚪ ' + inbound.protocol;
+
+                var span = document.createElement('span');
+                span.textContent = protocolBadge + ' - ' + inbound.remark + ' (:' + inbound.port + ')';
+
+                label.appendChild(checkbox);
+                label.appendChild(span);
+                container.appendChild(label);
+            });
+
+            updateSelectedInboundsCount();
+        }
+
+        // Toggle all inbounds checkboxes
+        function toggleAllInbounds() {
+            var selectAll = document.getElementById('select-all-inbounds');
+            var checkboxes = document.querySelectorAll('.inbound-checkbox');
+
+            checkboxes.forEach(function(checkbox) {
+                checkbox.checked = selectAll.checked;
+            });
+
+            updateSelectedInboundsCount();
+        }
+
+        // Update selected inbounds counter
+        function updateSelectedInboundsCount() {
+            var checkboxes = document.querySelectorAll('.inbound-checkbox:checked');
+            var count = checkboxes.length;
+            var countSpan = document.getElementById('selected-inbounds-count');
+            var selectAll = document.getElementById('select-all-inbounds');
+
+            countSpan.textContent = count;
+
+            // Update "select all" checkbox state
+            var totalCheckboxes = document.querySelectorAll('.inbound-checkbox').length;
+            selectAll.checked = (count === totalCheckboxes);
+
+            // Update warning message
+            var countInput = document.getElementById('bulk-count');
+            var userCount = parseInt(countInput.value) || 0;
+            var totalOps = userCount * count;
+
+            var infoElem = document.getElementById('multi-inbound-info');
+            if (totalOps > 5000) {
+                infoElem.style.color = 'var(--danger)';
+                infoElem.innerHTML = 'Выбрано: <span id="selected-inbounds-count">' + count + '</span> инбаундов - ⚠️ Слишком много операций (' + totalOps + ')';
+            } else {
+                infoElem.style.color = 'var(--success)';
+                infoElem.innerHTML = 'Выбрано: <span id="selected-inbounds-count">' + count + '</span> инбаундов (всего операций: ' + totalOps + ')';
             }
         }
 
@@ -1380,25 +1510,30 @@
             var traffic = parseInt(document.getElementById('bulk-traffic').value) * 1024 * 1024 * 1024;
             var expiryDays = parseInt(document.getElementById('bulk-expiry-days').value);
             var inboundId = parseInt(document.getElementById('bulk-inbound').value);
-            var createInAllInbounds = document.getElementById('bulk-all-inbounds').checked;
+            var createInMultiInbounds = document.getElementById('bulk-all-inbounds').checked;
 
-            // Если создаем во всех inbounds, inboundId не обязателен
-            if (!createInAllInbounds && (!inboundId || isNaN(inboundId))) {
-                showToast('Пожалуйста, выберите Inbound или включите "Создать во всех inbounds"', 'error');
+            // Если создаем в нескольких inbounds, inboundId не обязателен
+            if (!createInMultiInbounds && (!inboundId || isNaN(inboundId))) {
+                showToast('Пожалуйста, выберите Inbound или включите "Создать в нескольких inbounds"', 'error');
                 return;
             }
 
-            // Get selected inbound protocol
-            var selectedInbound = inboundsData.find(function(inbound) {
-                return inbound.id === inboundId;
-            });
+            var protocol = null;
+            var selectedInbound = null;
 
-            if (!selectedInbound) {
-                showToast('Ошибка: Inbound не найден', 'error');
-                return;
+            // Получаем протокол только для одиночного инбаунда
+            if (!createInMultiInbounds) {
+                selectedInbound = inboundsData.find(function(inbound) {
+                    return inbound.id === inboundId;
+                });
+
+                if (!selectedInbound) {
+                    showToast('Ошибка: Inbound не найден', 'error');
+                    return;
+                }
+
+                protocol = selectedInbound.protocol.toLowerCase();
             }
-
-            var protocol = selectedInbound.protocol.toLowerCase();
 
             // Calculate expiry time
             var expiryTime = 0;
@@ -1415,26 +1550,45 @@
                 limitIp: 0
             };
 
-            // Add protocol-specific fields
-            if (protocol === 'shadowsocks') {
-                var method = document.getElementById('bulk-method').value;
-                template.method = method;
-            } else if (protocol === 'vless') {
-                var flow = document.getElementById('bulk-flow').value;
-                if (flow) {
-                    template.flow = flow;
+            // Add protocol-specific fields (only for single inbound)
+            if (!createInMultiInbounds) {
+                if (protocol === 'shadowsocks') {
+                    var method = document.getElementById('bulk-method').value;
+                    template.method = method;
+                } else if (protocol === 'vless') {
+                    var flow = document.getElementById('bulk-flow').value;
+                    if (flow) {
+                        template.flow = flow;
+                    }
                 }
             }
             // For VMess and Trojan, no additional fields needed (handled by backend)
 
-            // Если выбрано "Создать во всех inbounds"
-            if (createInAllInbounds) {
-                if (count > 100) {
-                    showToast('Для multi-inbound создания максимум 100 пользователей', 'error');
+            // Если выбрано "Создать в нескольких inbounds"
+            if (createInMultiInbounds) {
+                // Получаем выбранные инбаунды
+                var selectedCheckboxes = document.querySelectorAll('.inbound-checkbox:checked');
+                var selectedInboundIds = Array.from(selectedCheckboxes).map(function(cb) {
+                    return parseInt(cb.value);
+                });
+
+                if (selectedInboundIds.length === 0) {
+                    showToast('Выберите хотя бы один inbound', 'error');
                     return;
                 }
 
-                showToast('⏳ Создание ' + count + ' пользователей во всех inbounds...', 'info');
+                // Проверяем лимиты
+                var totalOperations = count * selectedInboundIds.length;
+                if (count > 1000) {
+                    showToast('Максимум 1000 пользователей', 'error');
+                    return;
+                }
+                if (totalOperations > 5000) {
+                    showToast('Слишком много операций (' + totalOperations + '). Максимум 5000', 'error');
+                    return;
+                }
+
+                showToast('⏳ Создание ' + count + ' пользователей в ' + selectedInboundIds.length + ' inbounds... Будет создано ' + (selectedInboundIds.length > 1 ? selectedInboundIds.length + ' параллельных очередей' : '1 очередь'), 'info');
 
                 fetch(API_URL + 'api/users/bulk-create-all-inbounds', {
                     method: 'POST',
@@ -1443,7 +1597,7 @@
                     body: JSON.stringify({
                         template: template,
                         count: count,
-                        inbound_ids: "all"
+                        inbound_ids: selectedInboundIds
                     })
                 })
                 .then(response => {
@@ -1455,11 +1609,13 @@
                     return response.json();
                 })
                 .then(data => {
-                    showToast('✅ Создано: ' + data.created + ' пользователей в ' + data.inbounds_count + ' inbounds', 'success');
+                    showToast('✅ Создано ' + data.queues_count + ' параллельных очередей для ' + count + ' пользователей в ' + selectedInboundIds.length + ' inbounds', 'success');
+                    loadQueues(); // Обновляем список очередей
                     // Очищаем форму
                     document.getElementById('bulk-prefix').value = 'user';
                     document.getElementById('bulk-count').value = '10';
                     document.getElementById('bulk-all-inbounds').checked = false;
+                    toggleMultiInboundSelection(); // Скрываем селектор
                 })
                 .catch(error => {
                     console.error('Error creating users:', error);
@@ -2356,6 +2512,97 @@
             }
         }
 
+        let updateProgressInterval = null;
+
+        function showUpdateModal() {
+            document.getElementById('update-progress-modal').style.display = 'flex';
+            // Reset UI
+            document.getElementById('update-progress-bar').style.width = '0%';
+            document.getElementById('update-progress-bar').textContent = '0%';
+            document.getElementById('update-progress-stage').textContent = 'Подготовка...';
+            document.getElementById('update-progress-message').textContent = 'Начало обновления...';
+            document.getElementById('update-success-message').style.display = 'none';
+            document.getElementById('update-error-message').style.display = 'none';
+            document.getElementById('close-update-modal-btn').style.display = 'none';
+        }
+
+        function closeUpdateModal() {
+            document.getElementById('update-progress-modal').style.display = 'none';
+            if (updateProgressInterval) {
+                clearInterval(updateProgressInterval);
+                updateProgressInterval = null;
+            }
+        }
+
+        function updateProgressUI(progress) {
+            const progressBar = document.getElementById('update-progress-bar');
+            const stageElem = document.getElementById('update-progress-stage');
+            const messageElem = document.getElementById('update-progress-message');
+
+            // Update progress bar
+            progressBar.style.width = progress.progress + '%';
+            progressBar.textContent = progress.progress + '%';
+
+            // Update stage message
+            const stageNames = {
+                'checking': '🔍 Проверка обновлений',
+                'backup': '💾 Создание резервной копии',
+                'downloading': '⬇️ Скачивание обновления',
+                'extracting': '📦 Распаковка файлов',
+                'installing': '⚙️ Установка файлов',
+                'dependencies': '📚 Установка зависимостей',
+                'restarting': '🔄 Перезапуск сервиса',
+                'completed': '✅ Обновление завершено',
+                'failed': '❌ Ошибка обновления',
+                'idle': '⏸️ Ожидание'
+            };
+
+            stageElem.textContent = stageNames[progress.status] || progress.status;
+            messageElem.textContent = progress.message || '';
+        }
+
+        async function pollUpdateStatus() {
+            try {
+                const response = await fetch(API_URL + 'api/system/update/status', {
+                    credentials: 'include'
+                });
+
+                if (!response.ok) return;
+
+                const data = await response.json();
+                const progress = data.progress;
+
+                updateProgressUI(progress);
+
+                // Check if completed or failed
+                if (progress.status === 'completed') {
+                    clearInterval(updateProgressInterval);
+                    document.getElementById('update-success-message').style.display = 'block';
+
+                    // Countdown and reload
+                    let countdown = 5;
+                    const countdownElem = document.getElementById('reload-countdown');
+                    const countdownInterval = setInterval(() => {
+                        countdown--;
+                        countdownElem.textContent = countdown;
+                        if (countdown <= 0) {
+                            clearInterval(countdownInterval);
+                            window.location.reload();
+                        }
+                    }, 1000);
+
+                } else if (progress.status === 'failed') {
+                    clearInterval(updateProgressInterval);
+                    document.getElementById('update-error-message').textContent = '❌ Ошибка: ' + progress.message;
+                    document.getElementById('update-error-message').style.display = 'block';
+                    document.getElementById('close-update-modal-btn').style.display = 'inline-block';
+                }
+
+            } catch (error) {
+                console.error('Error polling update status:', error);
+            }
+        }
+
         async function performUpdate() {
             if (!confirm('⚠️ ВНИМАНИЕ!\n\nОбновление перезапустит сервис.\nВы потеряете текущую сессию и должны будете войти заново.\n\nПродолжить?')) {
                 return;
@@ -2365,9 +2612,11 @@
             updateBtn.disabled = true;
             updateBtn.innerHTML = '⏳ Обновление...';
 
-            showToast('🔄 Начинаем обновление... Сервис будет перезапущен.', 'info');
+            // Show progress modal
+            showUpdateModal();
 
             try {
+                // Start update
                 const response = await fetch(API_URL + 'api/system/update', {
                     method: 'POST',
                     credentials: 'include'
@@ -2375,21 +2624,26 @@
 
                 const data = await response.json();
 
-                if (response.ok && data.success) {
-                    showToast('✅ Обновление завершено! Перенаправление на страницу входа...', 'success');
+                if (response.ok) {
+                    // Start polling for progress
+                    updateProgressInterval = setInterval(pollUpdateStatus, 2000);  // Poll every 2 seconds
+                    pollUpdateStatus();  // Poll immediately
 
-                    // Redirect to login after 3 seconds
-                    setTimeout(() => {
-                        window.location.href = 'login';
-                    }, 3000);
                 } else {
-                    showToast('❌ Ошибка обновления: ' + (data.error || 'Unknown error'), 'error');
+                    // Show error
+                    document.getElementById('update-error-message').textContent = '❌ Ошибка запуска обновления: ' + (data.error || data.detail || 'Unknown error');
+                    document.getElementById('update-error-message').style.display = 'block';
+                    document.getElementById('close-update-modal-btn').style.display = 'inline-block';
+
                     updateBtn.disabled = false;
                     updateBtn.innerHTML = '⬆️ Обновить до <span id="new-version"></span>';
                 }
             } catch (error) {
-                console.error('Error performing update:', error);
-                showToast('❌ Ошибка выполнения обновления', 'error');
+                console.error('Error starting update:', error);
+                document.getElementById('update-error-message').textContent = '❌ Ошибка сети: ' + error.message;
+                document.getElementById('update-error-message').style.display = 'block';
+                document.getElementById('close-update-modal-btn').style.display = 'inline-block';
+
                 updateBtn.disabled = false;
                 updateBtn.innerHTML = '⬆️ Обновить до <span id="new-version"></span>';
             }

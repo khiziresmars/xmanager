@@ -236,9 +236,9 @@ async def get_server_health():
 
 @app.get("/api/monitoring/online-users")
 async def get_online_users():
-    """Получение количества онлайн пользователей"""
+    """Получение количества онлайн пользователей (последние 2 минуты активности)"""
     try:
-        online_count = db.get_online_users_count()
+        online_count = db.get_truly_online_users_count()
         return {"online_users": online_count}
     except Exception as e:
         logger.error(f"Error getting online users: {e}")
@@ -314,10 +314,10 @@ async def bulk_create_users(request: BulkCreateRequest):
 
 @app.post("/api/users/bulk-create-all-inbounds")
 async def bulk_create_users_all_inbounds(request: Dict[str, Any]):
-    """Массовое создание пользователей сразу во всех inbounds через очереди
+    """Массовое создание пользователей сразу во всех inbounds через параллельные очереди
 
     Создает одного пользователя с одинаковым email во всех указанных inbound'ах
-    ВСЕГДА использует систему очередей для избежания таймаутов
+    Разбивает на несколько параллельных очередей по 100 пользователей для оптимизации
 
     Request body:
     {
@@ -364,22 +364,37 @@ async def bulk_create_users_all_inbounds(request: Dict[str, Any]):
                 detail=f"Too many operations ({total_operations}). Maximum 5000 (count * inbounds). Try reducing count or number of inbounds."
             )
 
-        # Создаем очередь для асинхронной обработки
-        queue_id = queue_manager.create_queue(
-            "multi_inbound_create",
-            {
-                "template": template,
-                "count": count,
-                "inbound_ids": inbound_ids
-            }
-        )
+        # ОПТИМИЗАЦИЯ: разбиваем на несколько параллельных очередей по 100 пользователей
+        # Например: 250 пользователей в 2 инбаундах = 6 очередей (3 на каждый инбаунд)
+        queue_ids = []
+        batch_size = 100
 
-        # Запускаем обработку в фоне
-        queue_manager.start_queue_processing(queue_id, db)
+        for inbound_id in inbound_ids:
+            batches = (count + batch_size - 1) // batch_size  # Округление вверх
+
+            for batch_num in range(batches):
+                start_index = batch_num * batch_size
+                batch_count = min(batch_size, count - start_index)
+
+                # Создаем обычную bulk очередь для каждого батча
+                queue_id = queue_manager.create_queue(
+                    "bulk_create",
+                    {
+                        "template": template,
+                        "count": batch_count,
+                        "inbound_id": inbound_id,
+                        "start_index": start_index  # Начальный индекс для email
+                    }
+                )
+                queue_ids.append(queue_id)
+
+                # Запускаем обработку в фоне
+                queue_manager.start_queue_processing(queue_id, db)
 
         return {
-            "queue_id": queue_id,
-            "message": f"Queue created for {count} users across {len(inbound_ids)} inbounds ({total_operations} total operations)",
+            "queue_ids": queue_ids,
+            "queues_count": len(queue_ids),
+            "message": f"Created {len(queue_ids)} parallel queues for {count} users across {len(inbound_ids)} inbounds ({total_operations} total operations)",
             "count": count,
             "inbound_ids": inbound_ids,
             "total_operations": total_operations
@@ -388,7 +403,7 @@ async def bulk_create_users_all_inbounds(request: Dict[str, Any]):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error creating multi-inbound queue: {e}", exc_info=True)
+        logger.error(f"Error creating multi-inbound queues: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== УПРАВЛЕНИЕ ТРАФИКОМ ====================
@@ -970,17 +985,20 @@ async def perform_update(username: str = Depends(get_current_user)):
 @app.get("/api/system/update/status")
 async def get_update_status(username: str = Depends(get_current_user)):
     """
-    Получение статуса обновления
+    Получение статуса обновления с прогрессом
 
     Требует авторизации
 
     Returns:
-        Информация о статусе обновления
+        Информация о статусе обновления и прогрессе
     """
+    update_progress = update_manager.get_update_status()
+
     return {
         "update_in_progress": update_manager.is_update_in_progress(),
         "current_version": CURRENT_VERSION,
-        "last_check": update_manager.last_check_data
+        "last_check": update_manager.last_check_data,
+        "progress": update_progress
     }
 
 @app.get("/api/system/background-tasks")
