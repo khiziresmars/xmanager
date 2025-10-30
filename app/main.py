@@ -171,7 +171,7 @@ async def web_interface(username: Optional[str] = Depends(optional_user)):
     """Веб-интерфейс для управления"""
     # Если пользователь не авторизован, перенаправляем на страницу входа
     if not username:
-        return RedirectResponse(url="/login", status_code=302)
+        return RedirectResponse(url="login", status_code=302)
 
     with open("/opt/xui-manager/templates/index.html", "r") as f:
         return HTMLResponse(content=f.read())
