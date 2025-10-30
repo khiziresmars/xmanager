@@ -632,6 +632,68 @@ async def toggle_user_status(user_id: int, username: str = Depends(get_current_u
         logger.error(f"Error toggling user status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.put("/api/users/{user_id}/expiry")
+async def set_user_expiry(
+    user_id: int,
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """Установка срока действия для одного пользователя"""
+    try:
+        expiry_days = request.get("expiry_days", 0)
+
+        if expiry_days > 0:
+            # Calculate expiry timestamp
+            expiry_time = int((datetime.now().timestamp() + expiry_days * 24 * 60 * 60) * 1000)
+        else:
+            # 0 means no expiry
+            expiry_time = 0
+
+        result = db.update_user_expiry(str(user_id), expiry_time)
+
+        if result["success"]:
+            return {
+                "message": f"Expiry updated for user {user_id}",
+                "user_id": user_id,
+                "expiry_days": expiry_days,
+                "expiry_time": expiry_time
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to update expiry"))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting user expiry: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/users/{user_id}/traffic")
+async def set_user_traffic(
+    user_id: int,
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """Установка лимита трафика для одного пользователя"""
+    try:
+        traffic_limit = request.get("traffic_limit", 0)  # в байтах
+
+        result = db.update_user_traffic(str(user_id), traffic_limit)
+
+        if result["success"]:
+            return {
+                "message": f"Traffic limit updated for user {user_id}",
+                "user_id": user_id,
+                "traffic_limit": traffic_limit
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to update traffic"))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting user traffic: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/users/toggle-status")
 async def toggle_users_status(request: ToggleStatusRequest):
     """Массовая блокировка/разблокировка пользователей"""
