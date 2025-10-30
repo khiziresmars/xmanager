@@ -24,6 +24,9 @@ from models import *
 from config import settings, SERVER_ID
 from auth import SessionManager, TokenManager, authenticate_user, get_current_user, optional_user, ADMIN_USERNAME
 from app.queue import queue_manager, QueueStatus
+from app.version import get_current_version, get_version_info, CURRENT_VERSION
+from app.update_manager import update_manager
+from app.background_tasks import background_tasks
 
 # Настройка логирования
 logging.basicConfig(
@@ -36,7 +39,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="X-UI Manager API",
     description="API для управления пользователями 3x-ui",
-    version="1.0.0",
+    version=CURRENT_VERSION,
     docs_url="/api/docs",
     redoc_url="/api/redoc"
 )
@@ -87,6 +90,22 @@ if os.path.exists("/opt/xui-manager/static"):
 
 # Инициализация базы данных
 db = XUIDatabase()
+
+# ==================== LIFECYCLE EVENTS ====================
+
+@app.on_event("startup")
+async def startup_event():
+    """Запуск фоновых задач при старте приложения"""
+    logger.info("Application startup - starting background tasks...")
+    await background_tasks.start()
+    logger.info("Background tasks started successfully")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Остановка фоновых задач при остановке приложения"""
+    logger.info("Application shutdown - stopping background tasks...")
+    await background_tasks.stop()
+    logger.info("Background tasks stopped successfully")
 
 # ========================= API ENDPOINTS =========================
 
@@ -736,6 +755,117 @@ async def get_users_analytics():
         return analytics
     except Exception as e:
         logger.error(f"Error getting user analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== VERSION & UPDATE MANAGEMENT ====================
+
+@app.get("/api/system/version")
+async def get_version(username: str = Depends(get_current_user)):
+    """
+    Получение информации о текущей версии системы
+
+    Требует авторизации
+    """
+    try:
+        version_info = get_version_info()
+        return version_info
+    except Exception as e:
+        logger.error(f"Error getting version info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/update/check")
+async def check_for_updates(
+    username: str = Depends(get_current_user),
+    force: bool = Query(False, description="Force check even if checked recently")
+):
+    """
+    Проверка наличия обновлений
+
+    Требует авторизации
+
+    Args:
+        force: Принудительная проверка (игнорировать кэш)
+
+    Returns:
+        Информация о доступных обновлениях
+    """
+    try:
+        update_info = await update_manager.check_for_updates(force=force)
+        return update_info
+    except Exception as e:
+        logger.error(f"Error checking for updates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/system/update")
+async def perform_update(username: str = Depends(get_current_user)):
+    """
+    Выполнение обновления системы
+
+    Требует авторизации администратора
+
+    Процесс обновления:
+    1. Создается резервная копия
+    2. Выполняется git pull
+    3. Перезапускается сервис
+
+    ВНИМАНИЕ: Сервис будет перезапущен!
+    """
+    try:
+        # Check if update is already in progress
+        if update_manager.is_update_in_progress():
+            raise HTTPException(
+                status_code=409,
+                detail="Update already in progress"
+            )
+
+        # Perform update
+        result = await update_manager.perform_update()
+
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "Update failed")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error performing update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/update/status")
+async def get_update_status(username: str = Depends(get_current_user)):
+    """
+    Получение статуса обновления
+
+    Требует авторизации
+
+    Returns:
+        Информация о статусе обновления
+    """
+    return {
+        "update_in_progress": update_manager.is_update_in_progress(),
+        "current_version": CURRENT_VERSION,
+        "last_check": update_manager.last_check_data
+    }
+
+@app.get("/api/system/background-tasks")
+async def get_background_tasks_status(username: str = Depends(get_current_user)):
+    """
+    Получение статуса фоновых задач
+
+    Требует авторизации
+
+    Returns:
+        Статус всех фоновых задач
+    """
+    try:
+        status = background_tasks.get_status()
+        return status
+    except Exception as e:
+        logger.error(f"Error getting background tasks status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== ЗАПУСК ПРИЛОЖЕНИЯ ====================

@@ -33,6 +33,7 @@
             background: var(--bg-primary);
             color: var(--text-primary);
             line-height: 1.6;
+            padding-bottom: 50px; /* Space for fixed footer */
         }
 
         .container {
@@ -905,6 +906,58 @@
             </div>
         </div>
     </div>
+
+    <!-- Footer with Version and Update Button -->
+    <footer style="
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 8px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        z-index: 1000;
+        font-size: 13px;
+    ">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <span id="version-info">⚙️ Загрузка версии...</span>
+            <span id="update-status" style="display: none;"></span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <button id="check-update-btn" onclick="checkForUpdates()" style="
+                background: rgba(255,255,255,0.2);
+                border: 1px solid rgba(255,255,255,0.3);
+                color: white;
+                padding: 5px 12px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 12px;
+                transition: all 0.3s;
+            " onmouseover="this.style.background='rgba(255,255,255,0.3)'"
+               onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                🔄 Проверить обновления
+            </button>
+            <button id="perform-update-btn" onclick="performUpdate()" style="
+                background: #4CAF50;
+                border: none;
+                color: white;
+                padding: 5px 12px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 12px;
+                font-weight: 600;
+                display: none;
+                transition: all 0.3s;
+            " onmouseover="this.style.background='#45a049'"
+               onmouseout="this.style.background='#4CAF50'">
+                ⬆️ Обновить до <span id="new-version"></span>
+            </button>
+        </div>
+    </footer>
 
     <script>
         // Use relative URLs - nginx proxies /manager/ to API service
@@ -2064,6 +2117,117 @@
             return div.innerHTML;
         }
 
+        // ==================== VERSION & UPDATE MANAGEMENT ====================
+
+        async function loadVersion() {
+            try {
+                const response = await fetch(API_URL + 'api/system/version', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                document.getElementById('version-info').textContent =
+                    `⚙️ ${data.version_name} v${data.current_version}`;
+
+                // Auto-check for updates on load
+                checkForUpdates(false);
+            } catch (error) {
+                console.error('Error loading version:', error);
+                document.getElementById('version-info').textContent = '⚙️ Версия недоступна';
+            }
+        }
+
+        async function checkForUpdates(showLoading = true) {
+            const checkBtn = document.getElementById('check-update-btn');
+            const updateBtn = document.getElementById('perform-update-btn');
+            const updateStatus = document.getElementById('update-status');
+
+            if (showLoading) {
+                checkBtn.disabled = true;
+                checkBtn.textContent = '🔄 Проверка...';
+            }
+
+            try {
+                const response = await fetch(API_URL + 'api/system/update/check?force=' + showLoading, {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.update_available) {
+                    // Show update button
+                    updateBtn.style.display = 'block';
+                    document.getElementById('new-version').textContent = data.latest_version;
+
+                    updateStatus.style.display = 'block';
+                    updateStatus.innerHTML = `
+                        <span style="background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 4px;">
+                            ✨ Доступно обновление: ${data.latest_version}
+                        </span>
+                    `;
+
+                    if (showLoading) {
+                        showToast(`Доступна новая версия: ${data.latest_version}`, 'info');
+                    }
+                } else {
+                    updateBtn.style.display = 'none';
+                    updateStatus.style.display = 'none';
+
+                    if (showLoading) {
+                        showToast('У вас установлена последняя версия', 'success');
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking updates:', error);
+                if (showLoading) {
+                    showToast('Ошибка проверки обновлений', 'error');
+                }
+            } finally {
+                if (showLoading) {
+                    checkBtn.disabled = false;
+                    checkBtn.textContent = '🔄 Проверить обновления';
+                }
+            }
+        }
+
+        async function performUpdate() {
+            if (!confirm('⚠️ ВНИМАНИЕ!\n\nОбновление перезапустит сервис.\nВы потеряете текущую сессию и должны будете войти заново.\n\nПродолжить?')) {
+                return;
+            }
+
+            const updateBtn = document.getElementById('perform-update-btn');
+            updateBtn.disabled = true;
+            updateBtn.innerHTML = '⏳ Обновление...';
+
+            showToast('🔄 Начинаем обновление... Сервис будет перезапущен.', 'info');
+
+            try {
+                const response = await fetch(API_URL + 'api/system/update', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showToast('✅ Обновление завершено! Перенаправление на страницу входа...', 'success');
+
+                    // Redirect to login after 3 seconds
+                    setTimeout(() => {
+                        window.location.href = 'login';
+                    }, 3000);
+                } else {
+                    showToast('❌ Ошибка обновления: ' + (data.error || 'Unknown error'), 'error');
+                    updateBtn.disabled = false;
+                    updateBtn.innerHTML = '⬆️ Обновить до <span id="new-version"></span>';
+                }
+            } catch (error) {
+                console.error('Error performing update:', error);
+                showToast('❌ Ошибка выполнения обновления', 'error');
+                updateBtn.disabled = false;
+                updateBtn.innerHTML = '⬆️ Обновить до <span id="new-version"></span>';
+            }
+        }
+
         // ==================== INITIALIZATION ====================
 
         // Initialize
@@ -2071,9 +2235,13 @@
             loadStats();
             loadInbounds();
             loadUsers();
+            loadVersion();  // Load version info
 
             // Refresh stats every 30 seconds
             setInterval(loadStats, 30000);
+
+            // Check for updates every 6 hours
+            setInterval(() => checkForUpdates(false), 6 * 60 * 60 * 1000);
         };
     </script>
 </body>
