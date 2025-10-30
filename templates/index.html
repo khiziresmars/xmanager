@@ -929,6 +929,46 @@
             </div>
         </div>
 
+        <!-- Update Progress Modal -->
+        <div id="update-progress-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2000; align-items: center; justify-content: center;">
+            <div style="background: var(--bg-secondary); padding: 40px; border-radius: 12px; max-width: 600px; width: 90%; box-shadow: 0 10px 40px rgba(0,0,0,0.5);">
+                <h3 style="margin-top: 0; text-align: center;">🔄 Обновление системы</h3>
+
+                <div id="update-progress-stage" style="text-align: center; margin: 20px 0; font-size: 16px; color: var(--accent); font-weight: 500;">
+                    Подготовка...
+                </div>
+
+                <!-- Progress Bar -->
+                <div style="background: var(--bg-primary); height: 30px; border-radius: 15px; margin: 20px 0; overflow: hidden; position: relative;">
+                    <div id="update-progress-bar" style="background: linear-gradient(90deg, var(--accent), var(--success)); height: 100%; width: 0%; transition: width 0.5s; border-radius: 15px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px;">
+                        0%
+                    </div>
+                </div>
+
+                <div id="update-progress-message" style="text-align: center; color: var(--text-secondary); font-size: 14px; min-height: 40px; margin: 15px 0;">
+                    Начало обновления...
+                </div>
+
+                <div id="update-success-message" style="display: none; text-align: center; color: var(--success); font-size: 16px; margin: 20px 0; padding: 15px; background: rgba(76, 175, 80, 0.1); border-radius: 8px;">
+                    ✅ Обновление успешно завершено!<br>
+                    <small style="font-size: 13px;">Страница перезагрузится через <span id="reload-countdown">5</span> сек...</small>
+                </div>
+
+                <div id="update-error-message" style="display: none; text-align: center; color: var(--danger); font-size: 14px; margin: 20px 0; padding: 15px; background: rgba(244, 67, 54, 0.1); border-radius: 8px; white-space: pre-wrap;">
+                </div>
+
+                <div style="text-align: center; margin-top: 25px;">
+                    <button id="close-update-modal-btn" class="btn btn-secondary" onclick="closeUpdateModal()" style="display: none;">
+                        Закрыть
+                    </button>
+                </div>
+
+                <div style="margin-top: 20px; padding: 15px; background: var(--bg-primary); border-radius: 8px; font-size: 12px; color: var(--text-secondary);">
+                    <strong>ℹ️ Важно:</strong> Не закрывайте это окно и не перезагружайте страницу до завершения обновления.
+                </div>
+            </div>
+        </div>
+
         <!-- Tab: Monitoring -->
         <div id="tab-monitoring" class="tab-content">
             <h2>Мониторинг сервера</h2>
@@ -2472,6 +2512,97 @@
             }
         }
 
+        let updateProgressInterval = null;
+
+        function showUpdateModal() {
+            document.getElementById('update-progress-modal').style.display = 'flex';
+            // Reset UI
+            document.getElementById('update-progress-bar').style.width = '0%';
+            document.getElementById('update-progress-bar').textContent = '0%';
+            document.getElementById('update-progress-stage').textContent = 'Подготовка...';
+            document.getElementById('update-progress-message').textContent = 'Начало обновления...';
+            document.getElementById('update-success-message').style.display = 'none';
+            document.getElementById('update-error-message').style.display = 'none';
+            document.getElementById('close-update-modal-btn').style.display = 'none';
+        }
+
+        function closeUpdateModal() {
+            document.getElementById('update-progress-modal').style.display = 'none';
+            if (updateProgressInterval) {
+                clearInterval(updateProgressInterval);
+                updateProgressInterval = null;
+            }
+        }
+
+        function updateProgressUI(progress) {
+            const progressBar = document.getElementById('update-progress-bar');
+            const stageElem = document.getElementById('update-progress-stage');
+            const messageElem = document.getElementById('update-progress-message');
+
+            // Update progress bar
+            progressBar.style.width = progress.progress + '%';
+            progressBar.textContent = progress.progress + '%';
+
+            // Update stage message
+            const stageNames = {
+                'checking': '🔍 Проверка обновлений',
+                'backup': '💾 Создание резервной копии',
+                'downloading': '⬇️ Скачивание обновления',
+                'extracting': '📦 Распаковка файлов',
+                'installing': '⚙️ Установка файлов',
+                'dependencies': '📚 Установка зависимостей',
+                'restarting': '🔄 Перезапуск сервиса',
+                'completed': '✅ Обновление завершено',
+                'failed': '❌ Ошибка обновления',
+                'idle': '⏸️ Ожидание'
+            };
+
+            stageElem.textContent = stageNames[progress.status] || progress.status;
+            messageElem.textContent = progress.message || '';
+        }
+
+        async function pollUpdateStatus() {
+            try {
+                const response = await fetch(API_URL + 'api/system/update/status', {
+                    credentials: 'include'
+                });
+
+                if (!response.ok) return;
+
+                const data = await response.json();
+                const progress = data.progress;
+
+                updateProgressUI(progress);
+
+                // Check if completed or failed
+                if (progress.status === 'completed') {
+                    clearInterval(updateProgressInterval);
+                    document.getElementById('update-success-message').style.display = 'block';
+
+                    // Countdown and reload
+                    let countdown = 5;
+                    const countdownElem = document.getElementById('reload-countdown');
+                    const countdownInterval = setInterval(() => {
+                        countdown--;
+                        countdownElem.textContent = countdown;
+                        if (countdown <= 0) {
+                            clearInterval(countdownInterval);
+                            window.location.reload();
+                        }
+                    }, 1000);
+
+                } else if (progress.status === 'failed') {
+                    clearInterval(updateProgressInterval);
+                    document.getElementById('update-error-message').textContent = '❌ Ошибка: ' + progress.message;
+                    document.getElementById('update-error-message').style.display = 'block';
+                    document.getElementById('close-update-modal-btn').style.display = 'inline-block';
+                }
+
+            } catch (error) {
+                console.error('Error polling update status:', error);
+            }
+        }
+
         async function performUpdate() {
             if (!confirm('⚠️ ВНИМАНИЕ!\n\nОбновление перезапустит сервис.\nВы потеряете текущую сессию и должны будете войти заново.\n\nПродолжить?')) {
                 return;
@@ -2481,9 +2612,11 @@
             updateBtn.disabled = true;
             updateBtn.innerHTML = '⏳ Обновление...';
 
-            showToast('🔄 Начинаем обновление... Сервис будет перезапущен.', 'info');
+            // Show progress modal
+            showUpdateModal();
 
             try {
+                // Start update
                 const response = await fetch(API_URL + 'api/system/update', {
                     method: 'POST',
                     credentials: 'include'
@@ -2491,21 +2624,26 @@
 
                 const data = await response.json();
 
-                if (response.ok && data.success) {
-                    showToast('✅ Обновление завершено! Перенаправление на страницу входа...', 'success');
+                if (response.ok) {
+                    // Start polling for progress
+                    updateProgressInterval = setInterval(pollUpdateStatus, 2000);  // Poll every 2 seconds
+                    pollUpdateStatus();  // Poll immediately
 
-                    // Redirect to login after 3 seconds
-                    setTimeout(() => {
-                        window.location.href = 'login';
-                    }, 3000);
                 } else {
-                    showToast('❌ Ошибка обновления: ' + (data.error || 'Unknown error'), 'error');
+                    // Show error
+                    document.getElementById('update-error-message').textContent = '❌ Ошибка запуска обновления: ' + (data.error || data.detail || 'Unknown error');
+                    document.getElementById('update-error-message').style.display = 'block';
+                    document.getElementById('close-update-modal-btn').style.display = 'inline-block';
+
                     updateBtn.disabled = false;
                     updateBtn.innerHTML = '⬆️ Обновить до <span id="new-version"></span>';
                 }
             } catch (error) {
-                console.error('Error performing update:', error);
-                showToast('❌ Ошибка выполнения обновления', 'error');
+                console.error('Error starting update:', error);
+                document.getElementById('update-error-message').textContent = '❌ Ошибка сети: ' + error.message;
+                document.getElementById('update-error-message').style.display = 'block';
+                document.getElementById('close-update-modal-btn').style.display = 'inline-block';
+
                 updateBtn.disabled = false;
                 updateBtn.innerHTML = '⬆️ Обновить до <span id="new-version"></span>';
             }
