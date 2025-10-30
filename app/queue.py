@@ -174,6 +174,7 @@ class QueueManager:
             total_count = params["count"]
             batch_size = 100
             total_batches = (total_count + batch_size - 1) // batch_size
+            start_index = params.get("start_index", 0)  # Начальный индекс для multi-inbound
 
             self.queues[queue_id]["progress"]["total_batches"] = total_batches
             self._save_queues()
@@ -181,7 +182,7 @@ class QueueManager:
             completed = 0
             failed = 0
 
-            logger.info(f"Processing queue {queue_id}: {total_count} users in {total_batches} batches")
+            logger.info(f"Processing queue {queue_id}: {total_count} users in {total_batches} batches (start_index: {start_index})")
 
             for batch_num in range(total_batches):
                 # Проверяем отмену
@@ -204,7 +205,8 @@ class QueueManager:
                     user_index = batch_start + i
                     user_data = params["template"].copy()
                     user_data['inbound_id'] = params['inbound_id']
-                    user_data['email'] = f"{params['template'].get('prefix', 'user')}_{user_index + 1:04d}"
+                    # Используем start_index для правильной нумерации в multi-inbound сценариях
+                    user_data['email'] = f"{params['template'].get('prefix', 'user')}_{start_index + user_index + 1:04d}"
 
                     result = db.create_user(user_data)
 
@@ -234,81 +236,6 @@ class QueueManager:
             self.update_queue_status(queue_id, QueueStatus.FAILED)
             self.add_queue_error(queue_id, str(e))
 
-    def process_multi_inbound_queue(self, queue_id: str, db):
-        """Обработка очереди multi-inbound создания пользователей"""
-        try:
-            queue = self.queues[queue_id]
-
-            if queue["status"] == QueueStatus.CANCELLED:
-                return
-
-            self.update_queue_status(queue_id, QueueStatus.PROCESSING)
-
-            params = queue["params"]
-            total_count = params["count"]
-            inbound_ids = params["inbound_ids"]
-            batch_size = 10  # Меньший batch для multi-inbound
-            total_batches = (total_count + batch_size - 1) // batch_size
-
-            self.queues[queue_id]["progress"]["total_batches"] = total_batches
-            self.queues[queue_id]["progress"]["total"] = total_count * len(inbound_ids)
-            self._save_queues()
-
-            completed = 0
-            failed = 0
-
-            logger.info(f"Processing multi-inbound queue {queue_id}: {total_count} users across {len(inbound_ids)} inbounds in {total_batches} batches")
-
-            for batch_num in range(total_batches):
-                if self.queues[queue_id]["status"] == QueueStatus.CANCELLED:
-                    logger.info(f"Queue {queue_id} was cancelled")
-                    return
-
-                batch_start = batch_num * batch_size
-                batch_count = min(batch_size, total_count - batch_start)
-
-                logger.info(f"Processing batch {batch_num + 1}/{total_batches} ({batch_count} users)")
-
-                # Создаем пользователей в батче
-                for i in range(batch_count):
-                    if self.queues[queue_id]["status"] == QueueStatus.CANCELLED:
-                        return
-
-                    user_index = batch_start + i
-                    email = f"{params['template'].get('prefix', 'user')}_{user_index + 1:04d}"
-
-                    # Создаем пользователя с этим email во всех inbound'ах
-                    for inbound_id in inbound_ids:
-                        user_data = params['template'].copy()
-                        user_data['inbound_id'] = inbound_id
-                        user_data['email'] = email
-
-                        result = db.create_user(user_data)
-
-                        if result["success"]:
-                            completed += 1
-                        else:
-                            failed += 1
-                            error_msg = f"{email} (inbound {inbound_id}): {result.get('error', 'Unknown')}"
-                            self.add_queue_error(queue_id, error_msg)
-
-                    # Обновляем прогресс после каждого пользователя
-                    self.update_queue_progress(queue_id, completed, failed, batch_num + 1)
-
-                # Обновляем x-ui после каждого batch
-                logger.info(f"Updating x-ui config after batch {batch_num + 1}")
-                db._update_xui_config()
-                time.sleep(1)
-
-            # Финальное обновление
-            self.update_queue_status(queue_id, QueueStatus.COMPLETED)
-            logger.info(f"Multi-inbound queue {queue_id} completed: {completed} created, {failed} failed")
-
-        except Exception as e:
-            logger.error(f"Error processing multi-inbound queue {queue_id}: {e}", exc_info=True)
-            self.update_queue_status(queue_id, QueueStatus.FAILED)
-            self.add_queue_error(queue_id, str(e))
-
     def start_queue_processing(self, queue_id: str, db):
         """Запуск обработки очереди в отдельном потоке"""
         if queue_id not in self.queues:
@@ -319,15 +246,10 @@ class QueueManager:
         if queue["status"] != QueueStatus.PENDING:
             return False
 
-        # Выбираем метод обработки в зависимости от типа очереди
-        if queue["type"] == "multi_inbound_create":
-            target_func = self.process_multi_inbound_queue
-        else:
-            target_func = self.process_bulk_create_queue
-
-        # Создаем и запускаем поток
+        # Все очереди теперь используют bulk_create метод
+        # Multi-inbound разбивается на несколько параллельных bulk очередей
         thread = threading.Thread(
-            target=target_func,
+            target=self.process_bulk_create_queue,
             args=(queue_id, db),
             daemon=True
         )

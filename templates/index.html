@@ -681,14 +681,31 @@
                 <div class="form-row" style="margin-top: 20px;">
                     <div class="form-group">
                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                            <input type="checkbox" id="bulk-all-inbounds" class="checkbox" onchange="updateMultiInboundLimits()">
-                            <span style="font-weight: 500;">Создать во всех inbounds сразу</span>
+                            <input type="checkbox" id="bulk-all-inbounds" class="checkbox" onchange="toggleMultiInboundSelection()">
+                            <span style="font-weight: 500;">Создать в нескольких inbounds</span>
                         </label>
                         <small style="color: var(--text-secondary); font-size: 12px; display: block; margin-top: 4px;">
-                            Каждый пользователь будет создан во всех доступных inbound'ах с одинаковым email
+                            Каждый пользователь будет создан в выбранных inbound'ах с одинаковым email
                         </small>
-                        <small id="multi-inbound-limit-warning" style="color: var(--warning); font-size: 12px; display: none; margin-top: 4px;">
-                            ⚠️ Макс. 100 пользователей или 500 операций (пользователи × inbounds)
+
+                        <!-- Выбор инбаундов -->
+                        <div id="multi-inbound-selector" style="display: none; margin-top: 12px; padding: 12px; background: var(--bg-primary); border-radius: 8px;">
+                            <div style="margin-bottom: 8px;">
+                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
+                                    <input type="checkbox" id="select-all-inbounds" onchange="toggleAllInbounds()" checked>
+                                    <span style="font-weight: 600;">Выбрать все</span>
+                                </label>
+                            </div>
+                            <div id="inbounds-checkboxes" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-top: 8px;">
+                                <!-- Список инбаундов будет загружен динамически -->
+                            </div>
+                            <small id="multi-inbound-info" style="color: var(--success); font-size: 12px; display: block; margin-top: 8px;">
+                                Выбрано: <span id="selected-inbounds-count">0</span> инбаундов
+                            </small>
+                        </div>
+
+                        <small id="multi-inbound-limit-warning" style="color: var(--warning); font-size: 12px; display: none; margin-top: 8px;">
+                            ⚠️ Макс. 1000 пользователей или 5000 операций (пользователи × inbounds)
                         </small>
                     </div>
                 </div>
@@ -1354,20 +1371,93 @@
             loadUsers();
         }
 
-        function updateMultiInboundLimits() {
+        // Toggle multi-inbound selection UI
+        function toggleMultiInboundSelection() {
             var checkbox = document.getElementById('bulk-all-inbounds');
+            var selector = document.getElementById('multi-inbound-selector');
             var warning = document.getElementById('multi-inbound-limit-warning');
-            var countInput = document.getElementById('bulk-count');
 
             if (checkbox.checked) {
+                selector.style.display = 'block';
                 warning.style.display = 'block';
-                countInput.max = 100;
-                if (parseInt(countInput.value) > 100) {
-                    countInput.value = 100;
-                }
+                loadInboundsCheckboxes();
             } else {
+                selector.style.display = 'none';
                 warning.style.display = 'none';
-                countInput.max = 5000;
+            }
+        }
+
+        // Load inbounds as checkboxes
+        function loadInboundsCheckboxes() {
+            var container = document.getElementById('inbounds-checkboxes');
+            container.innerHTML = '';
+
+            inboundsData.forEach(function(inbound) {
+                var label = document.createElement('label');
+                label.style.cssText = 'display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; padding: 6px; border-radius: 4px; background: var(--bg-secondary);';
+
+                var checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = inbound.id;
+                checkbox.className = 'inbound-checkbox';
+                checkbox.checked = true;
+                checkbox.onchange = updateSelectedInboundsCount;
+
+                var protocolBadge = '';
+                if (inbound.protocol === 'vless') protocolBadge = '🔵 VLESS';
+                else if (inbound.protocol === 'vmess') protocolBadge = '🟢 VMess';
+                else if (inbound.protocol === 'trojan') protocolBadge = '🔴 Trojan';
+                else if (inbound.protocol === 'shadowsocks') protocolBadge = '🟣 SS';
+                else protocolBadge = '⚪ ' + inbound.protocol;
+
+                var span = document.createElement('span');
+                span.textContent = protocolBadge + ' - ' + inbound.remark + ' (:' + inbound.port + ')';
+
+                label.appendChild(checkbox);
+                label.appendChild(span);
+                container.appendChild(label);
+            });
+
+            updateSelectedInboundsCount();
+        }
+
+        // Toggle all inbounds checkboxes
+        function toggleAllInbounds() {
+            var selectAll = document.getElementById('select-all-inbounds');
+            var checkboxes = document.querySelectorAll('.inbound-checkbox');
+
+            checkboxes.forEach(function(checkbox) {
+                checkbox.checked = selectAll.checked;
+            });
+
+            updateSelectedInboundsCount();
+        }
+
+        // Update selected inbounds counter
+        function updateSelectedInboundsCount() {
+            var checkboxes = document.querySelectorAll('.inbound-checkbox:checked');
+            var count = checkboxes.length;
+            var countSpan = document.getElementById('selected-inbounds-count');
+            var selectAll = document.getElementById('select-all-inbounds');
+
+            countSpan.textContent = count;
+
+            // Update "select all" checkbox state
+            var totalCheckboxes = document.querySelectorAll('.inbound-checkbox').length;
+            selectAll.checked = (count === totalCheckboxes);
+
+            // Update warning message
+            var countInput = document.getElementById('bulk-count');
+            var userCount = parseInt(countInput.value) || 0;
+            var totalOps = userCount * count;
+
+            var infoElem = document.getElementById('multi-inbound-info');
+            if (totalOps > 5000) {
+                infoElem.style.color = 'var(--danger)';
+                infoElem.innerHTML = 'Выбрано: <span id="selected-inbounds-count">' + count + '</span> инбаундов - ⚠️ Слишком много операций (' + totalOps + ')';
+            } else {
+                infoElem.style.color = 'var(--success)';
+                infoElem.innerHTML = 'Выбрано: <span id="selected-inbounds-count">' + count + '</span> инбаундов (всего операций: ' + totalOps + ')';
             }
         }
 
@@ -1380,25 +1470,30 @@
             var traffic = parseInt(document.getElementById('bulk-traffic').value) * 1024 * 1024 * 1024;
             var expiryDays = parseInt(document.getElementById('bulk-expiry-days').value);
             var inboundId = parseInt(document.getElementById('bulk-inbound').value);
-            var createInAllInbounds = document.getElementById('bulk-all-inbounds').checked;
+            var createInMultiInbounds = document.getElementById('bulk-all-inbounds').checked;
 
-            // Если создаем во всех inbounds, inboundId не обязателен
-            if (!createInAllInbounds && (!inboundId || isNaN(inboundId))) {
-                showToast('Пожалуйста, выберите Inbound или включите "Создать во всех inbounds"', 'error');
+            // Если создаем в нескольких inbounds, inboundId не обязателен
+            if (!createInMultiInbounds && (!inboundId || isNaN(inboundId))) {
+                showToast('Пожалуйста, выберите Inbound или включите "Создать в нескольких inbounds"', 'error');
                 return;
             }
 
-            // Get selected inbound protocol
-            var selectedInbound = inboundsData.find(function(inbound) {
-                return inbound.id === inboundId;
-            });
+            var protocol = null;
+            var selectedInbound = null;
 
-            if (!selectedInbound) {
-                showToast('Ошибка: Inbound не найден', 'error');
-                return;
+            // Получаем протокол только для одиночного инбаунда
+            if (!createInMultiInbounds) {
+                selectedInbound = inboundsData.find(function(inbound) {
+                    return inbound.id === inboundId;
+                });
+
+                if (!selectedInbound) {
+                    showToast('Ошибка: Inbound не найден', 'error');
+                    return;
+                }
+
+                protocol = selectedInbound.protocol.toLowerCase();
             }
-
-            var protocol = selectedInbound.protocol.toLowerCase();
 
             // Calculate expiry time
             var expiryTime = 0;
@@ -1415,26 +1510,45 @@
                 limitIp: 0
             };
 
-            // Add protocol-specific fields
-            if (protocol === 'shadowsocks') {
-                var method = document.getElementById('bulk-method').value;
-                template.method = method;
-            } else if (protocol === 'vless') {
-                var flow = document.getElementById('bulk-flow').value;
-                if (flow) {
-                    template.flow = flow;
+            // Add protocol-specific fields (only for single inbound)
+            if (!createInMultiInbounds) {
+                if (protocol === 'shadowsocks') {
+                    var method = document.getElementById('bulk-method').value;
+                    template.method = method;
+                } else if (protocol === 'vless') {
+                    var flow = document.getElementById('bulk-flow').value;
+                    if (flow) {
+                        template.flow = flow;
+                    }
                 }
             }
             // For VMess and Trojan, no additional fields needed (handled by backend)
 
-            // Если выбрано "Создать во всех inbounds"
-            if (createInAllInbounds) {
-                if (count > 100) {
-                    showToast('Для multi-inbound создания максимум 100 пользователей', 'error');
+            // Если выбрано "Создать в нескольких inbounds"
+            if (createInMultiInbounds) {
+                // Получаем выбранные инбаунды
+                var selectedCheckboxes = document.querySelectorAll('.inbound-checkbox:checked');
+                var selectedInboundIds = Array.from(selectedCheckboxes).map(function(cb) {
+                    return parseInt(cb.value);
+                });
+
+                if (selectedInboundIds.length === 0) {
+                    showToast('Выберите хотя бы один inbound', 'error');
                     return;
                 }
 
-                showToast('⏳ Создание ' + count + ' пользователей во всех inbounds...', 'info');
+                // Проверяем лимиты
+                var totalOperations = count * selectedInboundIds.length;
+                if (count > 1000) {
+                    showToast('Максимум 1000 пользователей', 'error');
+                    return;
+                }
+                if (totalOperations > 5000) {
+                    showToast('Слишком много операций (' + totalOperations + '). Максимум 5000', 'error');
+                    return;
+                }
+
+                showToast('⏳ Создание ' + count + ' пользователей в ' + selectedInboundIds.length + ' inbounds... Будет создано ' + (selectedInboundIds.length > 1 ? selectedInboundIds.length + ' параллельных очередей' : '1 очередь'), 'info');
 
                 fetch(API_URL + 'api/users/bulk-create-all-inbounds', {
                     method: 'POST',
@@ -1443,7 +1557,7 @@
                     body: JSON.stringify({
                         template: template,
                         count: count,
-                        inbound_ids: "all"
+                        inbound_ids: selectedInboundIds
                     })
                 })
                 .then(response => {
@@ -1455,11 +1569,13 @@
                     return response.json();
                 })
                 .then(data => {
-                    showToast('✅ Создано: ' + data.created + ' пользователей в ' + data.inbounds_count + ' inbounds', 'success');
+                    showToast('✅ Создано ' + data.queues_count + ' параллельных очередей для ' + count + ' пользователей в ' + selectedInboundIds.length + ' inbounds', 'success');
+                    loadQueues(); // Обновляем список очередей
                     // Очищаем форму
                     document.getElementById('bulk-prefix').value = 'user';
                     document.getElementById('bulk-count').value = '10';
                     document.getElementById('bulk-all-inbounds').checked = false;
+                    toggleMultiInboundSelection(); // Скрываем селектор
                 })
                 .catch(error => {
                     console.error('Error creating users:', error);
