@@ -681,11 +681,14 @@
                 <div class="form-row" style="margin-top: 20px;">
                     <div class="form-group">
                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                            <input type="checkbox" id="bulk-all-inbounds" class="checkbox">
+                            <input type="checkbox" id="bulk-all-inbounds" class="checkbox" onchange="updateMultiInboundLimits()">
                             <span style="font-weight: 500;">Создать во всех inbounds сразу</span>
                         </label>
                         <small style="color: var(--text-secondary); font-size: 12px; display: block; margin-top: 4px;">
                             Каждый пользователь будет создан во всех доступных inbound'ах с одинаковым email
+                        </small>
+                        <small id="multi-inbound-limit-warning" style="color: var(--warning); font-size: 12px; display: none; margin-top: 4px;">
+                            ⚠️ Макс. 100 пользователей или 500 операций (пользователи × inbounds)
                         </small>
                     </div>
                 </div>
@@ -863,7 +866,32 @@
                 <button class="btn btn-primary" onclick="loadDisabledUsers()">🔄 Обновить список</button>
                 <button class="btn btn-danger" onclick="deleteDisabledSelected()">🗑️ Удалить выбранных</button>
                 <button class="btn btn-warning" onclick="deleteAllDisabled()">⚠️ Удалить всех отключенных</button>
-                <button class="btn btn-success" onclick="enableDisabledSelected()">✅ Включить выбранных</button>
+                <button class="btn btn-success" onclick="showEnableModal()">✅ Включить с параметрами</button>
+            </div>
+
+            <!-- Enable Users Modal -->
+            <div id="enable-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+                <div style="background: var(--bg-secondary); padding: 30px; border-radius: 12px; max-width: 500px; width: 90%;">
+                    <h3 style="margin-top: 0;">Включить пользователей</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">Установите параметры для включаемых пользователей</p>
+
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label class="form-label">Срок действия (дней)</label>
+                        <input type="number" class="form-input" id="enable-expiry-days" value="30" min="0">
+                        <small style="color: var(--text-secondary); font-size: 12px;">0 = бессрочно</small>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label class="form-label">Лимит трафика (GB)</label>
+                        <input type="number" class="form-input" id="enable-traffic-gb" value="100" min="0">
+                        <small style="color: var(--text-secondary); font-size: 12px;">0 = безлимит</small>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button class="btn btn-secondary" onclick="closeEnableModal()">Отмена</button>
+                        <button class="btn btn-success" onclick="confirmEnableUsers()">✅ Включить</button>
+                    </div>
+                </div>
             </div>
 
             <div class="table-container" style="margin-top: 20px;">
@@ -1326,6 +1354,23 @@
             loadUsers();
         }
 
+        function updateMultiInboundLimits() {
+            var checkbox = document.getElementById('bulk-all-inbounds');
+            var warning = document.getElementById('multi-inbound-limit-warning');
+            var countInput = document.getElementById('bulk-count');
+
+            if (checkbox.checked) {
+                warning.style.display = 'block';
+                countInput.max = 100;
+                if (parseInt(countInput.value) > 100) {
+                    countInput.value = 100;
+                }
+            } else {
+                warning.style.display = 'none';
+                countInput.max = 5000;
+            }
+        }
+
         // Bulk create users
         function bulkCreateUsers(event) {
             event.preventDefault();
@@ -1384,8 +1429,8 @@
 
             // Если выбрано "Создать во всех inbounds"
             if (createInAllInbounds) {
-                if (count > 1000) {
-                    showToast('Для multi-inbound создания максимум 1000 пользователей', 'error');
+                if (count > 100) {
+                    showToast('Для multi-inbound создания максимум 100 пользователей', 'error');
                     return;
                 }
 
@@ -2580,32 +2625,74 @@
             }
         }
 
-        async function enableDisabledSelected() {
+        function showEnableModal() {
             const checkboxes = document.querySelectorAll('.user-checkbox-disabled:checked');
-            const userIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
-
-            if (userIds.length === 0) {
+            if (checkboxes.length === 0) {
                 showToast('Выберите пользователей для включения', 'error');
                 return;
             }
+            document.getElementById('enable-modal').style.display = 'flex';
+        }
 
+        function closeEnableModal() {
+            document.getElementById('enable-modal').style.display = 'none';
+        }
+
+        async function confirmEnableUsers() {
+            const checkboxes = document.querySelectorAll('.user-checkbox-disabled:checked');
+            const userIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+
+            const expiryDays = parseInt(document.getElementById('enable-expiry-days').value) || 0;
+            const trafficGB = parseInt(document.getElementById('enable-traffic-gb').value) || 0;
+
+            closeEnableModal();
             showToast('⏳ Включение пользователей...', 'info');
 
-            // Enable users one by one
+            const expiryTime = expiryDays > 0 ? Date.now() + (expiryDays * 24 * 60 * 60 * 1000) : 0;
+            const trafficBytes = trafficGB * 1024 * 1024 * 1024;
+
             let enabled = 0;
+            let updated = 0;
+
             for (const userId of userIds) {
                 try {
-                    const response = await fetch(API_URL + `api/users/${userId}/toggle`, {
+                    // 1. Enable user
+                    const enableResponse = await fetch(API_URL + `api/users/${userId}/toggle`, {
                         method: 'PUT',
                         credentials: 'include'
                     });
-                    if (response.ok) enabled++;
+
+                    if (enableResponse.ok) {
+                        enabled++;
+
+                        // 2. Set expiry time if specified
+                        if (expiryDays >= 0) {
+                            await fetch(API_URL + `api/users/${userId}/expiry`, {
+                                method: 'PUT',
+                                headers: {'Content-Type': 'application/json'},
+                                credentials: 'include',
+                                body: JSON.stringify({ expiry_days: expiryDays })
+                            });
+                        }
+
+                        // 3. Set traffic limit if specified
+                        if (trafficGB > 0) {
+                            await fetch(API_URL + `api/users/${userId}/traffic`, {
+                                method: 'PUT',
+                                headers: {'Content-Type': 'application/json'},
+                                credentials: 'include',
+                                body: JSON.stringify({ traffic_limit: trafficBytes })
+                            });
+                        }
+
+                        updated++;
+                    }
                 } catch (error) {
                     console.error('Error enabling user:', error);
                 }
             }
 
-            showToast(`✅ Включено: ${enabled} из ${userIds.length} пользователей`, 'success');
+            showToast(`✅ Включено: ${enabled}, обновлено: ${updated} из ${userIds.length} пользователей`, 'success');
             loadDisabledUsers();
         }
 

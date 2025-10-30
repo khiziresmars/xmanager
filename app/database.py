@@ -1554,6 +1554,7 @@ class XUIDatabase:
             created_total = 0
             users_created = []
             errors = []
+            batch_size = 20  # Обновляем x-ui каждые 20 пользователей
 
             logger.info(f"Starting multi-inbound bulk create: {count} users across {len(inbound_ids)} inbounds")
 
@@ -1580,12 +1581,17 @@ class XUIDatabase:
                         errors.append(error_msg)
                         logger.error(f"Failed to create: {error_msg}")
 
-            # После создания всех пользователей, обновляем x-ui
+                # Обновляем x-ui каждые batch_size пользователей (на всех inbounds)
+                if (i + 1) % batch_size == 0 and created_total > 0:
+                    logger.info(f"Updating x-ui config after {i + 1} users")
+                    self._update_xui_config()
+
+            # Финальное обновление x-ui если остались пользователи
             if created_total > 0:
-                logger.info(f"Restarting x-ui after creating {created_total} users")
+                logger.info(f"Final x-ui update after creating {created_total} total entries")
                 self._update_xui_config()
 
-            logger.info(f"Multi-inbound create completed: {created_total} users created")
+            logger.info(f"Multi-inbound create completed: {created_total} entries created ({count} users x {len(inbound_ids)} inbounds)")
 
             return {
                 "success": True,
