@@ -53,10 +53,12 @@ class UpdateManager:
     def _save_last_check(self, data: Dict):
         """Save update check data to file"""
         try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(LAST_CHECK_FILE), exist_ok=True)
             with open(LAST_CHECK_FILE, 'w') as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            logger.error(f"Error saving last check data: {e}")
+            logger.error(f"Error saving last check data: {e}", exc_info=True)
 
     async def check_for_updates(self, force: bool = False) -> Dict:
         """
@@ -84,8 +86,9 @@ class UpdateManager:
         try:
             logger.info(f"Checking for updates from {GITHUB_API_URL}")
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(GITHUB_API_URL, timeout=10) as response:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(GITHUB_API_URL) as response:
                     if response.status != 200:
                         raise Exception(f"GitHub API returned status {response.status}")
 
@@ -147,7 +150,13 @@ class UpdateManager:
 
     def _create_update_lock(self):
         """Create lock file to prevent concurrent updates"""
-        Path(UPDATE_LOCK_FILE).touch()
+        try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(UPDATE_LOCK_FILE), exist_ok=True)
+            Path(UPDATE_LOCK_FILE).touch()
+        except Exception as e:
+            logger.error(f"Error creating lock file: {e}", exc_info=True)
+            raise
 
     def _remove_update_lock(self):
         """Remove update lock file"""
