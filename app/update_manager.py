@@ -335,8 +335,25 @@ class UpdateManager:
             }
 
     def _restart_service(self) -> Dict:
-        """Restart xui-manager service"""
+        """Restart xui-manager service using sudo"""
         try:
+            # Try with sudo first (requires sudoers configuration)
+            result = subprocess.run(
+                ["sudo", "systemctl", "restart", "xui-manager"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if result.returncode == 0:
+                return {
+                    "success": True,
+                    "output": "Service restarted successfully",
+                    "method": "sudo"
+                }
+
+            # If sudo failed, try without sudo (for development)
+            logger.warning("Sudo restart failed, trying without sudo")
             result = subprocess.run(
                 ["systemctl", "restart", "xui-manager"],
                 capture_output=True,
@@ -346,9 +363,17 @@ class UpdateManager:
 
             return {
                 "success": result.returncode == 0,
-                "output": result.stdout if result.returncode == 0 else result.stderr
+                "output": result.stdout if result.returncode == 0 else result.stderr,
+                "method": "direct",
+                "warning": "Restart may require sudo privileges"
             }
 
+        except subprocess.TimeoutExpired:
+            logger.error("Service restart timed out")
+            return {
+                "success": False,
+                "error": "Service restart timed out"
+            }
         except Exception as e:
             logger.error(f"Service restart error: {e}")
             return {
