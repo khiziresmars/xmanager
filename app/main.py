@@ -588,6 +588,33 @@ async def set_limit(request: SetLimitRequest):
 
 # ==================== БЛОКИРОВКА И УПРАВЛЕНИЕ СТАТУСОМ ====================
 
+@app.put("/api/users/{user_id}/toggle")
+async def toggle_user_status(user_id: int, username: str = Depends(get_current_user)):
+    """Переключение статуса одного пользователя (enable/disable)"""
+    try:
+        # Get current user to toggle status
+        user = db.get_user(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Toggle: if enabled -> disable, if disabled -> enable
+        new_status = not bool(user.get('enable', 0))
+
+        result = db.bulk_toggle_users([user_id], new_status)
+        action = "enabled" if new_status else "disabled"
+
+        return {
+            "message": f"User {action}",
+            "user_id": user_id,
+            "enabled": new_status,
+            "updated": result['updated']
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error toggling user status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/users/toggle-status")
 async def toggle_users_status(request: ToggleStatusRequest):
     """Массовая блокировка/разблокировка пользователей"""
