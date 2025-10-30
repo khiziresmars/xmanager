@@ -8,6 +8,7 @@ import json
 import subprocess
 import os
 import shutil
+import threading
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 import logging
@@ -16,9 +17,12 @@ import hashlib
 
 logger = logging.getLogger(__name__)
 
+# Глобальный лок для x-ui migrate (предотвращает конфликты при параллельных очередях)
+_xui_update_lock = threading.Lock()
+
 class XUIDatabase:
     """Класс для работы с базой данных 3x-ui"""
-    
+
     def __init__(self, db_path: str = "/etc/x-ui/x-ui.db"):
         self.db_path = db_path
         self.xui_config_path = "/usr/local/x-ui/bin/config.json"
@@ -1114,23 +1118,29 @@ class XUIDatabase:
         return ''.join(random.choice(chars) for _ in range(length))
 
     def _update_xui_config(self):
-        """Обновление конфигурации xray"""
-        try:
-            logger.info("Running x-ui migrate command...")
-            # Генерируем новый config.json из БД с timeout 30 секунд
-            result = subprocess.run(
-                ["/usr/local/x-ui/x-ui", "migrate"],
-                check=True,
-                timeout=30,
-                capture_output=True,
-                text=True
-            )
-            logger.info(f"x-ui migrate completed successfully: {result.stdout}")
-        except subprocess.TimeoutExpired:
-            logger.error("x-ui migrate timed out after 30 seconds")
-            raise
-        except Exception as e:
-            logger.error(f"Error updating config: {e}", exc_info=True)
+        """Обновление конфигурации xray
+
+        Использует глобальный лок для предотвращения конфликтов при
+        параллельном выполнении из нескольких очередей
+        """
+        with _xui_update_lock:
+            try:
+                logger.info("Running x-ui migrate command (with lock)...")
+                # Генерируем новый config.json из БД с timeout 30 секунд
+                result = subprocess.run(
+                    ["/usr/local/x-ui/x-ui", "migrate"],
+                    check=True,
+                    timeout=30,
+                    capture_output=True,
+                    text=True
+                )
+                logger.info(f"x-ui migrate completed successfully")
+            except subprocess.TimeoutExpired:
+                logger.error("x-ui migrate timed out after 30 seconds")
+                raise
+            except Exception as e:
+                logger.error(f"Error updating config: {e}", exc_info=True)
+                raise
 
     def _sync_client_to_json(self, cursor, user_id: str, email: str = None) -> bool:
         """Синхронизация данных клиента из client_traffics в inbounds.settings JSON
