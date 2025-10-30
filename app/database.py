@@ -256,10 +256,8 @@ class XUIDatabase:
                 new_client["id"] = str(uuid.uuid4())
                 new_client["flow"] = user_data.get('flow', 'xtls-rprx-vision')
             elif protocol == 'trojan':
-                # Trojan: использует password для аутентификации и email для идентификации
+                # Trojan: использует только password, без id/uuid
                 new_client["password"] = user_data.get('password', self._generate_password())
-                # Добавляем id как строку для совместимости с 3x-ui (используем email)
-                new_client["id"] = user_data['email']
             elif protocol == 'vmess':
                 # VMess: использует UUID
                 new_client["id"] = str(uuid.uuid4())
@@ -1088,14 +1086,18 @@ class XUIDatabase:
                 WHERE (up + down) = 0
             """)
             no_traffic = cursor.fetchone()[0]
-            
+
             conn.close()
-            
+
+            # Получаем реальное количество онлайн пользователей
+            online = self.get_truly_online_users_count()
+
             return {
                 "active": status[0] or 0,
                 "inactive": status[1] or 0,
                 "expired": expired,
-                "no_traffic": no_traffic
+                "no_traffic": no_traffic,
+                "online": online
             }
             
         except Exception as e:
@@ -1346,3 +1348,259 @@ class XUIDatabase:
         except Exception as e:
             logger.error(f"Error extending expiry: {e}")
             return {"updated": 0}
+
+    # ==================== РАСШИРЕННЫЙ ПОИСК И УДАЛЕНИЕ ====================
+
+    def get_expired_users(self, inbound_id: Optional[int] = None) -> List[Dict]:
+        """Получение пользователей с истекшим сроком действия"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            current_time = int(datetime.now().timestamp() * 1000)
+
+            query = """
+                SELECT
+                    id, email, inbound_id,
+                    expiry_time, total, up, down, enable
+                FROM client_traffics
+                WHERE expiry_time > 0 AND expiry_time < ?
+            """
+            params = [current_time]
+
+            if inbound_id:
+                query += " AND inbound_id = ?"
+                params.append(inbound_id)
+
+            query += " ORDER BY expiry_time ASC"
+
+            cursor.execute(query, params)
+            columns = [description[0] for description in cursor.description]
+            users = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+            conn.close()
+
+            logger.info(f"Found {len(users)} expired users")
+            return users
+
+        except Exception as e:
+            logger.error(f"Error getting expired users: {e}", exc_info=True)
+            return []
+
+    def get_disabled_users(self, inbound_id: Optional[int] = None) -> List[Dict]:
+        """Получение отключенных пользователей (enable = 0 или false)"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            query = """
+                SELECT
+                    id, email, inbound_id,
+                    expiry_time, total, up, down, enable
+                FROM client_traffics
+                WHERE enable = 0 OR enable = 'false'
+            """
+            params = []
+
+            if inbound_id:
+                query += " AND inbound_id = ?"
+                params.append(inbound_id)
+
+            query += " ORDER BY email ASC"
+
+            cursor.execute(query, params)
+            columns = [description[0] for description in cursor.description]
+            users = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+            conn.close()
+
+            logger.info(f"Found {len(users)} disabled users")
+            return users
+
+        except Exception as e:
+            logger.error(f"Error getting disabled users: {e}", exc_info=True)
+            return []
+
+    def bulk_delete_users(self, user_ids: List[int]) -> Dict:
+        """Массовое удаление пользователей по списку ID
+
+        Args:
+            user_ids: Список ID пользователей для удаления
+
+        Returns:
+            Dict с количеством удаленных пользователей и ошибками
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            deleted = 0
+            errors = []
+
+            for user_id in user_ids:
+                try:
+                    # Получаем данные пользователя для удаления из settings
+                    cursor.execute("""
+                        SELECT inbound_id, email FROM client_traffics WHERE id = ?
+                    """, (user_id,))
+                    result = cursor.fetchone()
+
+                    if not result:
+                        errors.append(f"User ID {user_id} not found")
+                        continue
+
+                    inbound_id, email = result
+
+                    # Удаляем из client_traffics
+                    cursor.execute("DELETE FROM client_traffics WHERE id = ?", (user_id,))
+
+                    # Удаляем из settings inbound'а
+                    cursor.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,))
+                    inbound_result = cursor.fetchone()
+
+                    if inbound_result:
+                        settings = json.loads(inbound_result[0])
+                        if 'clients' in settings:
+                            settings['clients'] = [
+                                c for c in settings['clients']
+                                if c.get('email') != email
+                            ]
+
+                            cursor.execute("""
+                                UPDATE inbounds SET settings = ? WHERE id = ?
+                            """, (json.dumps(settings), inbound_id))
+
+                    deleted += 1
+                    logger.info(f"Deleted user {email} (ID: {user_id}) from inbound {inbound_id}")
+
+                except Exception as e:
+                    error_msg = f"Failed to delete user ID {user_id}: {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(error_msg)
+
+            conn.commit()
+
+            # Обновляем конфигурацию x-ui один раз после всех удалений
+            if deleted > 0:
+                logger.info(f"Updating x-ui config after deleting {deleted} users")
+                self._update_xui_config()
+
+            conn.close()
+
+            return {
+                "success": True,
+                "deleted": deleted,
+                "errors": errors[:10] if errors else []
+            }
+
+        except Exception as e:
+            logger.error(f"Error in bulk delete: {e}", exc_info=True)
+            return {
+                "success": False,
+                "deleted": 0,
+                "errors": [str(e)]
+            }
+
+    def get_truly_online_users_count(self) -> int:
+        """Получение реального количества онлайн пользователей
+
+        Пользователь считается онлайн если last_online обновлялся в последние 2 минуты
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            # Проверяем есть ли колонка last_online
+            available_columns = self._get_table_columns('client_traffics')
+
+            if 'last_online' not in available_columns:
+                logger.warning("Column 'last_online' not found in client_traffics")
+                return 0
+
+            # 2 минуты назад в миллисекундах
+            two_minutes_ago = int((datetime.now().timestamp() - 120) * 1000)
+
+            cursor.execute("""
+                SELECT COUNT(*) FROM client_traffics
+                WHERE enable = 1
+                AND last_online > ?
+            """, (two_minutes_ago,))
+
+            count = cursor.fetchone()[0]
+            conn.close()
+
+            return count
+
+        except Exception as e:
+            logger.error(f"Error getting online users count: {e}", exc_info=True)
+            return 0
+
+    def bulk_create_users_all_inbounds(self, template: Dict, count: int,
+                                      inbound_ids: List[int]) -> Dict:
+        """Массовое создание пользователей сразу во всех указанных inbound'ах
+
+        Создает одного пользователя сразу во всех inbound'ах с одинаковым email
+        Например: user_0001 будет создан во всех inbound'ах
+
+        Args:
+            template: Шаблон пользователя (prefix, total, expiry_time, etc)
+            count: Количество пользователей для создания
+            inbound_ids: Список ID inbound'ов
+
+        Returns:
+            Dict с результатами создания
+        """
+        try:
+            created_total = 0
+            users_created = []
+            errors = []
+
+            logger.info(f"Starting multi-inbound bulk create: {count} users across {len(inbound_ids)} inbounds")
+
+            for i in range(count):
+                email = f"{template.get('prefix', 'user')}_{i+1:04d}"
+
+                # Создаем пользователя с этим email во всех inbound'ах
+                for inbound_id in inbound_ids:
+                    user_data = template.copy()
+                    user_data['inbound_id'] = inbound_id
+                    user_data['email'] = email
+
+                    result = self.create_user(user_data)
+
+                    if result["success"]:
+                        created_total += 1
+                        users_created.append({
+                            "email": email,
+                            "inbound_id": inbound_id,
+                            "user_id": result["user"]["id"]
+                        })
+                    else:
+                        error_msg = f"{email} (inbound {inbound_id}): {result.get('error', 'Unknown error')}"
+                        errors.append(error_msg)
+                        logger.error(f"Failed to create: {error_msg}")
+
+            # После создания всех пользователей, обновляем x-ui
+            if created_total > 0:
+                logger.info(f"Restarting x-ui after creating {created_total} users")
+                self._update_xui_config()
+
+            logger.info(f"Multi-inbound create completed: {created_total} users created")
+
+            return {
+                "success": True,
+                "created": created_total,
+                "users": users_created,
+                "total_users": count,
+                "inbounds_count": len(inbound_ids),
+                "errors": errors[:20] if errors else []
+            }
+
+        except Exception as e:
+            logger.error(f"Error in multi-inbound bulk create: {e}", exc_info=True)
+            return {
+                "success": False,
+                "created": 0,
+                "users": [],
+                "errors": [str(e)]
+            }
