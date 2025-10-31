@@ -719,6 +719,9 @@
                     <thead>
                         <tr>
                             <th>ID очереди</th>
+                            <th>Инбаунд</th>
+                            <th>Протокол</th>
+                            <th>Префикс</th>
                             <th>Количество</th>
                             <th>Прогресс</th>
                             <th>Статус</th>
@@ -727,7 +730,7 @@
                         </tr>
                     </thead>
                     <tbody id="queues-table-body">
-                        <tr><td colspan="6" class="loading">Загрузка очередей...</td></tr>
+                        <tr><td colspan="9" class="loading">Загрузка очередей...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -2175,9 +2178,22 @@
                         const statusBadge = getQueueStatusBadge(queue.status);
                         const actions = getQueueActions(queue);
 
+                        // Extract metadata
+                        const metadata = queue.metadata || {};
+                        const inbound = metadata.inbound_remark || '-';
+                        const protocol = metadata.protocol || '-';
+                        const prefix = metadata.prefix || '-';
+
+                        // Add batch info if multi-inbound
+                        const batchInfo = metadata.multi_inbound ?
+                            ` <span style="color: #999; font-size: 11px;">(${metadata.batch_number}/${metadata.total_batches_for_inbound})</span>` : '';
+
                         const row = document.createElement('tr');
                         row.innerHTML = `
                             <td><code>${queue.id.substring(0, 8)}...</code></td>
+                            <td>${inbound}${batchInfo}</td>
+                            <td><span class="badge" style="background: rgba(59, 130, 246, 0.2); color: #3b82f6;">${protocol}</span></td>
+                            <td><code>${prefix}</code></td>
                             <td>${progress.total}</td>
                             <td>
                                 <div style="width: 100%;">
@@ -2194,7 +2210,7 @@
                         tbody.appendChild(row);
                     });
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="6">Нет очередей</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="9">Нет очередей</td></tr>';
                 }
             } catch (error) {
                 console.error('Error loading queues:', error);
