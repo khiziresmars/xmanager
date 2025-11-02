@@ -51,8 +51,14 @@ class QueueManager:
         except Exception as e:
             logger.error(f"Error saving queues: {e}")
 
-    def create_queue(self, queue_type: str, params: Dict) -> str:
-        """Создание новой очереди"""
+    def create_queue(self, queue_type: str, params: Dict, metadata: Dict = None) -> str:
+        """Создание новой очереди
+
+        Args:
+            queue_type: Тип очереди (bulk_create, multi_inbound_create)
+            params: Параметры для обработки
+            metadata: Дополнительная информация (inbound_remark, protocol, prefix)
+        """
         import uuid
         queue_id = str(uuid.uuid4())
 
@@ -61,6 +67,7 @@ class QueueManager:
             "type": queue_type,
             "status": QueueStatus.PENDING,
             "params": params,
+            "metadata": metadata or {},  # Дополнительная информация для UI
             "created_at": datetime.now().isoformat(),
             "started_at": None,
             "completed_at": None,
@@ -76,7 +83,13 @@ class QueueManager:
         }
 
         self._save_queues()
-        logger.info(f"Queue created: {queue_id} ({queue_type})")
+
+        # Улучшенное логирование
+        inbound_info = metadata.get("inbound_remark", f"ID {params.get('inbound_id')}") if metadata else ""
+        protocol_info = metadata.get("protocol", "unknown") if metadata else ""
+        prefix_info = params.get('template', {}).get('prefix', 'user') if 'template' in params else "unknown"
+
+        logger.info(f"Queue created: {queue_id} | Type: {queue_type} | Inbound: {inbound_info} | Protocol: {protocol_info} | Prefix: {prefix_info} | Count: {params.get('count', 0)}")
 
         return queue_id
 

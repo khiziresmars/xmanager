@@ -364,19 +364,28 @@ async def bulk_create_users_all_inbounds(request: Dict[str, Any]):
                 detail=f"Too many operations ({total_operations}). Maximum 5000 (count * inbounds). Try reducing count or number of inbounds."
             )
 
+        # Получаем информацию обо всех инбаундах для metadata
+        all_inbounds = db.get_inbounds()
+        inbounds_map = {inbound['id']: inbound for inbound in all_inbounds}
+
         # ОПТИМИЗАЦИЯ: разбиваем на несколько параллельных очередей по 100 пользователей
         # Например: 250 пользователей в 2 инбаундах = 6 очередей (3 на каждый инбаунд)
         queue_ids = []
         batch_size = 100
 
         for inbound_id in inbound_ids:
+            # Получаем информацию об инбаунде
+            inbound_info = inbounds_map.get(inbound_id, {})
+            inbound_remark = inbound_info.get('remark', f'Inbound {inbound_id}')
+            protocol = inbound_info.get('protocol', 'unknown')
+
             batches = (count + batch_size - 1) // batch_size  # Округление вверх
 
             for batch_num in range(batches):
                 start_index = batch_num * batch_size
                 batch_count = min(batch_size, count - start_index)
 
-                # Создаем обычную bulk очередь для каждого батча
+                # Создаем обычную bulk очередь для каждого батча с metadata
                 queue_id = queue_manager.create_queue(
                     "bulk_create",
                     {
@@ -384,9 +393,20 @@ async def bulk_create_users_all_inbounds(request: Dict[str, Any]):
                         "count": batch_count,
                         "inbound_id": inbound_id,
                         "start_index": start_index  # Начальный индекс для email
+                    },
+                    metadata={
+                        "inbound_id": inbound_id,
+                        "inbound_remark": inbound_remark,
+                        "protocol": protocol.upper(),
+                        "prefix": template.get('prefix', 'user'),
+                        "batch_number": batch_num + 1,
+                        "total_batches_for_inbound": batches,
+                        "multi_inbound": True
                     }
                 )
                 queue_ids.append(queue_id)
+
+                logger.info(f"Created queue {queue_id[:8]}... for {inbound_remark} ({protocol}) - batch {batch_num + 1}/{batches}")
 
                 # Запускаем обработку в фоне
                 queue_manager.start_queue_processing(queue_id, db)
