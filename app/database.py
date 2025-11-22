@@ -1314,6 +1314,120 @@ class XUIDatabase:
             logger.error(f"Error updating expiry: {e}")
             return {"success": False, "error": str(e)}
 
+    def update_expiry_by_email_prefix(self, email_prefix: str, expiry_time: int) -> Dict:
+        """
+        Обновление срока действия для всех клиентов по префиксу email.
+
+        Ищет клиентов где email начинается с '{email_prefix}-' или '{email_prefix}@'
+        (например, '932101-vless', '932101-trojan', '932101@thevpn.org')
+
+        Args:
+            email_prefix: Префикс email (обычно chat_id пользователя)
+            expiry_time: Новый срок в миллисекундах
+
+        Returns:
+            Dict с результатом: updated_count, updated_ids
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            # Находим всех клиентов по паттерну email
+            cursor.execute("""
+                SELECT id, email, inbound_id
+                FROM client_traffics
+                WHERE email LIKE ? OR email LIKE ?
+            """, (f"{email_prefix}-%", f"{email_prefix}@%"))
+
+            clients = cursor.fetchall()
+
+            if not clients:
+                conn.close()
+                return {
+                    "success": False,
+                    "error": f"No clients found with email prefix '{email_prefix}'",
+                    "updated_count": 0
+                }
+
+            updated_ids = []
+
+            for client in clients:
+                client_id, email, inbound_id = client
+
+                # Обновляем в client_traffics
+                cursor.execute("""
+                    UPDATE client_traffics
+                    SET expiry_time = ?
+                    WHERE id = ?
+                """, (expiry_time, client_id))
+
+                if cursor.rowcount > 0:
+                    # Синхронизируем с JSON в inbounds
+                    self._sync_client_to_json(cursor, str(client_id))
+                    updated_ids.append(client_id)
+                    logger.info(f"[SYNC] Updated client {client_id} ({email}): expiry -> {expiry_time}")
+
+            conn.commit()
+            conn.close()
+
+            return {
+                "success": True,
+                "updated_count": len(updated_ids),
+                "updated_ids": updated_ids,
+                "email_prefix": email_prefix,
+                "expiry_time": expiry_time
+            }
+
+        except Exception as e:
+            logger.error(f"Error updating expiry by email prefix: {e}")
+            return {"success": False, "error": str(e), "updated_count": 0}
+
+    def get_clients_by_email_prefix(self, email_prefix: str) -> List[Dict]:
+        """
+        Получение списка клиентов по префиксу email.
+
+        Args:
+            email_prefix: Префикс email (обычно chat_id)
+
+        Returns:
+            Список клиентов
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT
+                    ct.id, ct.email, ct.inbound_id, ct.expiry_time,
+                    ct.total, ct.up, ct.down, ct.enable,
+                    i.protocol, i.remark as inbound_remark
+                FROM client_traffics ct
+                LEFT JOIN inbounds i ON ct.inbound_id = i.id
+                WHERE ct.email LIKE ? OR ct.email LIKE ?
+            """, (f"{email_prefix}-%", f"{email_prefix}@%"))
+
+            clients = []
+            for row in cursor.fetchall():
+                clients.append({
+                    "id": row[0],
+                    "email": row[1],
+                    "inbound_id": row[2],
+                    "expiry_time": row[3],
+                    "total": row[4],
+                    "up": row[5],
+                    "down": row[6],
+                    "enable": bool(row[7]),
+                    "protocol": row[8],
+                    "inbound_remark": row[9]
+                })
+
+            conn.close()
+            return clients
+
+        except Exception as e:
+            logger.error(f"Error getting clients by email prefix: {e}")
+            return []
+
     def bulk_extend_expiry(self, user_ids: List[str], days: int) -> Dict:
         """Массовое продление срока действия"""
         try:

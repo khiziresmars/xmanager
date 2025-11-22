@@ -733,6 +733,146 @@ async def set_user_traffic(
         logger.error(f"Error setting user traffic: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ==================== SYNC ENDPOINTS (by email prefix / chat_id) ====================
+
+@app.get("/api/sync/user/{chat_id}")
+async def get_user_clients_by_chat_id(
+    chat_id: str,
+    username: str = Depends(get_current_user)
+):
+    """
+    Получение всех клиентов пользователя по chat_id.
+
+    Ищет клиентов где email начинается с '{chat_id}-' или '{chat_id}@'
+    (например, '932101-vless', '932101-trojan')
+    """
+    try:
+        clients = db.get_clients_by_email_prefix(chat_id)
+
+        if not clients:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No clients found with chat_id '{chat_id}'"
+            )
+
+        return {
+            "chat_id": chat_id,
+            "clients_count": len(clients),
+            "clients": clients
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting clients by chat_id: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/sync/user/{chat_id}/expiry")
+async def sync_user_expiry_by_chat_id(
+    chat_id: str,
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Синхронизация срока действия для всех клиентов пользователя по chat_id.
+
+    Ищет всех клиентов где email начинается с '{chat_id}-' или '{chat_id}@'
+    и обновляет им expiry_time.
+
+    Args:
+        chat_id: ID пользователя (telegram chat_id)
+        request: JSON с полем expiry_time (Unix timestamp в миллисекундах)
+    """
+    try:
+        expiry_time = request.get("expiry_time")
+
+        if expiry_time is None:
+            raise HTTPException(
+                status_code=400,
+                detail="expiry_time is required"
+            )
+
+        result = db.update_expiry_by_email_prefix(chat_id, int(expiry_time))
+
+        if result["success"]:
+            logger.info(f"[SYNC] Synced expiry for chat_id {chat_id}: {result['updated_count']} clients updated")
+            return {
+                "success": True,
+                "chat_id": chat_id,
+                "updated_clients": result["updated_count"],
+                "updated_ids": result.get("updated_ids", []),
+                "expiry_time": expiry_time
+            }
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=result.get("error", f"No clients found for chat_id '{chat_id}'")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error syncing user expiry by chat_id: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/sync/bulk/expiry")
+async def sync_bulk_expiry(
+    request: List[Dict[str, Any]],
+    username: str = Depends(get_current_user)
+):
+    """
+    Массовая синхронизация сроков для нескольких пользователей.
+
+    Args:
+        request: Список объектов [{chat_id: str, expiry_time: int}, ...]
+    """
+    try:
+        results = []
+        total_updated = 0
+
+        for item in request:
+            chat_id = item.get("chat_id")
+            expiry_time = item.get("expiry_time")
+
+            if not chat_id or expiry_time is None:
+                results.append({
+                    "chat_id": chat_id,
+                    "success": False,
+                    "error": "Missing chat_id or expiry_time"
+                })
+                continue
+
+            result = db.update_expiry_by_email_prefix(chat_id, int(expiry_time))
+
+            if result["success"]:
+                results.append({
+                    "chat_id": chat_id,
+                    "success": True,
+                    "updated_clients": result["updated_count"]
+                })
+                total_updated += result["updated_count"]
+            else:
+                results.append({
+                    "chat_id": chat_id,
+                    "success": False,
+                    "error": result.get("error", "Unknown error")
+                })
+
+        return {
+            "total_requests": len(request),
+            "successful": sum(1 for r in results if r.get("success")),
+            "total_clients_updated": total_updated,
+            "results": results
+        }
+
+    except Exception as e:
+        logger.error(f"Error in bulk expiry sync: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/users/toggle-status")
 async def toggle_users_status(request: ToggleStatusRequest):
     """Массовая блокировка/разблокировка пользователей"""
