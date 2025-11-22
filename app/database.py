@@ -1362,8 +1362,8 @@ class XUIDatabase:
                 """, (expiry_time, client_id))
 
                 if cursor.rowcount > 0:
-                    # Синхронизируем с JSON в inbounds
-                    self._sync_client_to_json(cursor, str(client_id))
+                    # Обновляем ТОЛЬКО expiryTime в JSON (не трогаем enable и другие поля)
+                    self._sync_expiry_only_to_json(cursor, email, inbound_id, expiry_time)
                     updated_ids.append(client_id)
                     logger.info(f"[SYNC] Updated client {client_id} ({email}): expiry -> {expiry_time}")
 
@@ -1381,6 +1381,55 @@ class XUIDatabase:
         except Exception as e:
             logger.error(f"Error updating expiry by email prefix: {e}")
             return {"success": False, "error": str(e), "updated_count": 0}
+
+    def _sync_expiry_only_to_json(self, cursor, email: str, inbound_id: int, expiry_time: int) -> bool:
+        """
+        Синхронизация ТОЛЬКО срока действия в JSON inbounds.
+        Не изменяет enable и другие поля клиента.
+
+        Args:
+            cursor: Курсор БД
+            email: Email клиента
+            inbound_id: ID inbound
+            expiry_time: Новый срок в миллисекундах
+
+        Returns:
+            True если успешно, False иначе
+        """
+        try:
+            # Получаем settings inbound
+            cursor.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,))
+            settings_result = cursor.fetchone()
+            if not settings_result:
+                return False
+
+            settings = json.loads(settings_result[0])
+
+            if 'clients' not in settings:
+                return False
+
+            # Находим и обновляем ТОЛЬКО expiryTime клиента в JSON
+            client_updated = False
+            for client in settings['clients']:
+                if client.get('email') == email:
+                    client['expiryTime'] = expiry_time
+                    client_updated = True
+                    break
+
+            if not client_updated:
+                logger.warning(f"Client {email} not found in inbound {inbound_id} JSON")
+                return False
+
+            # Сохраняем обновленные settings
+            cursor.execute("""
+                UPDATE inbounds SET settings = ? WHERE id = ?
+            """, (json.dumps(settings, ensure_ascii=False), inbound_id))
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error syncing expiry to JSON: {e}")
+            return False
 
     def get_clients_by_email_prefix(self, email_prefix: str) -> List[Dict]:
         """
