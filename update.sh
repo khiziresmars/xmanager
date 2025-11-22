@@ -1,217 +1,241 @@
 #!/bin/bash
-
-##############################################################################
-# XUI-Manager Update Script
-# Обновление XUI-Manager из GitHub репозитория
-##############################################################################
+#
+# XManager Auto-Update Script
+# Updates XManager to the latest version from GitHub
+#
+# Usage:
+#   wget -qO- https://raw.githubusercontent.com/khiziresmars/xmanager/main/update.sh | sudo bash
+#   # or
+#   curl -sSL https://raw.githubusercontent.com/khiziresmars/xmanager/main/update.sh | sudo bash
+#
 
 set -e
 
-# Цвета для вывода
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Функции вывода
-print_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
-}
-
-print_success() {
-    echo -e "${GREEN}✅ $1${NC}"
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
-}
-
-print_error() {
-    echo -e "${RED}❌ $1${NC}"
-}
-
-print_header() {
-    echo ""
-    echo -e "${BLUE}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}  $1"
-    echo -e "${BLUE}╚═══════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-}
-
-# Проверка прав root
-if [ "$EUID" -ne 0 ]; then
-    print_error "Пожалуйста, запустите скрипт с правами root (sudo)"
-    exit 1
-fi
-
-print_header "XUI-Manager - Обновление"
-
+# Configuration
+REPO="khiziresmars/xmanager"
 INSTALL_DIR="/opt/xui-manager"
+BACKUP_DIR="/opt/xui-manager/backups"
+SERVICE_NAME="xui-manager"
+VENV_DIR="$INSTALL_DIR/venv"
 
-# Проверка существования установки
+echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║     XManager Auto-Update Script        ║${NC}"
+echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+echo ""
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}Error: Please run as root (sudo)${NC}"
+    exit 1
+fi
+
+# Check if installation exists
 if [ ! -d "$INSTALL_DIR" ]; then
-    print_error "XUI-Manager не установлен в $INSTALL_DIR"
-    print_info "Запустите install.sh для установки"
+    echo -e "${RED}Error: XManager not installed in $INSTALL_DIR${NC}"
+    echo -e "${YELLOW}Run install.sh first${NC}"
     exit 1
 fi
 
-cd "$INSTALL_DIR"
+# Get current version
+CURRENT_VERSION="unknown"
+if [ -f "$INSTALL_DIR/app/version.py" ]; then
+    CURRENT_VERSION=$(grep -oP 'CURRENT_VERSION\s*=\s*"\K[^"]+' "$INSTALL_DIR/app/version.py" 2>/dev/null || echo "unknown")
+fi
+echo -e "${YELLOW}Current version: ${NC}$CURRENT_VERSION"
 
-# Проверка наличия git репозитория
-if [ ! -d ".git" ]; then
-    print_error "Git репозиторий не инициализирован"
-    print_info "Выполните: cd /opt/xui-manager && git init && git remote add origin YOUR_REPO_URL"
-    exit 1
+# Get latest version from GitHub
+echo -e "${YELLOW}Checking latest version...${NC}"
+LATEST_INFO=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
+LATEST_VERSION=$(echo "$LATEST_INFO" | grep -oP '"tag_name":\s*"v?\K[^"]+' | head -1)
+DOWNLOAD_URL=$(echo "$LATEST_INFO" | grep -oP '"tarball_url":\s*"\K[^"]+' | head -1)
+
+if [ -z "$LATEST_VERSION" ]; then
+    # Fallback to main branch if no releases
+    echo -e "${YELLOW}No releases found, using main branch...${NC}"
+    DOWNLOAD_URL="https://github.com/$REPO/archive/refs/heads/main.tar.gz"
+    LATEST_VERSION="main"
 fi
 
-# 1. Сохранение текущей конфигурации
-print_info "Шаг 1/6: Сохранение текущей конфигурации..."
+echo -e "${GREEN}Target version: ${NC}$LATEST_VERSION"
 
-# Создаем резервную копию .env
-if [ -f ".env" ]; then
-    cp .env .env.backup
-    print_success ".env сохранен"
-fi
-
-# Создаем резервную копию БД (если есть)
-if [ -f "/etc/x-ui/x-ui.db" ]; then
-    cp /etc/x-ui/x-ui.db "/etc/x-ui/x-ui.db.backup-$(date +%Y%m%d-%H%M%S)"
-    print_success "Резервная копия БД создана"
-fi
-
-# 2. Проверка изменений
-print_info "Шаг 2/6: Проверка локальных изменений..."
-
-if [ -n "$(git status --porcelain)" ]; then
-    print_warning "Обнаружены локальные изменения:"
-    git status --short
-    echo ""
-    read -p "Сохранить изменения перед обновлением? (y/n): " -n 1 -r
+# Check if update is needed
+if [ "$CURRENT_VERSION" = "$LATEST_VERSION" ]; then
+    echo -e "${GREEN}✓ Already on latest version ($LATEST_VERSION)${NC}"
+    read -p "Force update anyway? (y/N): " -n 1 -r
     echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        git stash save "Auto-stash before update $(date +%Y-%m-%d_%H:%M:%S)"
-        print_success "Изменения сохранены в stash"
-        STASHED=true
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 0
     fi
 fi
 
-# 3. Получение обновлений
-print_info "Шаг 3/6: Получение обновлений из репозитория..."
+# Create backup
+echo -e "${YELLOW}Creating backup...${NC}"
+mkdir -p "$BACKUP_DIR"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="$BACKUP_DIR/backup_${TIMESTAMP}.tar.gz"
 
-git fetch origin
-
-# Получение имени текущей ветки
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-print_info "Текущая ветка: $CURRENT_BRANCH"
-
-# Проверка наличия обновлений
-LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/$CURRENT_BRANCH)
-
-if [ "$LOCAL" = "$REMOTE" ]; then
-    print_success "Уже используется последняя версия"
-
-    # Восстановление stash если был
-    if [ "$STASHED" = true ]; then
-        print_info "Восстановление локальных изменений..."
-        git stash pop
-    fi
-
-    exit 0
-else
-    print_info "Найдены обновления, применяем..."
-    git pull origin "$CURRENT_BRANCH"
-    print_success "Обновления загружены"
+if [ -d "$INSTALL_DIR/app" ]; then
+    tar -czf "$BACKUP_FILE" \
+        -C "$INSTALL_DIR" \
+        --exclude=venv \
+        --exclude=.git \
+        --exclude=__pycache__ \
+        --exclude='*.pyc' \
+        --exclude='*.log' \
+        --exclude=backups \
+        . 2>/dev/null || true
+    echo -e "${GREEN}✓ Backup created: ${NC}$BACKUP_FILE"
 fi
 
-# 4. Восстановление конфигурации
-print_info "Шаг 4/6: Восстановление конфигурации..."
+# Stop service
+echo -e "${YELLOW}Stopping service...${NC}"
+systemctl stop $SERVICE_NAME 2>/dev/null || true
 
-if [ -f ".env.backup" ]; then
-    # Сравниваем .env.example с существующим .env
-    if [ -f ".env.example" ]; then
-        # Проверяем, есть ли новые параметры в .env.example
-        NEW_PARAMS=$(comm -13 <(grep -v '^#' .env.backup | grep '=' | cut -d'=' -f1 | sort) \
-                              <(grep -v '^#' .env.example | grep '=' | cut -d'=' -f1 | sort))
+# Download latest release
+echo -e "${YELLOW}Downloading update...${NC}"
+TEMP_DIR=$(mktemp -d)
+TARBALL="$TEMP_DIR/release.tar.gz"
 
-        if [ -n "$NEW_PARAMS" ]; then
-            print_warning "Обнаружены новые параметры конфигурации:"
-            echo "$NEW_PARAMS"
-            print_info "Добавляем их в .env..."
+curl -L -o "$TARBALL" "$DOWNLOAD_URL"
 
-            # Добавляем новые параметры
-            echo "" >> .env.backup
-            echo "# New parameters added during update" >> .env.backup
-            while IFS= read -r param; do
-                grep "^$param=" .env.example >> .env.backup
-            done <<< "$NEW_PARAMS"
-        fi
-    fi
-
-    mv .env.backup .env
-    print_success "Конфигурация восстановлена"
-fi
-
-# Восстановление stash если был
-if [ "$STASHED" = true ]; then
-    print_info "Восстановление локальных изменений..."
-    if git stash pop; then
-        print_success "Локальные изменения восстановлены"
-    else
-        print_warning "Конфликт при восстановлении изменений"
-        print_info "Разрешите конфликты вручную: git status"
-    fi
-fi
-
-# 5. Обновление зависимостей
-print_info "Шаг 5/6: Обновление зависимостей..."
-
-pip3 install -q --upgrade fastapi uvicorn pydantic python-multipart pydantic-settings
-
-print_success "Зависимости обновлены"
-
-# 6. Перезапуск сервиса
-print_info "Шаг 6/6: Перезапуск сервиса..."
-
-systemctl restart xui-manager
-
-sleep 2
-
-if systemctl is-active --quiet xui-manager; then
-    print_success "Сервис xui-manager перезапущен"
-else
-    print_error "Ошибка перезапуска сервиса"
-    print_info "Проверьте логи: journalctl -u xui-manager -n 50"
+if [ ! -f "$TARBALL" ]; then
+    echo -e "${RED}Error: Download failed${NC}"
+    systemctl start $SERVICE_NAME 2>/dev/null || true
     exit 1
 fi
 
-# Проверка API
-API_RESPONSE=$(curl -s http://localhost:8888/api/health || echo "{}")
+# Extract release
+echo -e "${YELLOW}Extracting files...${NC}"
+EXTRACT_DIR="$TEMP_DIR/extracted"
+mkdir -p "$EXTRACT_DIR"
+tar -xzf "$TARBALL" -C "$EXTRACT_DIR"
 
-if echo "$API_RESPONSE" | grep -q "healthy"; then
-    print_success "API работает корректно"
-else
-    print_warning "API может работать некорректно"
-    print_info "Проверьте логи: tail -f /var/log/xui-manager.log"
+# Find source directory
+SOURCE_DIR=$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d | head -1)
+
+if [ -z "$SOURCE_DIR" ] || [ ! -d "$SOURCE_DIR" ]; then
+    echo -e "${RED}Error: Could not find extracted files${NC}"
+    systemctl start $SERVICE_NAME 2>/dev/null || true
+    exit 1
 fi
 
-# Итоговая информация
-print_header "Обновление завершено!"
+# Preserve config files
+echo -e "${YELLOW}Preserving configuration...${NC}"
+CONFIG_BACKUP=""
+if [ -f "$INSTALL_DIR/.env" ]; then
+    CONFIG_BACKUP="$TEMP_DIR/env_backup"
+    cp "$INSTALL_DIR/.env" "$CONFIG_BACKUP"
+fi
 
-echo -e "${GREEN}✅ XUI-Manager успешно обновлен!${NC}"
-echo ""
-echo -e "${BLUE}📋 Информация о версии:${NC}"
-echo ""
-echo -e "  • Текущий коммит: ${GREEN}$(git rev-parse --short HEAD)${NC}"
-echo -e "  • Ветка: ${GREEN}$CURRENT_BRANCH${NC}"
-echo -e "  • Дата обновления: ${GREEN}$(date '+%Y-%m-%d %H:%M:%S')${NC}"
-echo ""
-echo -e "${BLUE}🔧 Полезные команды:${NC}"
-echo ""
-echo -e "  • Просмотр логов:   ${YELLOW}tail -f /var/log/xui-manager.log${NC}"
-echo -e "  • Статус сервиса:   ${YELLOW}systemctl status xui-manager${NC}"
-echo -e "  • История изменений: ${YELLOW}git log --oneline -10${NC}"
-echo ""
+TOKENS_BACKUP=""
+if [ -f "$INSTALL_DIR/api_tokens.json" ]; then
+    TOKENS_BACKUP="$TEMP_DIR/tokens_backup"
+    cp "$INSTALL_DIR/api_tokens.json" "$TOKENS_BACKUP"
+fi
 
-print_success "Готово! 🎉"
+TEMPLATES_BACKUP=""
+if [ -f "$INSTALL_DIR/templates.json" ]; then
+    TEMPLATES_BACKUP="$TEMP_DIR/templates_backup"
+    cp "$INSTALL_DIR/templates.json" "$TEMPLATES_BACKUP"
+fi
+
+QUEUES_BACKUP=""
+if [ -f "$INSTALL_DIR/queues.json" ]; then
+    QUEUES_BACKUP="$TEMP_DIR/queues_backup"
+    cp "$INSTALL_DIR/queues.json" "$QUEUES_BACKUP"
+fi
+
+# Update files
+echo -e "${YELLOW}Installing new version...${NC}"
+
+# Remove old code files (keep data directories)
+rm -rf "$INSTALL_DIR/app" 2>/dev/null || true
+rm -rf "$INSTALL_DIR/templates" 2>/dev/null || true
+rm -f "$INSTALL_DIR/requirements.txt" 2>/dev/null || true
+rm -f "$INSTALL_DIR/README.md" 2>/dev/null || true
+rm -f "$INSTALL_DIR/install.sh" 2>/dev/null || true
+rm -f "$INSTALL_DIR/update.sh" 2>/dev/null || true
+rm -f "$INSTALL_DIR/fix-nginx.sh" 2>/dev/null || true
+rm -f "$INSTALL_DIR/setup_update_permissions.sh" 2>/dev/null || true
+
+# Copy new files
+cp -r "$SOURCE_DIR/app" "$INSTALL_DIR/"
+cp -r "$SOURCE_DIR/templates" "$INSTALL_DIR/" 2>/dev/null || true
+cp "$SOURCE_DIR/requirements.txt" "$INSTALL_DIR/" 2>/dev/null || true
+cp "$SOURCE_DIR/README.md" "$INSTALL_DIR/" 2>/dev/null || true
+cp "$SOURCE_DIR/install.sh" "$INSTALL_DIR/" 2>/dev/null || true
+cp "$SOURCE_DIR/update.sh" "$INSTALL_DIR/" 2>/dev/null || true
+cp "$SOURCE_DIR/fix-nginx.sh" "$INSTALL_DIR/" 2>/dev/null || true
+cp "$SOURCE_DIR/setup_update_permissions.sh" "$INSTALL_DIR/" 2>/dev/null || true
+
+# Restore config files
+if [ -n "$CONFIG_BACKUP" ] && [ -f "$CONFIG_BACKUP" ]; then
+    cp "$CONFIG_BACKUP" "$INSTALL_DIR/.env"
+fi
+
+if [ -n "$TOKENS_BACKUP" ] && [ -f "$TOKENS_BACKUP" ]; then
+    cp "$TOKENS_BACKUP" "$INSTALL_DIR/api_tokens.json"
+fi
+
+if [ -n "$TEMPLATES_BACKUP" ] && [ -f "$TEMPLATES_BACKUP" ]; then
+    cp "$TEMPLATES_BACKUP" "$INSTALL_DIR/templates.json"
+fi
+
+if [ -n "$QUEUES_BACKUP" ] && [ -f "$QUEUES_BACKUP" ]; then
+    cp "$QUEUES_BACKUP" "$INSTALL_DIR/queues.json"
+fi
+
+# Install dependencies
+echo -e "${YELLOW}Installing dependencies...${NC}"
+if [ -d "$VENV_DIR" ]; then
+    "$VENV_DIR/bin/pip" install -r "$INSTALL_DIR/requirements.txt" --quiet --no-cache-dir
+else
+    pip3 install -r "$INSTALL_DIR/requirements.txt" --quiet --no-cache-dir
+fi
+
+# Set permissions
+chown -R root:root "$INSTALL_DIR"
+chmod +x "$INSTALL_DIR/update.sh" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/install.sh" 2>/dev/null || true
+
+# Clean up
+rm -rf "$TEMP_DIR"
+
+# Start service
+echo -e "${YELLOW}Starting service...${NC}"
+systemctl start $SERVICE_NAME
+
+# Wait and check status
+sleep 3
+if systemctl is-active --quiet $SERVICE_NAME; then
+    echo -e "${GREEN}✓ Service started successfully${NC}"
+else
+    echo -e "${RED}Warning: Service may not be running properly${NC}"
+    echo -e "${YELLOW}Check logs: journalctl -u $SERVICE_NAME -f${NC}"
+fi
+
+# Get new version
+NEW_VERSION="unknown"
+if [ -f "$INSTALL_DIR/app/version.py" ]; then
+    NEW_VERSION=$(grep -oP 'CURRENT_VERSION\s*=\s*"\K[^"]+' "$INSTALL_DIR/app/version.py" 2>/dev/null || echo "unknown")
+fi
+
+echo ""
+echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║        Update Complete!                ║${NC}"
+echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "  Previous version: ${YELLOW}$CURRENT_VERSION${NC}"
+echo -e "  New version:      ${GREEN}$NEW_VERSION${NC}"
+echo -e "  Backup file:      ${BLUE}$BACKUP_FILE${NC}"
+echo ""
+echo -e "${YELLOW}Rollback command:${NC}"
+echo -e "  tar -xzf $BACKUP_FILE -C $INSTALL_DIR && systemctl restart $SERVICE_NAME"
+echo ""
