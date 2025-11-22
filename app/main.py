@@ -1749,6 +1749,190 @@ async def generate_keys(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/sync/bulk/expiry")
+async def bulk_sync_expiry(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Пакетная синхронизация сроков для нескольких пользователей.
+
+    Request body:
+    {
+        "users": [
+            {"chat_id": "123456", "expiry_time": 1735689599000},
+            {"chat_id": "789012", "expiry_time": 1735689599000}
+        ]
+    }
+
+    Returns:
+        Результаты синхронизации для каждого пользователя
+    """
+    try:
+        users = request.get("users", [])
+        if not users:
+            raise HTTPException(status_code=400, detail="users list is required")
+
+        results = {
+            "total_users": len(users),
+            "total_updated": 0,
+            "details": []
+        }
+
+        for user_data in users:
+            chat_id = user_data.get("chat_id")
+            expiry_time = user_data.get("expiry_time")
+
+            if not chat_id or not expiry_time:
+                results["details"].append({
+                    "chat_id": chat_id,
+                    "error": "Missing chat_id or expiry_time"
+                })
+                continue
+
+            try:
+                update_result = db.update_expiry_by_email_prefix(str(chat_id), expiry_time)
+                updated = update_result.get("updated", 0)
+                results["total_updated"] += updated
+                results["details"].append({
+                    "chat_id": chat_id,
+                    "updated": updated
+                })
+            except Exception as e:
+                results["details"].append({
+                    "chat_id": chat_id,
+                    "error": str(e)
+                })
+
+        logger.info(f"Bulk sync: {results['total_updated']} clients for {len(users)} users")
+        return {"success": True, **results}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in bulk sync: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/health/detailed")
+async def health_detailed():
+    """
+    Детальная проверка здоровья системы.
+
+    Returns:
+        Статус БД, количество клиентов, использование диска
+    """
+    import os
+    import shutil
+
+    try:
+        # Проверка БД
+        conn = db._get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT COUNT(*) FROM client_traffics")
+        total_clients = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM client_traffics WHERE enable = 1")
+        active_clients = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM inbounds")
+        inbounds = cursor.fetchone()[0]
+
+        conn.close()
+
+        # Использование диска
+        db_path = "/etc/x-ui/x-ui.db"
+        db_size = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+
+        disk_usage = shutil.disk_usage("/")
+
+        return {
+            "status": "healthy",
+            "database": {
+                "total_clients": total_clients,
+                "active_clients": active_clients,
+                "inactive_clients": total_clients - active_clients,
+                "inbounds": inbounds,
+                "size_mb": round(db_size / 1024 / 1024, 2)
+            },
+            "disk": {
+                "total_gb": round(disk_usage.total / 1024 / 1024 / 1024, 2),
+                "used_gb": round(disk_usage.used / 1024 / 1024 / 1024, 2),
+                "free_gb": round(disk_usage.free / 1024 / 1024 / 1024, 2),
+                "percent_used": round(disk_usage.used / disk_usage.total * 100, 1)
+            },
+            "version": CURRENT_VERSION
+        }
+
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "version": CURRENT_VERSION
+        }
+
+
+@app.delete("/api/users/expired/cleanup")
+async def cleanup_expired_users(
+    days_expired: int = Query(30, description="Delete users expired more than N days ago"),
+    dry_run: bool = Query(True, description="Only show what would be deleted"),
+    username: str = Depends(get_current_user)
+):
+    """
+    Очистка давно истекших пользователей.
+
+    Удаляет пользователей, чей срок истек более N дней назад.
+    По умолчанию в режиме dry_run - только показывает что будет удалено.
+    """
+    from datetime import datetime, timedelta
+
+    try:
+        conn = db._get_connection()
+        cursor = conn.cursor()
+
+        # Вычислить время отсечки
+        cutoff_time = int((datetime.now() - timedelta(days=days_expired)).timestamp() * 1000)
+
+        # Найти истекших
+        cursor.execute("""
+            SELECT id, email, expiry_time, inbound_id
+            FROM client_traffics
+            WHERE expiry_time > 0 AND expiry_time < ?
+        """, (cutoff_time,))
+
+        expired_users = cursor.fetchall()
+        conn.close()
+
+        result = {
+            "dry_run": dry_run,
+            "cutoff_days": days_expired,
+            "found": len(expired_users),
+            "users": [
+                {
+                    "id": u[0],
+                    "email": u[1],
+                    "expired_at": datetime.fromtimestamp(u[2] / 1000).isoformat() if u[2] else None
+                }
+                for u in expired_users[:100]  # Limit to 100 in response
+            ]
+        }
+
+        if not dry_run and expired_users:
+            user_ids = [str(u[0]) for u in expired_users]
+            delete_result = db.bulk_delete_users(user_ids)
+            result["deleted"] = delete_result.get("deleted", 0)
+            result["errors"] = delete_result.get("errors", [])
+            logger.info(f"Cleaned up {result['deleted']} expired users (>{days_expired} days)")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error cleaning expired users: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== ЗАПУСК ПРИЛОЖЕНИЯ ====================
 
 if __name__ == "__main__":
