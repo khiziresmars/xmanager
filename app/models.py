@@ -139,3 +139,49 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+
+# ==================== SUBSCRIPTION SYNC MODELS ====================
+
+class SetExpiryRequest(BaseModel):
+    """Запрос на установку срока действия"""
+    expiry_time: Optional[int] = Field(None, description="Unix timestamp в миллисекундах")
+    expiry_days: Optional[int] = Field(None, ge=0, le=3650, description="Количество дней от текущего момента")
+
+class BulkSetExpiryRequest(BaseModel):
+    """Запрос на массовую установку срока действия"""
+    users: Optional[List[Dict[str, Any]]] = Field(None, description="Список пользователей с email и expiry_time")
+    user_ids: Optional[List[int]] = Field(None, description="Список ID пользователей")
+    expiry_time: Optional[int] = Field(None, description="Единый срок для всех пользователей")
+
+class BulkSetExpiryResponse(BaseModel):
+    """Ответ на массовую установку срока"""
+    updated: int
+    failed: int
+    errors: List[str]
+
+class ExpiryStatusResponse(BaseModel):
+    """Статистика по срокам действия"""
+    total_users: int
+    expired: int
+    expiring_soon: int
+    active: int
+    unlimited: int
+    expired_users: List[Dict[str, Any]]
+    expiring_soon_users: List[Dict[str, Any]]
+
+class SyncUserData(BaseModel):
+    """Данные пользователя для синхронизации"""
+    email: str
+    expiry_time: Optional[int] = None
+    traffic_limit: Optional[int] = None
+
+class SyncFromExternalRequest(BaseModel):
+    """Запрос на синхронизацию с внешней системой"""
+    users: List[Dict[str, Any]] = Field(..., description="Список пользователей для синхронизации")
+
+class SyncFromExternalResponse(BaseModel):
+    """Ответ на синхронизацию"""
+    synced: int
+    not_found: int
+    errors: List[str]
+    details: List[Dict[str, Any]]
