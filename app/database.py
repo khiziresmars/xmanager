@@ -1545,3 +1545,364 @@ class XUIDatabase:
             logger.error(f"Error getting online users count: {e}", exc_info=True)
             return 0
 
+    # ==================== SUBSCRIPTION SYNC ====================
+
+    def get_user_by_email(self, email: str) -> Optional[Dict]:
+        """Получение пользователя по email"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT
+                    ct.id, ct.inbound_id, ct.email, ct.enable,
+                    ct.up, ct.down, ct.total, ct.expiry_time,
+                    i.remark as inbound_name, i.port, i.protocol
+                FROM client_traffics ct
+                LEFT JOIN inbounds i ON ct.inbound_id = i.id
+                WHERE ct.email = ?
+            """, (email,))
+
+            row = cursor.fetchone()
+            conn.close()
+
+            if row:
+                columns = ['id', 'inbound_id', 'email', 'enable', 'up', 'down', 'total', 'expiry_time', 'inbound_name', 'port', 'protocol']
+                user = dict(zip(columns, row))
+                if user['total'] and user['total'] > 0:
+                    used = (user['up'] or 0) + (user['down'] or 0)
+                    user['remaining_traffic'] = user['total'] - used
+                else:
+                    user['remaining_traffic'] = None
+                return user
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting user by email: {e}")
+            return None
+
+    def get_expiry_status(self) -> Dict:
+        """Получение статистики по срокам действия"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            current_time = int(datetime.now().timestamp() * 1000)
+            seven_days_later = current_time + (7 * 24 * 60 * 60 * 1000)
+
+            # Общее количество пользователей
+            cursor.execute("SELECT COUNT(*) FROM client_traffics")
+            total_users = cursor.fetchone()[0]
+
+            # Безлимитные (expiry_time = 0)
+            cursor.execute("SELECT COUNT(*) FROM client_traffics WHERE expiry_time = 0")
+            unlimited = cursor.fetchone()[0]
+
+            # Истекшие (expiry_time > 0 AND < now)
+            cursor.execute("""
+                SELECT COUNT(*) FROM client_traffics
+                WHERE expiry_time > 0 AND expiry_time < ?
+            """, (current_time,))
+            expired = cursor.fetchone()[0]
+
+            # Истекающие скоро (expiry_time >= now AND < now + 7 days)
+            cursor.execute("""
+                SELECT COUNT(*) FROM client_traffics
+                WHERE expiry_time >= ? AND expiry_time < ?
+            """, (current_time, seven_days_later))
+            expiring_soon = cursor.fetchone()[0]
+
+            # Активные (expiry_time >= now + 7 days)
+            cursor.execute("""
+                SELECT COUNT(*) FROM client_traffics
+                WHERE expiry_time >= ?
+            """, (seven_days_later,))
+            active = cursor.fetchone()[0]
+
+            # Список истекших пользователей
+            cursor.execute("""
+                SELECT email, expiry_time, inbound_id
+                FROM client_traffics
+                WHERE expiry_time > 0 AND expiry_time < ?
+                ORDER BY expiry_time ASC
+                LIMIT 100
+            """, (current_time,))
+            expired_users = [
+                {"email": row[0], "expiry_time": row[1], "inbound_id": row[2]}
+                for row in cursor.fetchall()
+            ]
+
+            # Список скоро истекающих
+            cursor.execute("""
+                SELECT email, expiry_time, inbound_id
+                FROM client_traffics
+                WHERE expiry_time >= ? AND expiry_time < ?
+                ORDER BY expiry_time ASC
+                LIMIT 100
+            """, (current_time, seven_days_later))
+            expiring_soon_users = [
+                {"email": row[0], "expiry_time": row[1], "inbound_id": row[2]}
+                for row in cursor.fetchall()
+            ]
+
+            conn.close()
+
+            return {
+                "total_users": total_users,
+                "expired": expired,
+                "expiring_soon": expiring_soon,
+                "active": active,
+                "unlimited": unlimited,
+                "expired_users": expired_users,
+                "expiring_soon_users": expiring_soon_users
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting expiry status: {e}")
+            return {
+                "total_users": 0,
+                "expired": 0,
+                "expiring_soon": 0,
+                "active": 0,
+                "unlimited": 0,
+                "expired_users": [],
+                "expiring_soon_users": []
+            }
+
+    def bulk_set_expiry_by_email(self, users: List[Dict]) -> Dict:
+        """Массовая установка expiry_time по email
+
+        Args:
+            users: Список словарей с email и expiry_time
+
+        Returns:
+            Dict с результатами операции
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            updated = 0
+            failed = 0
+            errors = []
+
+            for user_data in users:
+                email = user_data.get('email')
+                expiry_time = user_data.get('expiry_time', 0)
+
+                if not email:
+                    errors.append("Missing email in user data")
+                    failed += 1
+                    continue
+
+                # Получаем текущие данные
+                cursor.execute("""
+                    SELECT id, expiry_time FROM client_traffics WHERE email = ?
+                """, (email,))
+                result = cursor.fetchone()
+
+                if not result:
+                    errors.append(f"User {email} not found")
+                    failed += 1
+                    continue
+
+                user_id, old_expiry = result
+
+                # Обновляем expiry_time
+                cursor.execute("""
+                    UPDATE client_traffics
+                    SET expiry_time = ?
+                    WHERE id = ?
+                """, (expiry_time, user_id))
+
+                if cursor.rowcount > 0:
+                    self._sync_client_to_json(cursor, str(user_id))
+                    logger.info(f"[SYNC] Updated user {email}: expiry {old_expiry} -> {expiry_time}")
+                    updated += 1
+                else:
+                    errors.append(f"Failed to update {email}")
+                    failed += 1
+
+            conn.commit()
+            conn.close()
+
+            return {
+                "updated": updated,
+                "failed": failed,
+                "errors": errors[:10]
+            }
+
+        except Exception as e:
+            logger.error(f"Error in bulk set expiry: {e}")
+            return {"updated": 0, "failed": len(users), "errors": [str(e)]}
+
+    def bulk_set_expiry_by_ids(self, user_ids: List[int], expiry_time: int) -> Dict:
+        """Массовая установка expiry_time по ID
+
+        Args:
+            user_ids: Список ID пользователей
+            expiry_time: Время истечения в миллисекундах
+
+        Returns:
+            Dict с результатами операции
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            updated = 0
+            failed = 0
+            errors = []
+
+            for user_id in user_ids:
+                cursor.execute("""
+                    SELECT email, expiry_time FROM client_traffics WHERE id = ?
+                """, (user_id,))
+                result = cursor.fetchone()
+
+                if not result:
+                    errors.append(f"User ID {user_id} not found")
+                    failed += 1
+                    continue
+
+                email, old_expiry = result
+
+                cursor.execute("""
+                    UPDATE client_traffics
+                    SET expiry_time = ?
+                    WHERE id = ?
+                """, (expiry_time, user_id))
+
+                if cursor.rowcount > 0:
+                    self._sync_client_to_json(cursor, str(user_id))
+                    logger.info(f"[SYNC] Updated user {email}: expiry {old_expiry} -> {expiry_time}")
+                    updated += 1
+                else:
+                    errors.append(f"Failed to update user ID {user_id}")
+                    failed += 1
+
+            conn.commit()
+            conn.close()
+
+            return {
+                "updated": updated,
+                "failed": failed,
+                "errors": errors[:10]
+            }
+
+        except Exception as e:
+            logger.error(f"Error in bulk set expiry by ids: {e}")
+            return {"updated": 0, "failed": len(user_ids), "errors": [str(e)]}
+
+    def sync_from_external(self, users: List[Dict]) -> Dict:
+        """Синхронизация пользователей с внешней системой
+
+        Args:
+            users: Список пользователей с email, expiry_time и traffic_limit
+
+        Returns:
+            Dict с результатами синхронизации
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            synced = 0
+            not_found = 0
+            errors = []
+            details = []
+
+            for user_data in users:
+                email = user_data.get('email')
+                expiry_time = user_data.get('expiry_time')
+                traffic_limit = user_data.get('traffic_limit')
+
+                if not email:
+                    errors.append("Missing email in user data")
+                    continue
+
+                # Находим пользователя
+                cursor.execute("""
+                    SELECT id, expiry_time, total FROM client_traffics WHERE email = ?
+                """, (email,))
+                result = cursor.fetchone()
+
+                if not result:
+                    not_found += 1
+                    details.append({
+                        "email": email,
+                        "status": "not_found"
+                    })
+                    continue
+
+                user_id, old_expiry, old_traffic = result
+
+                # Обновляем поля
+                updates = []
+                params = []
+                detail = {
+                    "email": email,
+                    "status": "updated"
+                }
+
+                if expiry_time is not None:
+                    updates.append("expiry_time = ?")
+                    params.append(expiry_time)
+                    detail["old_expiry"] = old_expiry
+                    detail["new_expiry"] = expiry_time
+
+                if traffic_limit is not None:
+                    updates.append("total = ?")
+                    params.append(traffic_limit)
+                    detail["old_traffic"] = old_traffic
+                    detail["new_traffic"] = traffic_limit
+
+                if updates:
+                    params.append(user_id)
+                    cursor.execute(f"""
+                        UPDATE client_traffics
+                        SET {', '.join(updates)}
+                        WHERE id = ?
+                    """, params)
+
+                    if cursor.rowcount > 0:
+                        self._sync_client_to_json(cursor, str(user_id))
+
+                        # Логирование
+                        log_parts = []
+                        if expiry_time is not None:
+                            log_parts.append(f"expiry {old_expiry} -> {expiry_time}")
+                        if traffic_limit is not None:
+                            log_parts.append(f"traffic {old_traffic} -> {traffic_limit}")
+
+                        logger.info(f"[SYNC] Updated user {email}: {', '.join(log_parts)}")
+                        synced += 1
+                        details.append(detail)
+                    else:
+                        errors.append(f"Failed to update {email}")
+                        detail["status"] = "error"
+                        details.append(detail)
+                else:
+                    detail["status"] = "no_changes"
+                    details.append(detail)
+
+            conn.commit()
+            conn.close()
+
+            return {
+                "synced": synced,
+                "not_found": not_found,
+                "errors": errors[:10],
+                "details": details
+            }
+
+        except Exception as e:
+            logger.error(f"Error syncing from external: {e}", exc_info=True)
+            return {
+                "synced": 0,
+                "not_found": 0,
+                "errors": [str(e)],
+                "details": []
+            }
+

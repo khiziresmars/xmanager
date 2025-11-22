@@ -100,6 +100,42 @@ POST /api/users/set-limit      # Установить лимит
 ```bash
 POST /api/users/toggle-status  # Блокировка/разблокировка
 POST /api/users/extend-expiry  # Продление срока
+PUT  /api/users/{id}/expiry    # Установка срока (expiry_time в мс)
+PUT  /api/users/{id}/traffic   # Установка лимита трафика
+```
+
+### Синхронизация подписок (v1.4.0)
+```bash
+GET  /api/users/by-email/{email}     # Поиск по email
+POST /api/users/set-expiry           # Массовая установка срока
+GET  /api/analytics/expiry-status    # Статистика по срокам
+POST /api/sync/from-external         # Синхронизация с внешней системой
+```
+
+#### Примеры использования
+
+**Установка срока для пользователя:**
+```bash
+curl -X PUT "https://server/manager/api/users/123/expiry" \
+  -H "Content-Type: application/json" \
+  -d '{"expiry_time": 1735689599000}'
+```
+
+**Массовая синхронизация:**
+```bash
+curl -X POST "https://server/manager/api/sync/from-external" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "users": [
+      {"email": "user@vless", "expiry_time": 1735689599000, "traffic_limit": 161061273600}
+    ]
+  }'
+```
+
+**Статистика по срокам:**
+```bash
+curl "https://server/manager/api/analytics/expiry-status"
+# Возвращает: total_users, expired, expiring_soon, active, unlimited
 ```
 
 ### Мониторинг
@@ -224,5 +260,5 @@ sqlite3 /etc/x-ui/x-ui.db "SELECT COUNT(*) FROM client_traffics"
 
 ---
 
-**Версия:** 1.0
+**Версия:** 1.4.0
 **Совместимость:** X-UI 2.x+, Python 3.8+

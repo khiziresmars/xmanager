@@ -658,25 +658,44 @@ async def set_user_expiry(
     request: Dict[str, Any],
     username: str = Depends(get_current_user)
 ):
-    """Установка срока действия для одного пользователя"""
-    try:
-        expiry_days = request.get("expiry_days", 0)
+    """Установка срока действия для одного пользователя
 
-        if expiry_days > 0:
-            # Calculate expiry timestamp
-            expiry_time = int((datetime.now().timestamp() + expiry_days * 24 * 60 * 60) * 1000)
+    Можно указать либо expiry_time (Unix timestamp в миллисекундах),
+    либо expiry_days (количество дней от текущего момента).
+    expiry_time имеет приоритет.
+    """
+    try:
+        expiry_time = request.get("expiry_time")
+        expiry_days = request.get("expiry_days")
+
+        # expiry_time имеет приоритет
+        if expiry_time is not None:
+            # Используем переданный timestamp напрямую
+            final_expiry_time = int(expiry_time)
+        elif expiry_days is not None and expiry_days > 0:
+            # Calculate expiry timestamp from days
+            final_expiry_time = int((datetime.now().timestamp() + expiry_days * 24 * 60 * 60) * 1000)
         else:
             # 0 means no expiry
-            expiry_time = 0
+            final_expiry_time = 0
 
-        result = db.update_user_expiry(str(user_id), expiry_time)
+        # Получаем старое значение для логирования
+        conn = db._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT expiry_time FROM client_traffics WHERE id = ?", (user_id,))
+        old_result = cursor.fetchone()
+        old_expiry = old_result[0] if old_result else 0
+        conn.close()
+
+        result = db.update_user_expiry(str(user_id), final_expiry_time)
 
         if result["success"]:
+            logger.info(f"[SYNC] Updated user {user_id}: expiry {old_expiry} -> {final_expiry_time}")
             return {
                 "message": f"Expiry updated for user {user_id}",
                 "user_id": user_id,
-                "expiry_days": expiry_days,
-                "expiry_time": expiry_time
+                "old_expiry_time": old_expiry,
+                "expiry_time": final_expiry_time
             }
         else:
             raise HTTPException(status_code=500, detail=result.get("error", "Failed to update expiry"))
@@ -1006,6 +1025,135 @@ async def save_template(template: UserTemplate):
             raise HTTPException(status_code=400, detail=result["error"])
     except Exception as e:
         logger.error(f"Error saving template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== SUBSCRIPTION SYNC ====================
+
+@app.get("/api/users/by-email/{email:path}")
+async def get_user_by_email(
+    email: str,
+    username: str = Depends(get_current_user)
+):
+    """Получение пользователя по точному совпадению email"""
+    try:
+        user = db.get_user_by_email(email)
+        if user:
+            return user
+        else:
+            raise HTTPException(status_code=404, detail=f"User {email} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user by email: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/users/set-expiry")
+async def bulk_set_expiry(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """Массовая установка срока действия
+
+    Можно использовать:
+    - users: список объектов с email и expiry_time
+    - user_ids + expiry_time: список ID и единый срок для всех
+    """
+    try:
+        users = request.get("users")
+        user_ids = request.get("user_ids")
+        expiry_time = request.get("expiry_time")
+
+        if users:
+            # Режим по email
+            result = db.bulk_set_expiry_by_email(users)
+        elif user_ids and expiry_time is not None:
+            # Режим по ID
+            result = db.bulk_set_expiry_by_ids(user_ids, expiry_time)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Provide either 'users' list or 'user_ids' with 'expiry_time'"
+            )
+
+        return {
+            "message": f"Updated expiry for {result['updated']} users",
+            "updated": result['updated'],
+            "failed": result['failed'],
+            "errors": result['errors']
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in bulk set expiry: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/analytics/expiry-status")
+async def get_expiry_status(username: str = Depends(get_current_user)):
+    """Получение статистики по срокам действия подписок
+
+    Возвращает:
+    - total_users: общее количество пользователей
+    - expired: количество истекших
+    - expiring_soon: истекающих в ближайшие 7 дней
+    - active: активных (срок > 7 дней)
+    - unlimited: бессрочных (expiry_time = 0)
+    - expired_users: список истекших пользователей
+    - expiring_soon_users: список скоро истекающих
+    """
+    try:
+        status = db.get_expiry_status()
+        return status
+    except Exception as e:
+        logger.error(f"Error getting expiry status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sync/from-external")
+async def sync_from_external(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """Синхронизация пользователей с внешней системой (Keymaster/Dashboard)
+
+    Принимает список пользователей с email, expiry_time и traffic_limit.
+    Обновляет данные для найденных пользователей.
+
+    Request body:
+    {
+        "users": [
+            {
+                "email": "user@vless",
+                "expiry_time": 1735689599000,
+                "traffic_limit": 161061273600
+            }
+        ]
+    }
+    """
+    try:
+        users = request.get("users", [])
+
+        if not users:
+            raise HTTPException(status_code=400, detail="Users list is required")
+
+        if len(users) > 1000:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum 1000 users per sync request"
+            )
+
+        result = db.sync_from_external(users)
+
+        return {
+            "synced": result['synced'],
+            "not_found": result['not_found'],
+            "errors": result['errors'],
+            "details": result['details']
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error syncing from external: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== АНАЛИТИКА ====================
