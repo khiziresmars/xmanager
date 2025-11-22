@@ -873,6 +873,101 @@ async def sync_bulk_expiry(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.put("/api/sync/user/{chat_id}/enable")
+async def enable_user_clients(
+    chat_id: str,
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Включение/выключение всех клиентов пользователя по chat_id.
+
+    Args:
+        chat_id: ID пользователя
+        request: JSON с полем enable (bool)
+    """
+    try:
+        enable = request.get("enable", True)
+        clients = db.get_clients_by_email_prefix(chat_id)
+
+        if not clients:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No clients found with chat_id '{chat_id}'"
+            )
+
+        user_ids = [str(c["id"]) for c in clients]
+        result = db.bulk_toggle_users(user_ids, enable)
+
+        return {
+            "success": True,
+            "chat_id": chat_id,
+            "enabled": enable,
+            "updated_clients": result.get("updated", 0)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error enabling clients by chat_id: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sync/stats")
+async def get_sync_stats(username: str = Depends(get_current_user)):
+    """
+    Получение статистики по клиентам для синхронизации.
+
+    Возвращает:
+    - Общее количество клиентов
+    - Активных/неактивных
+    - Истекающих в ближайшие дни
+    """
+    try:
+        from datetime import datetime, timedelta
+
+        conn = db._get_connection()
+        cursor = conn.cursor()
+
+        # Общее количество
+        cursor.execute("SELECT COUNT(*) FROM client_traffics")
+        total = cursor.fetchone()[0]
+
+        # Активные
+        cursor.execute("SELECT COUNT(*) FROM client_traffics WHERE enable = 1")
+        active = cursor.fetchone()[0]
+
+        # Истекающие в течение 7 дней
+        now_ms = int(datetime.now().timestamp() * 1000)
+        week_ms = now_ms + (7 * 24 * 60 * 60 * 1000)
+        cursor.execute("""
+            SELECT COUNT(*) FROM client_traffics
+            WHERE expiry_time > ? AND expiry_time < ? AND enable = 1
+        """, (now_ms, week_ms))
+        expiring_soon = cursor.fetchone()[0]
+
+        # Истёкшие
+        cursor.execute("""
+            SELECT COUNT(*) FROM client_traffics
+            WHERE expiry_time > 0 AND expiry_time < ?
+        """, (now_ms,))
+        expired = cursor.fetchone()[0]
+
+        conn.close()
+
+        return {
+            "total_clients": total,
+            "active": active,
+            "inactive": total - active,
+            "expiring_in_7_days": expiring_soon,
+            "expired": expired
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting sync stats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/users/toggle-status")
 async def toggle_users_status(request: ToggleStatusRequest):
     """Массовая блокировка/разблокировка пользователей"""
