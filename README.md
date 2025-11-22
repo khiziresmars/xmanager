@@ -138,6 +138,46 @@ curl "https://server/manager/api/analytics/expiry-status"
 # Возвращает: total_users, expired, expiring_soon, active, unlimited
 ```
 
+### Автообновление (v1.5.0)
+```bash
+GET  /api/system/version           # Текущая версия
+GET  /api/system/update/check      # Проверка обновлений
+POST /api/system/update            # Выполнить обновление
+GET  /api/system/update/status     # Статус обновления
+GET  /api/system/releases          # Список релизов
+GET  /api/system/backups           # Список backup'ов
+POST /api/system/rollback          # Откат на backup
+DELETE /api/system/backups/{file}  # Удалить backup
+```
+
+#### Примеры использования
+
+**Обновление до последней версии:**
+```bash
+curl -X POST "https://server/manager/api/system/update" \
+  -H "Content-Type: application/json" \
+  -d '{"backup": true}'
+```
+
+**Обновление до конкретной версии:**
+```bash
+curl -X POST "https://server/manager/api/system/update" \
+  -H "Content-Type: application/json" \
+  -d '{"version": "1.4.0", "force": true, "backup": true}'
+```
+
+**Получить список релизов:**
+```bash
+curl "https://server/manager/api/system/releases?limit=5"
+```
+
+**Откат на предыдущую версию:**
+```bash
+curl -X POST "https://server/manager/api/system/rollback" \
+  -H "Content-Type: application/json" \
+  -d '{"backup_path": "/opt/xui-manager/backups/backup_20241122_120000.tar.gz"}'
+```
+
 ### Мониторинг
 ```bash
 GET /api/stats                  # Статистика системы
@@ -260,5 +300,5 @@ sqlite3 /etc/x-ui/x-ui.db "SELECT COUNT(*) FROM client_traffics"
 
 ---
 
-**Версия:** 1.4.0
+**Версия:** 1.5.0
 **Совместимость:** X-UI 2.x+, Python 3.8+

@@ -1218,16 +1218,27 @@ async def check_for_updates(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/system/update")
-async def perform_update(username: str = Depends(get_current_user)):
+async def perform_update(
+    request: Dict[str, Any] = {},
+    username: str = Depends(get_current_user)
+):
     """
     Выполнение обновления системы
 
     Требует авторизации администратора
 
+    Request body:
+    {
+        "version": "1.5.0",  // Конкретная версия или null для latest
+        "force": false,       // Принудительное обновление
+        "backup": true        // Создать backup перед обновлением
+    }
+
     Процесс обновления:
     1. Создается резервная копия
-    2. Выполняется git pull
-    3. Перезапускается сервис
+    2. Скачивается версия с GitHub
+    3. Устанавливаются файлы и зависимости
+    4. Перезапускается сервис
 
     ВНИМАНИЕ: Сервис будет перезапущен!
     """
@@ -1239,8 +1250,16 @@ async def perform_update(username: str = Depends(get_current_user)):
                 detail="Update already in progress"
             )
 
+        version = request.get("version")
+        force = request.get("force", False)
+        backup = request.get("backup", True)
+
         # Perform update
-        result = await update_manager.perform_update()
+        result = await update_manager.perform_update_to_version(
+            version=version,
+            force=force,
+            backup=backup
+        )
 
         if result["success"]:
             return result
@@ -1254,6 +1273,110 @@ async def perform_update(username: str = Depends(get_current_user)):
         raise
     except Exception as e:
         logger.error(f"Error performing update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/releases")
+async def get_releases(
+    limit: int = Query(10, ge=1, le=50),
+    username: str = Depends(get_current_user)
+):
+    """
+    Получение списка доступных релизов с GitHub
+
+    Returns:
+        releases: Список релизов
+        latest: Последняя версия
+        current_version: Текущая установленная версия
+    """
+    try:
+        result = await update_manager.get_releases(limit=limit)
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting releases: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/backups")
+async def list_backups(username: str = Depends(get_current_user)):
+    """
+    Получение списка резервных копий
+
+    Returns:
+        Список backup файлов с информацией о размере и дате создания
+    """
+    try:
+        backups = update_manager.list_backups()
+        return {"backups": backups, "count": len(backups)}
+    except Exception as e:
+        logger.error(f"Error listing backups: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/system/rollback")
+async def rollback_update(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Откат на предыдущую версию из резервной копии
+
+    Request body:
+    {
+        "backup_path": "/opt/xui-manager/backups/backup_20241122_120000.tar.gz"
+    }
+
+    ВНИМАНИЕ: Сервис будет перезапущен!
+    """
+    try:
+        backup_path = request.get("backup_path")
+        if not backup_path:
+            raise HTTPException(status_code=400, detail="backup_path is required")
+
+        if update_manager.is_update_in_progress():
+            raise HTTPException(
+                status_code=409,
+                detail="Update in progress, cannot rollback"
+            )
+
+        result = update_manager.rollback(backup_path)
+
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "Rollback failed")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during rollback: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/system/backups/{backup_filename}")
+async def delete_backup(
+    backup_filename: str,
+    username: str = Depends(get_current_user)
+):
+    """
+    Удаление резервной копии
+    """
+    try:
+        backup_path = f"/opt/xui-manager/backups/{backup_filename}"
+        result = update_manager.delete_backup(backup_path)
+
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=400, detail=result.get("error"))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting backup: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/system/update/status")

@@ -610,6 +610,338 @@ class UpdateManager:
                 "error": str(e)
             }
 
+    async def perform_update_to_version(self, version: str = None, force: bool = False, backup: bool = True) -> Dict:
+        """
+        Perform update to specific version or latest
+
+        Args:
+            version: Specific version to update to (e.g., "1.4.0") or None for latest
+            force: Force update even if same version
+            backup: Create backup before updating
+
+        Returns:
+            Dict with update result
+        """
+        if self.is_update_in_progress():
+            return {
+                "success": False,
+                "error": "Update already in progress"
+            }
+
+        try:
+            self._create_update_lock()
+            self._update_status("checking", 5, "Получение информации о версии...")
+
+            # Get release info
+            if version:
+                release_info = await self._get_release_by_version(version)
+            else:
+                release_info = await self.check_for_updates(force=True)
+
+            if "error" in release_info:
+                self._remove_update_lock()
+                self._update_status("failed", 0, f"Ошибка: {release_info['error']}")
+                return {
+                    "success": False,
+                    "error": release_info["error"]
+                }
+
+            target_version = release_info.get("latest_version") or release_info.get("version")
+            download_url = release_info.get("download_url")
+
+            if not download_url:
+                self._remove_update_lock()
+                return {"success": False, "error": "Download URL not found"}
+
+            # Check if update needed
+            if not force and target_version == CURRENT_VERSION:
+                self._remove_update_lock()
+                self._update_status("idle", 0, "Уже установлена актуальная версия")
+                return {
+                    "success": False,
+                    "error": f"Already on version {CURRENT_VERSION}",
+                    "current_version": CURRENT_VERSION
+                }
+
+            logger.info(f"Starting update from {CURRENT_VERSION} to {target_version}")
+
+            # Backup
+            backup_file = None
+            if backup:
+                self._update_status("backup", 10, "Создание резервной копии...")
+                backup_result = self._create_backup()
+                if not backup_result["success"]:
+                    self._remove_update_lock()
+                    self._update_status("failed", 0, f"Ошибка бэкапа: {backup_result['error']}")
+                    return {
+                        "success": False,
+                        "error": f"Backup failed: {backup_result['error']}"
+                    }
+                backup_file = backup_result.get("backup_file")
+
+            # Download
+            self._update_status("downloading", 20, "Скачивание обновления...")
+            download_result = await self._download_update(download_url)
+            if not download_result["success"]:
+                self._remove_update_lock()
+                self._update_status("failed", 0, f"Ошибка загрузки: {download_result['error']}")
+                return {
+                    "success": False,
+                    "error": f"Download failed: {download_result['error']}",
+                    "backup_file": backup_file
+                }
+
+            # Install
+            self._update_status("extracting", 50, "Установка файлов...")
+            install_result = await self._install_update(download_result["temp_dir"])
+            if not install_result["success"]:
+                self._remove_update_lock()
+                self._update_status("failed", 0, f"Ошибка установки: {install_result['error']}")
+                return {
+                    "success": False,
+                    "error": f"Installation failed: {install_result['error']}",
+                    "backup_file": backup_file
+                }
+
+            # Dependencies
+            self._update_status("dependencies", 80, "Установка зависимостей...")
+            if install_result.get("requirements_changed"):
+                deps_result = self._install_dependencies()
+                if not deps_result["success"]:
+                    logger.warning(f"Dependencies warning: {deps_result.get('error')}")
+
+            # Restart
+            self._update_status("restarting", 90, "Перезапуск сервиса...")
+            restart_result = self._restart_service()
+
+            self._remove_update_lock()
+            self._update_status("completed", 100, "Обновление завершено!")
+
+            return {
+                "success": True,
+                "message": "Update completed successfully",
+                "old_version": CURRENT_VERSION,
+                "new_version": target_version,
+                "backup_path": backup_file,
+                "restart_required": True,
+                "service_restarted": restart_result["success"]
+            }
+
+        except Exception as e:
+            logger.error(f"Error during update: {e}", exc_info=True)
+            self._remove_update_lock()
+            self._update_status("failed", 0, f"Ошибка: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def _get_release_by_version(self, version: str) -> Dict:
+        """Get specific release info from GitHub"""
+        try:
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/v{version}"
+
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    if response.status == 404:
+                        return {"error": f"Version {version} not found"}
+                    if response.status != 200:
+                        return {"error": f"GitHub API returned {response.status}"}
+
+                    data = await response.json()
+
+                    return {
+                        "version": version,
+                        "download_url": data.get("tarball_url"),
+                        "release_name": data.get("name"),
+                        "release_date": data.get("published_at"),
+                        "changelog": parse_changelog(data.get("body", ""))
+                    }
+
+        except Exception as e:
+            logger.error(f"Error getting release {version}: {e}")
+            return {"error": str(e)}
+
+    async def get_releases(self, limit: int = 10) -> Dict:
+        """Get list of available releases from GitHub"""
+        try:
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page={limit}"
+
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        return {"error": f"GitHub API returned {response.status}"}
+
+                    data = await response.json()
+
+                    releases = []
+                    for release in data:
+                        releases.append({
+                            "version": release.get("tag_name", "").lstrip('v'),
+                            "tag_name": release.get("tag_name"),
+                            "name": release.get("name"),
+                            "published_at": release.get("published_at"),
+                            "download_url": release.get("tarball_url"),
+                            "html_url": release.get("html_url"),
+                            "prerelease": release.get("prerelease", False)
+                        })
+
+                    latest = releases[0]["version"] if releases else None
+
+                    return {
+                        "releases": releases,
+                        "latest": latest,
+                        "current_version": CURRENT_VERSION
+                    }
+
+        except Exception as e:
+            logger.error(f"Error getting releases: {e}")
+            return {"error": str(e), "releases": []}
+
+    def list_backups(self) -> List[Dict]:
+        """Get list of available backups"""
+        backups = []
+        backup_dir = "/opt/xui-manager/backups"
+
+        try:
+            if not os.path.exists(backup_dir):
+                return []
+
+            for filename in sorted(os.listdir(backup_dir), reverse=True):
+                if filename.endswith('.tar.gz'):
+                    filepath = os.path.join(backup_dir, filename)
+                    stat = os.stat(filepath)
+
+                    # Parse timestamp from filename
+                    try:
+                        timestamp_str = filename.replace('backup_', '').replace('.tar.gz', '')
+                        created = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
+                    except:
+                        created = datetime.fromtimestamp(stat.st_mtime)
+
+                    backups.append({
+                        "filename": filename,
+                        "path": filepath,
+                        "size_bytes": stat.st_size,
+                        "size_mb": round(stat.st_size / (1024 * 1024), 2),
+                        "created": created.isoformat()
+                    })
+
+            return backups
+
+        except Exception as e:
+            logger.error(f"Error listing backups: {e}")
+            return []
+
+    def rollback(self, backup_path: str) -> Dict:
+        """Rollback to a previous backup
+
+        Args:
+            backup_path: Path to backup file to restore
+
+        Returns:
+            Dict with rollback result
+        """
+        if not os.path.exists(backup_path):
+            return {"success": False, "error": "Backup file not found"}
+
+        if self.is_update_in_progress():
+            return {"success": False, "error": "Update in progress, cannot rollback"}
+
+        try:
+            self._create_update_lock()
+            self._update_status("rollback", 10, "Восстановление из резервной копии...")
+
+            install_dir = "/opt/xui-manager"
+
+            # Extract backup to temp directory first
+            temp_dir = tempfile.mkdtemp(prefix="xui-rollback-")
+            with tarfile.open(backup_path, 'r:gz') as tar:
+                tar.extractall(temp_dir)
+
+            self._update_status("rollback", 50, "Копирование файлов...")
+
+            # Copy files from backup
+            for item in FILES_TO_UPDATE:
+                source_path = os.path.join(temp_dir, item)
+                dest_path = os.path.join(install_dir, item)
+
+                if not os.path.exists(source_path):
+                    continue
+
+                if item.endswith('/'):
+                    if os.path.exists(dest_path):
+                        shutil.rmtree(dest_path)
+                    shutil.copytree(source_path, dest_path)
+                else:
+                    shutil.copy2(source_path, dest_path)
+
+                logger.info(f"Restored: {item}")
+
+            # Clean up
+            shutil.rmtree(temp_dir)
+
+            self._update_status("rollback", 80, "Установка зависимостей...")
+
+            # Reinstall dependencies
+            self._install_dependencies()
+
+            self._update_status("rollback", 90, "Перезапуск сервиса...")
+
+            # Restart service
+            restart_result = self._restart_service()
+
+            self._remove_update_lock()
+            self._update_status("completed", 100, "Откат завершён!")
+
+            # Try to determine restored version
+            restored_version = "unknown"
+            version_file = os.path.join(install_dir, "app", "version.py")
+            if os.path.exists(version_file):
+                with open(version_file, 'r') as f:
+                    content = f.read()
+                    import re
+                    match = re.search(r'CURRENT_VERSION\s*=\s*["\']([^"\']+)["\']', content)
+                    if match:
+                        restored_version = match.group(1)
+
+            return {
+                "success": True,
+                "message": "Rollback completed successfully",
+                "restored_version": restored_version,
+                "backup_used": backup_path,
+                "service_restarted": restart_result["success"]
+            }
+
+        except Exception as e:
+            logger.error(f"Rollback error: {e}", exc_info=True)
+            self._remove_update_lock()
+            self._update_status("failed", 0, f"Ошибка отката: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def delete_backup(self, backup_path: str) -> Dict:
+        """Delete a specific backup file"""
+        try:
+            if not os.path.exists(backup_path):
+                return {"success": False, "error": "Backup not found"}
+
+            if not backup_path.startswith("/opt/xui-manager/backups/"):
+                return {"success": False, "error": "Invalid backup path"}
+
+            os.remove(backup_path)
+            logger.info(f"Deleted backup: {backup_path}")
+
+            return {"success": True, "message": f"Deleted {backup_path}"}
+
+        except Exception as e:
+            logger.error(f"Error deleting backup: {e}")
+            return {"success": False, "error": str(e)}
+
 
 # Global instance
 update_manager = UpdateManager()
