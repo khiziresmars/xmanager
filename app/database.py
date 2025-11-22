@@ -1431,6 +1431,172 @@ class XUIDatabase:
             logger.error(f"Error syncing expiry to JSON: {e}")
             return False
 
+    def update_expiry_by_uuids(self, uuids: List[str], expiry_time: int) -> Dict:
+        """
+        Обновление срока действия для клиентов по списку UUID.
+
+        UUID уникален для каждого клиента:
+        - Для vless/vmess: поле 'id' в JSON
+        - Для trojan/shadowsocks: поле 'password' в JSON
+
+        Args:
+            uuids: Список UUID клиентов
+            expiry_time: Новый срок в миллисекундах
+
+        Returns:
+            Dict с результатом: updated_count, found_uuids, not_found_uuids
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            # Получаем все inbounds с их settings
+            cursor.execute("SELECT id, protocol, settings FROM inbounds")
+            inbounds = cursor.fetchall()
+
+            found_uuids = []
+            not_found_uuids = list(uuids)
+            updated_clients = []
+
+            for inbound_id, protocol, settings_json in inbounds:
+                if not settings_json:
+                    continue
+
+                settings = json.loads(settings_json)
+                if 'clients' not in settings:
+                    continue
+
+                inbound_modified = False
+
+                for client in settings['clients']:
+                    # Определяем UUID в зависимости от протокола
+                    if protocol in ('vless', 'vmess'):
+                        client_uuid = client.get('id')
+                    elif protocol in ('trojan', 'shadowsocks'):
+                        client_uuid = client.get('password')
+                    else:
+                        continue
+
+                    if client_uuid and client_uuid in uuids:
+                        # Нашли клиента - обновляем expiryTime в JSON
+                        client['expiryTime'] = expiry_time
+                        inbound_modified = True
+                        email = client.get('email', 'unknown')
+
+                        # Обновляем также в client_traffics
+                        cursor.execute("""
+                            UPDATE client_traffics
+                            SET expiry_time = ?
+                            WHERE email = ? AND inbound_id = ?
+                        """, (expiry_time, email, inbound_id))
+
+                        found_uuids.append(client_uuid)
+                        if client_uuid in not_found_uuids:
+                            not_found_uuids.remove(client_uuid)
+
+                        updated_clients.append({
+                            'uuid': client_uuid,
+                            'email': email,
+                            'inbound_id': inbound_id,
+                            'protocol': protocol
+                        })
+
+                        logger.info(f"[UUID-SYNC] Updated {email} ({protocol}): expiry -> {expiry_time}")
+
+                # Сохраняем обновленные settings для этого inbound
+                if inbound_modified:
+                    cursor.execute("""
+                        UPDATE inbounds SET settings = ? WHERE id = ?
+                    """, (json.dumps(settings, ensure_ascii=False), inbound_id))
+
+            conn.commit()
+            conn.close()
+
+            return {
+                "success": True,
+                "updated_count": len(found_uuids),
+                "found_uuids": found_uuids,
+                "not_found_uuids": not_found_uuids,
+                "updated_clients": updated_clients,
+                "expiry_time": expiry_time
+            }
+
+        except Exception as e:
+            logger.error(f"Error updating expiry by UUIDs: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "updated_count": 0
+            }
+
+    def get_clients_by_uuids(self, uuids: List[str]) -> List[Dict]:
+        """
+        Получение списка клиентов по списку UUID.
+
+        Args:
+            uuids: Список UUID
+
+        Returns:
+            Список найденных клиентов
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            # Получаем все inbounds с их settings
+            cursor.execute("SELECT id, protocol, settings, remark FROM inbounds")
+            inbounds = cursor.fetchall()
+
+            clients = []
+
+            for inbound_id, protocol, settings_json, inbound_remark in inbounds:
+                if not settings_json:
+                    continue
+
+                settings = json.loads(settings_json)
+                if 'clients' not in settings:
+                    continue
+
+                for client in settings['clients']:
+                    # Определяем UUID
+                    if protocol in ('vless', 'vmess'):
+                        client_uuid = client.get('id')
+                    elif protocol in ('trojan', 'shadowsocks'):
+                        client_uuid = client.get('password')
+                    else:
+                        continue
+
+                    if client_uuid and client_uuid in uuids:
+                        email = client.get('email', 'unknown')
+
+                        # Получаем данные из client_traffics
+                        cursor.execute("""
+                            SELECT expiry_time, total, up, down, enable
+                            FROM client_traffics
+                            WHERE email = ? AND inbound_id = ?
+                        """, (email, inbound_id))
+                        row = cursor.fetchone()
+
+                        clients.append({
+                            'uuid': client_uuid,
+                            'email': email,
+                            'inbound_id': inbound_id,
+                            'protocol': protocol,
+                            'inbound_remark': inbound_remark,
+                            'expiry_time': row[0] if row else client.get('expiryTime', 0),
+                            'total': row[1] if row else client.get('totalGB', 0) * 1024**3,
+                            'up': row[2] if row else 0,
+                            'down': row[3] if row else 0,
+                            'enable': bool(row[4]) if row else client.get('enable', True)
+                        })
+
+            conn.close()
+            return clients
+
+        except Exception as e:
+            logger.error(f"Error getting clients by UUIDs: {e}")
+            return []
+
     def get_clients_by_email_prefix(self, email_prefix: str) -> List[Dict]:
         """
         Получение списка клиентов по префиксу email.

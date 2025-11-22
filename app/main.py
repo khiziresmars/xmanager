@@ -913,6 +913,99 @@ async def enable_user_clients(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.put("/api/sync/by-uuid/expiry")
+async def sync_expiry_by_uuids(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Синхронизация срока действия для клиентов по списку UUID.
+
+    UUID - уникальный идентификатор клиента:
+    - Для vless/vmess: поле 'id'
+    - Для trojan/shadowsocks: поле 'password'
+
+    Args:
+        request: JSON с полями:
+            - uuids: список UUID клиентов
+            - expiry_time: Unix timestamp в миллисекундах
+    """
+    try:
+        uuids = request.get("uuids", [])
+        expiry_time = request.get("expiry_time")
+
+        if not uuids:
+            raise HTTPException(
+                status_code=400,
+                detail="uuids list is required"
+            )
+
+        if expiry_time is None:
+            raise HTTPException(
+                status_code=400,
+                detail="expiry_time is required"
+            )
+
+        result = db.update_expiry_by_uuids(uuids, int(expiry_time))
+
+        if result["success"]:
+            logger.info(f"[UUID-SYNC] Synced expiry for {len(uuids)} UUIDs: {result['updated_count']} clients updated")
+            return {
+                "success": True,
+                "updated_count": result["updated_count"],
+                "found_uuids": result.get("found_uuids", []),
+                "not_found_uuids": result.get("not_found_uuids", []),
+                "updated_clients": result.get("updated_clients", []),
+                "expiry_time": expiry_time
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "Unknown error")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error syncing expiry by UUIDs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sync/by-uuid")
+async def get_clients_by_uuids(
+    uuids: str = Query(..., description="Comma-separated list of UUIDs"),
+    username: str = Depends(get_current_user)
+):
+    """
+    Получение информации о клиентах по списку UUID.
+
+    Args:
+        uuids: UUID через запятую (например: "uuid1,uuid2,uuid3")
+    """
+    try:
+        uuid_list = [u.strip() for u in uuids.split(",") if u.strip()]
+
+        if not uuid_list:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one UUID is required"
+            )
+
+        clients = db.get_clients_by_uuids(uuid_list)
+
+        return {
+            "requested_uuids": len(uuid_list),
+            "found_clients": len(clients),
+            "clients": clients
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting clients by UUIDs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/sync/stats")
 async def get_sync_stats(username: str = Depends(get_current_user)):
     """
