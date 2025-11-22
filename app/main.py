@@ -1650,6 +1650,105 @@ async def get_background_tasks_status(username: str = Depends(get_current_user))
         logger.error(f"Error getting background tasks status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ==================== KEY GENERATION ====================
+
+@app.post("/api/keys/generate")
+async def generate_keys(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Генерация новых ключей для протокола.
+
+    Request body:
+    {
+        "protocol": "vless",
+        "count": 10,
+        "traffic_limit_gb": 700,
+        "days_valid": 30
+    }
+
+    Returns:
+        Список сгенерированных ключей с UUID и key_string
+    """
+    import uuid
+    from datetime import datetime, timedelta
+    import json
+
+    try:
+        protocol = request.get("protocol", "vless")
+        count = min(request.get("count", 10), 100)  # Max 100 keys at once
+        traffic_limit_gb = request.get("traffic_limit_gb", 700)
+        days_valid = request.get("days_valid", 30)
+
+        # Найти inbound для протокола
+        inbound = db.get_inbound_by_protocol(protocol)
+        if not inbound:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No inbound found for protocol {protocol}"
+            )
+
+        inbound_id = inbound["id"]
+        expiry_time = int((datetime.now() + timedelta(days=days_valid)).timestamp() * 1000)
+        total_bytes = int(traffic_limit_gb * 1024 * 1024 * 1024)
+
+        generated_keys = []
+
+        for i in range(count):
+            # Генерация уникального UUID
+            key_uuid = str(uuid.uuid4())
+            remark = f"auto_{key_uuid[:8]}"
+
+            # Создание клиента в 3x-ui
+            client_data = {
+                "id": key_uuid,
+                "alterId": 0,
+                "email": remark,
+                "limitIp": 0,
+                "totalGB": traffic_limit_gb,
+                "expiryTime": expiry_time,
+                "enable": True,
+                "tgId": "",
+                "subId": ""
+            }
+
+            success = db.add_client_to_inbound(inbound_id, client_data)
+
+            if success:
+                # Генерация key_string
+                key_string = db.generate_key_string(
+                    protocol=protocol,
+                    uuid=key_uuid,
+                    inbound_id=inbound_id
+                )
+
+                generated_keys.append({
+                    "uuid": key_uuid,
+                    "remark": remark,
+                    "inbound_id": inbound_id,
+                    "key_string": key_string,
+                    "expiry_time": expiry_time,
+                    "traffic_limit_gb": traffic_limit_gb
+                })
+
+        logger.info(f"Generated {len(generated_keys)} {protocol} keys")
+
+        return {
+            "success": True,
+            "protocol": protocol,
+            "generated": len(generated_keys),
+            "keys": generated_keys
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating keys: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== ЗАПУСК ПРИЛОЖЕНИЯ ====================
 
 if __name__ == "__main__":

@@ -2069,3 +2069,198 @@ class XUIDatabase:
                 "details": []
             }
 
+    def get_inbound_by_protocol(self, protocol: str) -> Optional[Dict]:
+        """Получить inbound по протоколу.
+
+        Args:
+            protocol: Протокол (vless, vmess, trojan, shadowsocks)
+
+        Returns:
+            Dict с информацией об inbound или None
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT id, user_id, up, down, total, remark, enable,
+                       expiry_time, listen, port, protocol, settings,
+                       stream_settings, tag, sniffing
+                FROM inbounds
+                WHERE protocol = ? AND enable = 1
+                LIMIT 1
+            """, (protocol,))
+
+            row = cursor.fetchone()
+            conn.close()
+
+            if not row:
+                return None
+
+            return {
+                "id": row[0],
+                "user_id": row[1],
+                "up": row[2],
+                "down": row[3],
+                "total": row[4],
+                "remark": row[5],
+                "enable": row[6],
+                "expiry_time": row[7],
+                "listen": row[8],
+                "port": row[9],
+                "protocol": row[10],
+                "settings": row[11],
+                "stream_settings": row[12],
+                "tag": row[13],
+                "sniffing": row[14]
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting inbound by protocol: {e}")
+            return None
+
+    def add_client_to_inbound(self, inbound_id: int, client_data: Dict) -> bool:
+        """Добавить клиента в inbound.
+
+        Args:
+            inbound_id: ID inbound
+            client_data: Данные клиента (id, email, etc)
+
+        Returns:
+            True если успешно
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            # Получить текущие settings
+            cursor.execute("SELECT settings FROM inbounds WHERE id = ?", (inbound_id,))
+            result = cursor.fetchone()
+            if not result:
+                conn.close()
+                return False
+
+            settings = json.loads(result[0])
+
+            if 'clients' not in settings:
+                settings['clients'] = []
+
+            # Добавить клиента
+            settings['clients'].append(client_data)
+
+            # Обновить settings
+            cursor.execute("""
+                UPDATE inbounds SET settings = ? WHERE id = ?
+            """, (json.dumps(settings, ensure_ascii=False), inbound_id))
+
+            # Добавить запись в client_traffics
+            cursor.execute("""
+                INSERT INTO client_traffics (
+                    inbound_id, enable, email, up, down, expiry_time, total
+                ) VALUES (?, ?, ?, 0, 0, ?, ?)
+            """, (
+                inbound_id,
+                1 if client_data.get('enable', True) else 0,
+                client_data.get('email'),
+                client_data.get('expiryTime', 0),
+                int(client_data.get('totalGB', 0) * 1024 * 1024 * 1024)
+            ))
+
+            conn.commit()
+            conn.close()
+
+            logger.info(f"Added client {client_data.get('email')} to inbound {inbound_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error adding client to inbound: {e}")
+            return False
+
+    def generate_key_string(self, protocol: str, uuid: str, inbound_id: int) -> str:
+        """Сгенерировать строку ключа для клиента.
+
+        Args:
+            protocol: Протокол
+            uuid: UUID клиента
+            inbound_id: ID inbound
+
+        Returns:
+            Строка ключа (vless://, vmess://, etc)
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            # Получить настройки inbound
+            cursor.execute("""
+                SELECT port, stream_settings, settings
+                FROM inbounds WHERE id = ?
+            """, (inbound_id,))
+
+            row = cursor.fetchone()
+            conn.close()
+
+            if not row:
+                return ""
+
+            port = row[0]
+            stream_settings = json.loads(row[1]) if row[1] else {}
+            settings = json.loads(row[2]) if row[2] else {}
+
+            # Получить хост из конфига
+            from config import settings as app_settings
+            host = getattr(app_settings, 'SERVER_HOST', 'localhost')
+
+            # Базовая генерация ключа
+            if protocol == 'vless':
+                network = stream_settings.get('network', 'tcp')
+                security = stream_settings.get('security', 'none')
+
+                key = f"vless://{uuid}@{host}:{port}?type={network}&security={security}"
+
+                if security == 'reality':
+                    reality = stream_settings.get('realitySettings', {})
+                    key += f"&pbk={reality.get('publicKey', '')}"
+                    key += f"&fp=chrome&sni={reality.get('serverNames', [''])[0]}"
+                    key += f"&sid={reality.get('shortIds', [''])[0]}"
+                    key += f"&spx=%2F"
+
+                key += f"#auto_{uuid[:8]}"
+                return key
+
+            elif protocol == 'vmess':
+                import base64
+                vmess_config = {
+                    "v": "2",
+                    "ps": f"auto_{uuid[:8]}",
+                    "add": host,
+                    "port": str(port),
+                    "id": uuid,
+                    "aid": "0",
+                    "net": stream_settings.get('network', 'tcp'),
+                    "type": "none",
+                    "host": "",
+                    "path": "",
+                    "tls": stream_settings.get('security', '')
+                }
+                encoded = base64.b64encode(json.dumps(vmess_config).encode()).decode()
+                return f"vmess://{encoded}"
+
+            elif protocol == 'trojan':
+                network = stream_settings.get('network', 'tcp')
+                security = stream_settings.get('security', 'tls')
+                return f"trojan://{uuid}@{host}:{port}?security={security}&type={network}#auto_{uuid[:8]}"
+
+            elif protocol == 'shadowsocks':
+                import base64
+                method = settings.get('method', 'aes-256-gcm')
+                password = uuid  # Используем UUID как пароль
+                encoded = base64.b64encode(f"{method}:{password}".encode()).decode()
+                return f"ss://{encoded}@{host}:{port}#auto_{uuid[:8]}"
+
+            return ""
+
+        except Exception as e:
+            logger.error(f"Error generating key string: {e}")
+            return ""
+
