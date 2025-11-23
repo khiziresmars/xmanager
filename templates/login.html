@@ -245,10 +245,13 @@
     </div>
 
     <script>
+        // Get base path for API calls
+        const basePath = window.location.pathname.replace(/\/login\/?$/, '');
+
         // Load version on page load
         async function loadVersion() {
             try {
-                const response = await fetch('/api/version');
+                const response = await fetch(basePath + '/api/version');
                 if (response.ok) {
                     const data = await response.json();
                     document.getElementById('app-version').textContent = data.version;
@@ -286,7 +289,7 @@
             const password = formData.get('password');
 
             try {
-                const response = await fetch('/api/auth/login', {
+                const response = await fetch(basePath + '/api/auth/login', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
