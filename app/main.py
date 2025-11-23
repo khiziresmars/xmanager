@@ -1124,6 +1124,68 @@ async def get_inbounds():
         logger.error(f"Error getting inbounds: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/inbounds/fingerprints")
+async def get_inbound_fingerprints(username: str = Depends(get_current_user)):
+    """Get fingerprint settings for all inbounds."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, remark, protocol, stream_settings
+            FROM inbounds
+            WHERE protocol IN ('vless', 'trojan')
+        """)
+
+        inbounds = []
+        for row in cursor.fetchall():
+            inbound_id, remark, protocol, stream_settings = row
+            fingerprint = None
+            security = None
+
+            if stream_settings:
+                try:
+                    settings = json.loads(stream_settings)
+                    security = settings.get('security', 'none')
+
+                    # Check Reality settings
+                    if security == 'reality':
+                        reality = settings.get('realitySettings', {})
+                        fingerprint = reality.get('fingerprint', 'chrome')
+                    # Check TLS settings
+                    elif security == 'tls':
+                        tls = settings.get('tlsSettings', {})
+                        fingerprint = tls.get('fingerprint', 'chrome')
+                except:
+                    pass
+
+            if fingerprint:  # Only include inbounds with fingerprint support
+                inbounds.append({
+                    "id": inbound_id,
+                    "remark": remark,
+                    "protocol": protocol,
+                    "security": security,
+                    "fingerprint": fingerprint
+                })
+
+        conn.close()
+
+        # Available fingerprint options
+        fingerprint_options = [
+            "chrome", "firefox", "safari", "ios", "android",
+            "edge", "360", "qq", "random", "randomized"
+        ]
+
+        return {
+            "success": True,
+            "inbounds": inbounds,
+            "options": fingerprint_options
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting fingerprints: {e}")
+        return {"success": False, "message": str(e), "inbounds": []}
+
 @app.get("/api/inbounds/{inbound_id}")
 async def get_inbound(inbound_id: int):
     """Получение информации об inbound"""
@@ -2907,69 +2969,6 @@ async def check_protocols(username: str = Depends(get_current_user)):
 
 
 # ==================== FINGERPRINT MANAGEMENT ====================
-
-@app.get("/api/inbounds/fingerprints")
-async def get_inbound_fingerprints(username: str = Depends(get_current_user)):
-    """Get fingerprint settings for all inbounds."""
-    try:
-        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT id, remark, protocol, stream_settings
-            FROM inbounds
-            WHERE protocol IN ('vless', 'trojan')
-        """)
-
-        inbounds = []
-        for row in cursor.fetchall():
-            inbound_id, remark, protocol, stream_settings = row
-            fingerprint = None
-            security = None
-
-            if stream_settings:
-                try:
-                    settings = json.loads(stream_settings)
-                    security = settings.get('security', 'none')
-
-                    # Check Reality settings
-                    if security == 'reality':
-                        reality = settings.get('realitySettings', {})
-                        fingerprint = reality.get('fingerprint', 'chrome')
-                    # Check TLS settings
-                    elif security == 'tls':
-                        tls = settings.get('tlsSettings', {})
-                        fingerprint = tls.get('fingerprint', 'chrome')
-                except:
-                    pass
-
-            if fingerprint:  # Only include inbounds with fingerprint support
-                inbounds.append({
-                    "id": inbound_id,
-                    "remark": remark,
-                    "protocol": protocol,
-                    "security": security,
-                    "fingerprint": fingerprint
-                })
-
-        conn.close()
-
-        # Available fingerprint options
-        fingerprint_options = [
-            "chrome", "firefox", "safari", "ios", "android",
-            "edge", "360", "qq", "random", "randomized"
-        ]
-
-        return {
-            "success": True,
-            "inbounds": inbounds,
-            "options": fingerprint_options
-        }
-
-    except Exception as e:
-        logger.error(f"Error getting fingerprints: {e}")
-        return {"success": False, "message": str(e), "inbounds": []}
-
 
 @app.post("/api/inbounds/fingerprints/update")
 async def update_inbound_fingerprints(
