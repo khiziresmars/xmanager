@@ -138,10 +138,16 @@ class UpdateManager:
             last_check = datetime.fromisoformat(self.last_check_data["last_check"])
             if datetime.now() - last_check < timedelta(hours=1):
                 logger.info("Using cached update check data")
+                # Recalculate update_available based on current version
+                cached_latest = self.last_check_data.get("latest_version", CURRENT_VERSION)
+                try:
+                    update_available = Version(cached_latest) > self.current_version
+                except:
+                    update_available = False
                 return {
                     "current_version": CURRENT_VERSION,
-                    "latest_version": self.last_check_data.get("latest_version"),
-                    "update_available": self.last_check_data.get("update_available", False),
+                    "latest_version": cached_latest,
+                    "update_available": update_available,
                     "cached": True,
                     "last_check": self.last_check_data["last_check"]
                 }
