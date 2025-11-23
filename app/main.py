@@ -216,6 +216,14 @@ async def health_check():
         "server_id": SERVER_ID
     }
 
+@app.get("/api/version")
+async def get_version():
+    """Получение версии приложения"""
+    return {
+        "version": CURRENT_VERSION,
+        "name": "Агент Мастера ключей"
+    }
+
 @app.get("/api/stats")
 async def get_stats():
     """Получение статистики системы"""
