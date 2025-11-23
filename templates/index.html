@@ -1161,14 +1161,33 @@
                 </div>
             </div>
 
-            <!-- Bulk Scan -->
+            <!-- Auto Discovery -->
             <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                <h3 style="margin-top: 0; font-size: 16px;">Массовое сканирование</h3>
-                <div class="btn-group" style="margin-bottom: 15px;">
-                    <button class="btn btn-secondary" onclick="loadSNISuggestions()">📋 Популярные домены</button>
-                    <button class="btn btn-primary" onclick="scanSNIDomains()">🚀 Сканировать</button>
+                <h3 style="margin-top: 0; font-size: 16px;">🔎 Автоматический поиск SNI</h3>
+                <p style="color: var(--text-secondary); font-size: 12px; margin-bottom: 15px;">
+                    Сканирует IP диапазоны CDN и находит подходящие домены автоматически
+                </p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                    <select class="form-input" id="sni-provider" style="width: auto; min-width: 140px;">
+                        <option value="cloudflare">Cloudflare</option>
+                        <option value="google">Google</option>
+                        <option value="amazon">Amazon</option>
+                        <option value="microsoft">Microsoft</option>
+                        <option value="fastly">Fastly</option>
+                    </select>
+                    <input type="number" class="form-input" id="sni-discover-count" value="20" min="5" max="50" style="width: 70px;" title="Количество">
+                    <button class="btn btn-success" onclick="discoverSNI()">🚀 Найти</button>
                 </div>
-                <textarea class="form-input" id="sni-domains-list" rows="4" placeholder="Введите домены (по одному на строку)&#10;www.google.com&#10;www.microsoft.com&#10;www.cloudflare.com" style="font-family: monospace; font-size: 12px;"></textarea>
+            </div>
+
+            <!-- Manual Bulk Scan -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0; font-size: 16px;">Проверка списка доменов</h3>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-secondary" onclick="loadSNISuggestions()">📋 Популярные</button>
+                    <button class="btn btn-primary" onclick="scanSNIDomains()">🔍 Проверить</button>
+                </div>
+                <textarea class="form-input" id="sni-domains-list" rows="3" placeholder="Домены для проверки (по одному на строку)" style="font-family: monospace; font-size: 12px;"></textarea>
             </div>
 
             <!-- Scan Results -->
@@ -4006,6 +4025,46 @@ Subject: ${cert.subject || 'N/A'}
         }
 
         // ==================== SNI SCANNER ====================
+
+        async function discoverSNI() {
+            const provider = document.getElementById('sni-provider').value;
+            const count = parseInt(document.getElementById('sni-discover-count').value) || 20;
+
+            const tbody = document.getElementById('sni-results-body');
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 20px;">
+                <span style="color: var(--accent);">🔎 Сканирование ${provider} IP диапазонов...<br>
+                <small style="color: var(--text-secondary);">Это может занять до 30 секунд</small></span>
+            </td></tr>`;
+
+            try {
+                const response = await fetch(API_URL + `api/sni/discover?provider=${provider}&count=${count}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.results && data.results.length > 0) {
+                    tbody.innerHTML = data.results.map(r => `
+                        <tr>
+                            <td><strong>${r.domain}</strong><br><small style="color: var(--text-secondary);">${r.ip}</small></td>
+                            <td>✅</td>
+                            <td>✅</td>
+                            <td>${r.latency}ms</td>
+                            <td style="color: var(--success);">✅ OK</td>
+                            <td>
+                                <button class="btn btn-success" style="padding: 3px 6px; font-size: 10px;" onclick="saveSNI('${r.domain}', ${r.latency})">💾</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                    showToast(`✅ Найдено ${data.found} доменов из ${data.scanned} IP`, 'success');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--warning);">Домены не найдены. Попробуйте другой провайдер.</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--danger);">Ошибка сканирования</td></tr>';
+            }
+        }
 
         async function testSingleSNI() {
             const domain = document.getElementById('sni-single-domain').value.trim();

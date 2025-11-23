@@ -2873,6 +2873,120 @@ async def delete_saved_sni(domain: str, username: str = Depends(get_current_user
         return {"success": False, "message": str(e)}
 
 
+@app.post("/api/sni/discover")
+async def discover_sni_domains(
+    count: int = 20,
+    provider: str = "cloudflare",
+    username: str = Depends(get_current_user)
+):
+    """Auto-discover SNI domains by scanning CDN IP ranges."""
+    import socket
+    import ssl
+    import time
+    import random
+    import concurrent.futures
+
+    # CDN IP ranges (sample IPs from each provider)
+    cdn_ranges = {
+        "cloudflare": [
+            "104.16.", "104.17.", "104.18.", "104.19.", "104.20.",
+            "104.21.", "104.22.", "104.23.", "104.24.", "104.25.",
+            "172.67.", "141.101."
+        ],
+        "google": [
+            "142.250.", "172.217.", "216.58.", "74.125."
+        ],
+        "amazon": [
+            "13.32.", "13.33.", "13.35.", "52.84.", "52.85."
+        ],
+        "microsoft": [
+            "20.36.", "20.42.", "20.50.", "40.79.", "40.90."
+        ],
+        "fastly": [
+            "151.101.", "199.232."
+        ]
+    }
+
+    ranges = cdn_ranges.get(provider, cdn_ranges["cloudflare"])
+
+    def scan_ip(ip):
+        """Scan single IP for domain and TLS support."""
+        result = None
+        try:
+            # Reverse DNS lookup
+            hostname = socket.gethostbyaddr(ip)[0]
+            if not hostname or hostname == ip:
+                return None
+
+            # Test TLS
+            start = time.time()
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            context.set_alpn_protocols(['h2', 'http/1.1'])
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            sock.connect((ip, 443))
+            ssl_sock = context.wrap_socket(sock, server_hostname=hostname)
+
+            latency = round((time.time() - start) * 1000, 1)
+            tls13 = ssl_sock.version() == 'TLSv1.3'
+            h2 = ssl_sock.selected_alpn_protocol() == 'h2'
+
+            ssl_sock.close()
+            sock.close()
+
+            if tls13 and h2:
+                return {
+                    "domain": hostname,
+                    "ip": ip,
+                    "tls13": True,
+                    "h2": True,
+                    "latency": latency,
+                    "status": "ok"
+                }
+        except:
+            pass
+        return None
+
+    # Generate random IPs from ranges
+    ips_to_scan = []
+    for _ in range(count * 5):  # Scan more IPs to find enough results
+        prefix = random.choice(ranges)
+        if prefix.count('.') == 2:
+            ip = f"{prefix}{random.randint(1, 254)}.{random.randint(1, 254)}"
+        else:
+            ip = f"{prefix}{random.randint(1, 254)}"
+        ips_to_scan.append(ip)
+
+    # Remove duplicates
+    ips_to_scan = list(set(ips_to_scan))[:count * 3]
+
+    # Scan in parallel
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = {executor.submit(scan_ip, ip): ip for ip in ips_to_scan}
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            if result:
+                results.append(result)
+                if len(results) >= count:
+                    break
+
+    # Sort by latency
+    results.sort(key=lambda x: x["latency"])
+
+    return {
+        "success": True,
+        "provider": provider,
+        "scanned": len(ips_to_scan),
+        "found": len(results),
+        "results": results[:count]
+    }
+
+
 @app.get("/api/sni/suggestions")
 async def get_sni_suggestions(username: str = Depends(get_current_user)):
     """Get popular SNI domain suggestions for Reality."""
