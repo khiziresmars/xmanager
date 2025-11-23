@@ -2064,18 +2064,26 @@ async def get_ssl_status(username: str = Depends(get_current_user)):
 @app.post("/api/ssl/renew")
 async def renew_ssl_certificate(
     force: bool = Query(False, description="Force renewal even if certificate is still valid"),
+    domains: Optional[str] = Query(None, description="Comma-separated list of domains to renew"),
     username: str = Depends(get_current_user)
 ):
     """
-    Renew SSL certificate using Let's Encrypt.
+    Renew SSL certificate using Let's Encrypt with standalone mode.
 
     This will:
-    1. Renew the certificate using certbot
-    2. Update 3x-ui configuration
-    3. Restart Nginx and 3x-ui services
+    1. Stop nginx
+    2. Renew the certificate(s) using certbot --standalone
+    3. Start nginx
+    4. Update 3x-ui configuration
+    5. Restart 3x-ui service
     """
     try:
-        result = ssl_manager.full_certificate_renewal(force=force)
+        # Parse domains list
+        domains_list = None
+        if domains:
+            domains_list = [d.strip() for d in domains.split(',')]
+
+        result = ssl_manager.full_certificate_renewal(force=force, domains=domains_list)
 
         if result.get("success"):
             logger.info(f"SSL certificate renewal completed: {result.get('message')}")
@@ -2085,6 +2093,35 @@ async def renew_ssl_certificate(
         return result
     except Exception as e:
         logger.error(f"Error renewing SSL certificate: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/ssl/domains")
+async def get_all_ssl_domains(username: str = Depends(get_current_user)):
+    """
+    Get all domains with Let's Encrypt certificates.
+    """
+    try:
+        domains = ssl_manager.get_all_domains()
+        domains_info = []
+
+        for domain in domains:
+            cert_info = ssl_manager.get_certificate_info(domain)
+            domains_info.append({
+                "domain": domain,
+                "status": cert_info.get("status"),
+                "days_until_expiry": cert_info.get("days_until_expiry"),
+                "needs_renewal": cert_info.get("needs_renewal"),
+                "not_after": cert_info.get("not_after")
+            })
+
+        return {
+            "success": True,
+            "count": len(domains),
+            "domains": domains_info
+        }
+    except Exception as e:
+        logger.error(f"Error getting domains: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -85,6 +85,21 @@ class SSLManager:
 
         return domain
 
+    def get_all_domains(self) -> list:
+        """Get all domains with Let's Encrypt certificates."""
+        domains = []
+        try:
+            if os.path.exists(self.letsencrypt_base):
+                for d in os.listdir(self.letsencrypt_base):
+                    cert_dir = os.path.join(self.letsencrypt_base, d)
+                    if os.path.isdir(cert_dir):
+                        # Check if it has certificate files
+                        if os.path.exists(os.path.join(cert_dir, "fullchain.pem")):
+                            domains.append(d)
+        except Exception as e:
+            logger.error(f"Error getting all domains: {e}")
+        return domains
+
     def _get_domain_from_nginx(self) -> Optional[str]:
         """Extract domain from Nginx configuration."""
         nginx_paths = [
@@ -217,12 +232,12 @@ class SSLManager:
             except ValueError:
                 return None
 
-    def renew_certificate(self, domain: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
-        """Renew SSL certificate using certbot."""
+    def renew_certificate(self, domain: Optional[str] = None, force: bool = False, domains: Optional[list] = None) -> Dict[str, Any]:
+        """Renew SSL certificate using certbot with standalone mode."""
         if not domain:
             domain = self.get_domain_from_config()
 
-        if not domain:
+        if not domain and not domains:
             return {
                 "success": False,
                 "message": "Domain not found. Please specify a domain."
@@ -245,63 +260,77 @@ class SSLManager:
             if certbot_check.returncode != 0:
                 return {
                     "success": False,
-                    "message": "certbot is not installed. Please install it with: apt install certbot python3-certbot-nginx"
+                    "message": "certbot is not installed. Please install it with: apt install certbot"
                 }
 
-            # Determine renewal command
-            if cert_info.get("has_certificate"):
-                # Renew existing certificate
+            # Stop nginx for standalone mode
+            logger.info("Stopping nginx for certificate renewal...")
+            nginx_stop = subprocess.run(['systemctl', 'stop', 'nginx'], capture_output=True, text=True)
+            if nginx_stop.returncode != 0:
+                logger.warning(f"Failed to stop nginx: {nginx_stop.stderr}")
+
+            results = []
+            domains_to_renew = domains if domains else [domain]
+
+            for d in domains_to_renew:
+                # Use standalone mode for renewal
                 cmd = [
-                    'certbot', 'renew',
-                    '--cert-name', domain,
-                    '--non-interactive',
-                    '--quiet'
-                ]
-                if force:
-                    cmd.append('--force-renewal')
-            else:
-                # Obtain new certificate
-                cmd = [
-                    'certbot', '--nginx',
-                    '-d', domain,
+                    'certbot', 'certonly',
+                    '--standalone',
+                    '-d', d,
                     '--non-interactive',
                     '--agree-tos',
                     '--register-unsafely-without-email'
                 ]
+                if force:
+                    cmd.append('--force-renewal')
 
-            logger.info(f"Running certbot command: {' '.join(cmd)}")
+                logger.info(f"Running certbot command: {' '.join(cmd)}")
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
 
-            if result.returncode != 0:
-                return {
-                    "success": False,
-                    "message": f"certbot failed: {result.stderr or result.stdout}",
-                    "command": ' '.join(cmd)
-                }
+                results.append({
+                    "domain": d,
+                    "success": result.returncode == 0,
+                    "output": result.stdout,
+                    "error": result.stderr if result.returncode != 0 else None
+                })
+
+            # Start nginx back
+            logger.info("Starting nginx...")
+            nginx_start = subprocess.run(['systemctl', 'start', 'nginx'], capture_output=True, text=True)
+            if nginx_start.returncode != 0:
+                logger.error(f"Failed to start nginx: {nginx_start.stderr}")
+
+            # Check results
+            all_success = all(r["success"] for r in results)
 
             # Get updated certificate info
             new_cert_info = self.get_certificate_info(domain)
 
             return {
-                "success": True,
-                "message": f"Certificate {'renewed' if cert_info.get('has_certificate') else 'obtained'} successfully",
-                "renewed": True,
+                "success": all_success,
+                "message": f"Certificate renewal {'completed' if all_success else 'partially failed'}",
+                "renewed": any(r["success"] for r in results),
                 "cert_info": new_cert_info,
-                "output": result.stdout
+                "results": results
             }
 
         except subprocess.TimeoutExpired:
+            # Make sure to start nginx back
+            subprocess.run(['systemctl', 'start', 'nginx'], capture_output=True)
             return {
                 "success": False,
                 "message": "certbot command timed out after 120 seconds"
             }
         except Exception as e:
+            # Make sure to start nginx back
+            subprocess.run(['systemctl', 'start', 'nginx'], capture_output=True)
             logger.error(f"Error renewing certificate: {e}")
             return {
                 "success": False,
@@ -439,17 +468,17 @@ class SSLManager:
 
         return results
 
-    def full_certificate_renewal(self, domain: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
+    def full_certificate_renewal(self, domain: Optional[str] = None, force: bool = False, domains: Optional[list] = None) -> Dict[str, Any]:
         """
         Complete certificate renewal process:
-        1. Renew certificate with certbot
+        1. Renew certificate with certbot (standalone mode)
         2. Update 3x-ui configuration
         3. Restart services
         """
         steps = []
 
         # Step 1: Renew certificate
-        renewal_result = self.renew_certificate(domain, force)
+        renewal_result = self.renew_certificate(domain, force, domains)
         steps.append({
             "step": "renew_certificate",
             "result": renewal_result
@@ -464,6 +493,8 @@ class SSLManager:
 
         # Get domain from renewal result
         used_domain = renewal_result.get("cert_info", {}).get("domain") or domain
+        if domains:
+            used_domain = domains[0]  # Use first domain for 3x-ui config
 
         # Step 2: Update 3x-ui
         if renewal_result.get("renewed"):
