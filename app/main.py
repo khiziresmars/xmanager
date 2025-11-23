@@ -216,15 +216,6 @@ async def health_check():
         "server_id": SERVER_ID
     }
 
-@app.get("/api/server/info")
-async def get_server_info():
-    """Получение информации о сервере"""
-    return {
-        "server_id": SERVER_ID,
-        "app_name": settings.APP_NAME,
-        "app_version": settings.APP_VERSION
-    }
-
 @app.get("/api/stats")
 async def get_stats():
     """Получение статистики системы"""
@@ -2530,6 +2521,7 @@ async def update_dat_files(username: str = Depends(get_current_user)):
 async def get_server_info(username: str = Depends(get_current_user)):
     """Get comprehensive server information."""
     import psutil
+    import subprocess
 
     info = {
         "xui_version": None,
