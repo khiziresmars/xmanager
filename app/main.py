@@ -2202,6 +2202,162 @@ async def get_3xui_domains(username: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== SYSTEM OPTIMIZATION ====================
+
+@app.get("/api/system/optimization/check")
+async def check_system_optimization(username: str = Depends(get_current_user)):
+    """Check system optimization status (BBR, TCP settings)."""
+    import subprocess
+
+    try:
+        result = {
+            "bbr_enabled": False,
+            "bbr_version": None,
+            "tcp_optimized": False,
+            "kernel": None,
+            "sysctl_values": ""
+        }
+
+        # Get kernel version
+        kernel = subprocess.run(['uname', '-r'], capture_output=True, text=True)
+        result["kernel"] = kernel.stdout.strip()
+
+        # Check BBR
+        congestion = subprocess.run(
+            ['sysctl', 'net.ipv4.tcp_congestion_control'],
+            capture_output=True, text=True
+        )
+        if 'bbr' in congestion.stdout.lower():
+            result["bbr_enabled"] = True
+            result["bbr_version"] = "bbr" if "bbr3" not in congestion.stdout.lower() else "bbr3"
+
+        # Check TCP optimization
+        tcp_checks = [
+            'net.core.default_qdisc',
+            'net.ipv4.tcp_fastopen',
+            'net.ipv4.tcp_slow_start_after_idle'
+        ]
+
+        sysctl_output = []
+        optimized_count = 0
+
+        for check in tcp_checks:
+            val = subprocess.run(['sysctl', check], capture_output=True, text=True)
+            sysctl_output.append(val.stdout.strip())
+            if 'fq' in val.stdout or 'fastopen' in val.stdout or '= 0' in val.stdout:
+                optimized_count += 1
+
+        result["tcp_optimized"] = optimized_count >= 2
+        result["sysctl_values"] = '\n'.join(sysctl_output)
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error checking optimization: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/system/optimization/install-bbr")
+async def install_bbr(username: str = Depends(get_current_user)):
+    """Install and enable BBR congestion control."""
+    import subprocess
+
+    try:
+        commands = [
+            "echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf",
+            "echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf",
+            "sysctl -p"
+        ]
+
+        for cmd in commands:
+            subprocess.run(cmd, shell=True, check=True)
+
+        return {
+            "success": True,
+            "message": "BBR включен. Перезагрузка может потребоваться для полной активации."
+        }
+
+    except Exception as e:
+        logger.error(f"Error installing BBR: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/system/optimization/tcp")
+async def optimize_tcp(username: str = Depends(get_current_user)):
+    """Apply TCP optimizations."""
+    import subprocess
+
+    try:
+        optimizations = [
+            "net.ipv4.tcp_fastopen=3",
+            "net.ipv4.tcp_slow_start_after_idle=0",
+            "net.ipv4.tcp_notsent_lowat=16384",
+            "net.core.rmem_max=16777216",
+            "net.core.wmem_max=16777216"
+        ]
+
+        for opt in optimizations:
+            subprocess.run(f"sysctl -w {opt}", shell=True)
+            subprocess.run(f"echo '{opt}' >> /etc/sysctl.conf", shell=True)
+
+        return {"success": True, "message": "TCP оптимизации применены"}
+
+    except Exception as e:
+        logger.error(f"Error optimizing TCP: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/system/optimization/install-all")
+async def install_all_optimizations(username: str = Depends(get_current_user)):
+    """Install all system optimizations."""
+    try:
+        # Install BBR
+        await install_bbr(username)
+        # Optimize TCP
+        await optimize_tcp(username)
+
+        return {"success": True, "message": "Все оптимизации установлены"}
+
+    except Exception as e:
+        logger.error(f"Error installing optimizations: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/system/update-dat")
+async def update_dat_files(username: str = Depends(get_current_user)):
+    """Update GeoIP and GeoSite dat files."""
+    import subprocess
+    import urllib.request
+
+    try:
+        dat_dir = "/usr/local/x-ui/bin"
+
+        # URLs for dat files
+        files = {
+            "geoip.dat": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
+            "geosite.dat": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
+        }
+
+        for filename, url in files.items():
+            filepath = f"{dat_dir}/{filename}"
+            logger.info(f"Downloading {filename}...")
+
+            # Download file
+            subprocess.run(
+                f"curl -L -o {filepath} {url}",
+                shell=True, check=True, timeout=120
+            )
+
+        # Restart x-ui to apply
+        subprocess.run(['systemctl', 'restart', 'x-ui'], check=True)
+
+        return {"success": True, "message": "GeoIP и GeoSite обновлены"}
+
+    except Exception as e:
+        logger.error(f"Error updating dat files: {e}")
+        return {"success": False, "message": str(e)}
+
+
 # ==================== ЗАПУСК ПРИЛОЖЕНИЯ ====================
 
 if __name__ == "__main__":
