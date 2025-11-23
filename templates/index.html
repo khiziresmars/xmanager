@@ -1221,7 +1221,7 @@
                 <pre id="xui-logs" style="background: var(--bg-primary); padding: 15px; border-radius: 8px; max-height: 300px; overflow-y: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all;">Нажмите кнопку для загрузки логов...</pre>
             </div>
 
-            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
                 <h3 style="margin-top: 0;">Обновление данных</h3>
                 <div class="btn-group" style="flex-wrap: wrap;">
                     <button class="btn btn-primary" onclick="updateDatFiles()">🌍 Обновить GeoIP/GeoSite</button>
@@ -1230,6 +1230,30 @@
                 <p style="color: #888; font-size: 12px; margin-top: 15px; margin-bottom: 0;">
                     GeoIP/GeoSite - базы данных для маршрутизации по странам (Россия, Иран и др.)
                 </p>
+            </div>
+
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                <h3 style="margin-top: 0;">Fingerprint (TLS/Reality)</h3>
+                <p style="color: #888; font-size: 12px; margin-bottom: 15px;">
+                    Обновить fingerprint на всех inbounds с поддержкой TLS/Reality
+                </p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                    <select id="fingerprint-select" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); min-width: 150px;">
+                        <option value="randomized">randomized</option>
+                        <option value="random">random</option>
+                        <option value="chrome">chrome</option>
+                        <option value="firefox">firefox</option>
+                        <option value="safari">safari</option>
+                        <option value="ios">ios</option>
+                        <option value="android">android</option>
+                        <option value="edge">edge</option>
+                        <option value="360">360</option>
+                        <option value="qq">qq</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="updateFingerprints()">🔄 Обновить все</button>
+                    <button class="btn btn-secondary" onclick="loadFingerprints()">📋 Показать текущие</button>
+                </div>
+                <div id="fingerprint-info" style="margin-top: 15px; font-size: 12px; color: var(--text-secondary);"></div>
             </div>
         </div>
 
@@ -3644,6 +3668,70 @@ Subject: ${cert.subject || 'N/A'}
             } catch (error) {
                 console.error('Error:', error);
                 showToast('Ошибка обновления Xray', 'error');
+            }
+        }
+
+        // ==================== FINGERPRINT MANAGEMENT ====================
+
+        async function loadFingerprints() {
+            const info = document.getElementById('fingerprint-info');
+            info.innerHTML = '<span style="color: var(--accent);">⏳ Загрузка...</span>';
+
+            try {
+                const response = await fetch(API_URL + 'api/inbounds/fingerprints', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success && data.inbounds.length > 0) {
+                    let html = '<div style="margin-top: 10px;"><strong>Текущие fingerprints:</strong></div>';
+                    html += '<div style="margin-top: 8px; max-height: 150px; overflow-y: auto;">';
+                    data.inbounds.forEach(ib => {
+                        html += `<div style="padding: 4px 0; border-bottom: 1px solid var(--border);">
+                            <span style="color: var(--text-primary);">${ib.remark}</span>
+                            <span style="color: var(--text-secondary);"> (${ib.protocol}/${ib.security})</span>:
+                            <span style="color: var(--accent); font-weight: 500;">${ib.fingerprint}</span>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    info.innerHTML = html;
+                } else if (data.inbounds && data.inbounds.length === 0) {
+                    info.innerHTML = '<span style="color: var(--warning);">⚠️ Нет inbounds с поддержкой fingerprint (TLS/Reality)</span>';
+                } else {
+                    info.innerHTML = `<span style="color: var(--danger);">❌ ${data.message || 'Ошибка'}</span>`;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                info.innerHTML = '<span style="color: var(--danger);">❌ Ошибка загрузки</span>';
+            }
+        }
+
+        async function updateFingerprints() {
+            const fingerprint = document.getElementById('fingerprint-select').value;
+            if (!confirm(`Обновить fingerprint на всех inbounds?\n\nНовое значение: ${fingerprint}\n\nX-UI будет перезапущен.`)) return;
+
+            const info = document.getElementById('fingerprint-info');
+            info.innerHTML = '<span style="color: var(--accent);">⏳ Обновление...</span>';
+
+            try {
+                const response = await fetch(API_URL + `api/inbounds/fingerprints/update?fingerprint=${fingerprint}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ Обновлено ${data.updated_count} inbounds`, 'success');
+                    info.innerHTML = `<span style="color: var(--success);">✅ Fingerprint обновлен на ${data.updated_count} inbounds</span>`;
+                    loadXuiStatus();
+                } else {
+                    showToast('Ошибка: ' + (data.message || 'Unknown'), 'error');
+                    info.innerHTML = `<span style="color: var(--danger);">❌ ${data.message || 'Ошибка'}</span>`;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка обновления fingerprint', 'error');
+                info.innerHTML = '<span style="color: var(--danger);">❌ Ошибка обновления</span>';
             }
         }
 

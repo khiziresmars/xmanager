@@ -2358,6 +2358,156 @@ async def update_dat_files(username: str = Depends(get_current_user)):
         return {"success": False, "message": str(e)}
 
 
+# ==================== FINGERPRINT MANAGEMENT ====================
+
+@app.get("/api/inbounds/fingerprints")
+async def get_inbound_fingerprints(username: str = Depends(get_current_user)):
+    """Get fingerprint settings for all inbounds."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, remark, protocol, stream_settings
+            FROM inbounds
+            WHERE protocol IN ('vless', 'trojan')
+        """)
+
+        inbounds = []
+        for row in cursor.fetchall():
+            inbound_id, remark, protocol, stream_settings = row
+            fingerprint = None
+            security = None
+
+            if stream_settings:
+                try:
+                    settings = json.loads(stream_settings)
+                    security = settings.get('security', 'none')
+
+                    # Check Reality settings
+                    if security == 'reality':
+                        reality = settings.get('realitySettings', {})
+                        fingerprint = reality.get('fingerprint', 'chrome')
+                    # Check TLS settings
+                    elif security == 'tls':
+                        tls = settings.get('tlsSettings', {})
+                        fingerprint = tls.get('fingerprint', 'chrome')
+                except:
+                    pass
+
+            if fingerprint:  # Only include inbounds with fingerprint support
+                inbounds.append({
+                    "id": inbound_id,
+                    "remark": remark,
+                    "protocol": protocol,
+                    "security": security,
+                    "fingerprint": fingerprint
+                })
+
+        conn.close()
+
+        # Available fingerprint options
+        fingerprint_options = [
+            "chrome", "firefox", "safari", "ios", "android",
+            "edge", "360", "qq", "random", "randomized"
+        ]
+
+        return {
+            "success": True,
+            "inbounds": inbounds,
+            "options": fingerprint_options
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting fingerprints: {e}")
+        return {"success": False, "message": str(e), "inbounds": []}
+
+
+@app.post("/api/inbounds/fingerprints/update")
+async def update_inbound_fingerprints(
+    fingerprint: str = "randomized",
+    inbound_ids: Optional[List[int]] = None,
+    username: str = Depends(get_current_user)
+):
+    """Update fingerprint on all or selected inbounds."""
+    try:
+        valid_fingerprints = [
+            "chrome", "firefox", "safari", "ios", "android",
+            "edge", "360", "qq", "random", "randomized"
+        ]
+
+        if fingerprint not in valid_fingerprints:
+            return {"success": False, "message": f"Invalid fingerprint. Valid: {', '.join(valid_fingerprints)}"}
+
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        # Get inbounds to update
+        if inbound_ids:
+            placeholders = ','.join('?' * len(inbound_ids))
+            cursor.execute(f"""
+                SELECT id, stream_settings
+                FROM inbounds
+                WHERE id IN ({placeholders}) AND protocol IN ('vless', 'trojan')
+            """, inbound_ids)
+        else:
+            cursor.execute("""
+                SELECT id, stream_settings
+                FROM inbounds
+                WHERE protocol IN ('vless', 'trojan')
+            """)
+
+        updated_count = 0
+        for row in cursor.fetchall():
+            inbound_id, stream_settings = row
+
+            if not stream_settings:
+                continue
+
+            try:
+                settings = json.loads(stream_settings)
+                security = settings.get('security', 'none')
+                updated = False
+
+                # Update Reality fingerprint
+                if security == 'reality' and 'realitySettings' in settings:
+                    settings['realitySettings']['fingerprint'] = fingerprint
+                    updated = True
+                # Update TLS fingerprint
+                elif security == 'tls' and 'tlsSettings' in settings:
+                    settings['tlsSettings']['fingerprint'] = fingerprint
+                    updated = True
+
+                if updated:
+                    cursor.execute(
+                        "UPDATE inbounds SET stream_settings = ? WHERE id = ?",
+                        (json.dumps(settings), inbound_id)
+                    )
+                    updated_count += 1
+
+            except Exception as e:
+                logger.error(f"Error updating inbound {inbound_id}: {e}")
+                continue
+
+        conn.commit()
+        conn.close()
+
+        # Restart x-ui to apply changes
+        if updated_count > 0:
+            subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {
+            "success": True,
+            "message": f"Обновлено {updated_count} inbounds",
+            "updated_count": updated_count,
+            "fingerprint": fingerprint
+        }
+
+    except Exception as e:
+        logger.error(f"Error updating fingerprints: {e}")
+        return {"success": False, "message": str(e)}
+
+
 @app.post("/api/system/update-3xui")
 async def update_3xui(username: str = Depends(get_current_user)):
     """Update 3x-ui panel with database backup."""
