@@ -1360,18 +1360,22 @@
                 Управление службой x-ui, логи и диагностика
             </p>
 
-            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 30px;">
+            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 30px;">
                 <div class="stat-card">
                     <div class="stat-label">Статус X-UI</div>
-                    <div class="stat-value" id="xui-service-status" style="font-size: 18px;">-</div>
+                    <div class="stat-value" id="xui-service-status" style="font-size: 16px;">-</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Версия X-UI</div>
-                    <div class="stat-value" id="xui-version" style="font-size: 16px;">-</div>
+                    <div class="stat-value" id="xui-version" style="font-size: 14px;">-</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Версия Xray</div>
-                    <div class="stat-value" id="xray-version" style="font-size: 16px;">-</div>
+                    <div class="stat-value" id="xray-version" style="font-size: 14px;">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">TCP соединений</div>
+                    <div class="stat-value" id="tcp-connections" style="font-size: 16px;">-</div>
                 </div>
             </div>
 
@@ -1381,8 +1385,19 @@
                     <button class="btn btn-success" onclick="xuiAction('restart')">🔄 Перезапустить</button>
                     <button class="btn btn-warning" onclick="xuiAction('stop')">⏹️ Остановить</button>
                     <button class="btn btn-primary" onclick="xuiAction('start')">▶️ Запустить</button>
-                    <button class="btn btn-secondary" onclick="loadXuiStatus()">📊 Обновить статус</button>
+                    <button class="btn btn-secondary" onclick="loadXuiStatus()">📊 Обновить</button>
+                    <button class="btn btn-primary" onclick="openPanel()" id="panel-link-btn">🔗 Панель</button>
                 </div>
+            </div>
+
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">Инструменты</h3>
+                <div class="btn-group" style="flex-wrap: wrap; margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="runSpeedtest()">🚀 Speedtest</button>
+                    <button class="btn btn-warning" onclick="regenerateKeys()">🔑 Новые ключи</button>
+                    <button class="btn btn-success" onclick="applySNI()">📡 Применить SNI</button>
+                </div>
+                <div id="speedtest-result" style="font-size: 12px; color: var(--text-secondary);"></div>
             </div>
 
             <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
@@ -3732,32 +3747,106 @@ Subject: ${cert.subject || 'N/A'}
 
         // ==================== X-UI CONTROL ====================
 
+        let panelUrl = ':54321/panel/';
+
         async function loadXuiStatus() {
             try {
-                const [statusRes, xuiVerRes, xrayVerRes] = await Promise.all([
-                    fetch(API_URL + 'api/system/xui/status', {credentials: 'include'}),
-                    fetch(API_URL + 'api/system/xui/version', {credentials: 'include'}),
-                    fetch(API_URL + 'api/system/xray/version', {credentials: 'include'})
-                ]);
-
-                const status = await statusRes.json();
-                const xuiVer = await xuiVerRes.json();
-                const xrayVer = await xrayVerRes.json();
+                const response = await fetch(API_URL + 'api/server/info', {credentials: 'include'});
+                const info = await response.json();
 
                 const statusElem = document.getElementById('xui-service-status');
-                if (status.active) {
+                if (info.xui_installed) {
                     statusElem.textContent = '✅ Активен';
                     statusElem.style.color = 'var(--success)';
                 } else {
-                    statusElem.textContent = '❌ Остановлен';
+                    statusElem.textContent = '❌ Не установлен';
                     statusElem.style.color = 'var(--danger)';
                 }
 
-                document.getElementById('xui-version').textContent = xuiVer.version || '-';
-                document.getElementById('xray-version').textContent = xrayVer.version || '-';
+                document.getElementById('xui-version').textContent = info.xui_version || '-';
+                document.getElementById('xray-version').textContent = info.xray_version || '-';
+                document.getElementById('tcp-connections').textContent = info.tcp_connections || '0';
+
+                if (info.panel_url) {
+                    panelUrl = info.panel_url;
+                }
 
             } catch (error) {
                 console.error('Error loading X-UI status:', error);
+            }
+        }
+
+        function openPanel() {
+            const host = window.location.hostname;
+            window.open(`http://${host}${panelUrl}`, '_blank');
+        }
+
+        async function runSpeedtest() {
+            const resultDiv = document.getElementById('speedtest-result');
+            resultDiv.innerHTML = '<span style="color: var(--accent);">🚀 Запуск speedtest (до 2 минут)...</span>';
+
+            try {
+                const response = await fetch(API_URL + 'api/server/speedtest', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <div style="padding: 10px; background: var(--bg-primary); border-radius: 6px;">
+                            ⬇️ Download: <strong>${data.download} Mbps</strong> |
+                            ⬆️ Upload: <strong>${data.upload} Mbps</strong> |
+                            🏓 Ping: <strong>${data.ping} ms</strong>
+                            <br><small style="color: var(--text-secondary);">Server: ${data.server}</small>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `<span style="color: var(--danger);">❌ ${data.message}</span>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = '<span style="color: var(--danger);">❌ Ошибка speedtest</span>';
+            }
+        }
+
+        async function regenerateKeys() {
+            if (!confirm('⚠️ Это сгенерирует НОВЫЕ UUID/пароли для ВСЕХ пользователей!\n\nВсе текущие ключи перестанут работать.\n\nПродолжить?')) return;
+
+            try {
+                const response = await fetch(API_URL + 'api/users/regenerate-keys', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ ${data.message}`, 'success');
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showToast('Ошибка регенерации ключей', 'error');
+            }
+        }
+
+        async function applySNI() {
+            const sni = prompt('Введите SNI домен для применения ко всем Reality inbounds:', 'www.google.com');
+            if (!sni) return;
+
+            try {
+                const response = await fetch(API_URL + `api/inbounds/apply-sni?sni=${encodeURIComponent(sni)}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ ${data.message}`, 'success');
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showToast('Ошибка применения SNI', 'error');
             }
         }
 

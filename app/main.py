@@ -2524,6 +2524,363 @@ async def update_dat_files(username: str = Depends(get_current_user)):
         return {"success": False, "message": str(e)}
 
 
+# ==================== SERVER INFO & TOOLS ====================
+
+@app.get("/api/server/info")
+async def get_server_info(username: str = Depends(get_current_user)):
+    """Get comprehensive server information."""
+    import psutil
+
+    info = {
+        "xui_version": None,
+        "xui_installed": False,
+        "xray_version": None,
+        "panel_url": None,
+        "tcp_connections": 0,
+        "online_users": 0,
+        "cpu_percent": 0,
+        "memory_percent": 0,
+        "disk_percent": 0
+    }
+
+    try:
+        # Check if x-ui is installed
+        xui_installed = os.path.exists("/usr/local/x-ui") or os.path.exists("/etc/x-ui/x-ui.db")
+        info["xui_installed"] = xui_installed
+
+        if xui_installed:
+            # Get x-ui version
+            try:
+                result = subprocess.run(
+                    ["x-ui", "version"],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    info["xui_version"] = result.stdout.strip()
+            except:
+                # Try alternative method
+                try:
+                    result = subprocess.run(
+                        ["/usr/local/x-ui/x-ui", "version"],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if result.returncode == 0:
+                        info["xui_version"] = result.stdout.strip()
+                except:
+                    pass
+
+            # Get Xray version
+            try:
+                result = subprocess.run(
+                    ["/usr/local/x-ui/bin/xray-linux-amd64", "-version"],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    import re
+                    match = re.search(r'Xray (\d+\.\d+\.\d+)', result.stdout)
+                    if match:
+                        info["xray_version"] = match.group(1)
+            except:
+                pass
+
+            # Get panel URL from settings
+            try:
+                conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+                cursor = conn.cursor()
+                cursor.execute("SELECT value FROM settings WHERE key = 'webPort'")
+                row = cursor.fetchone()
+                if row:
+                    port = row[0]
+                    info["panel_url"] = f":{port}/panel/"
+                conn.close()
+            except:
+                info["panel_url"] = ":54321/panel/"
+
+        # Get TCP connections count
+        try:
+            connections = psutil.net_connections(kind='tcp')
+            established = [c for c in connections if c.status == 'ESTABLISHED']
+            info["tcp_connections"] = len(established)
+        except:
+            pass
+
+        # Get online users (from x-ui API or database)
+        try:
+            conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+            cursor = conn.cursor()
+            # Count users with recent traffic
+            cursor.execute("""
+                SELECT COUNT(DISTINCT email) FROM client_traffics
+                WHERE enable = 1
+                AND (up > 0 OR down > 0)
+                AND (expiry_time = 0 OR expiry_time > ?)
+            """, (int(datetime.now().timestamp() * 1000),))
+            info["online_users"] = cursor.fetchone()[0]
+            conn.close()
+        except:
+            pass
+
+        # System stats
+        info["cpu_percent"] = psutil.cpu_percent(interval=0.1)
+        info["memory_percent"] = psutil.virtual_memory().percent
+        info["disk_percent"] = psutil.disk_usage('/').percent
+
+    except Exception as e:
+        logger.error(f"Error getting server info: {e}")
+
+    return info
+
+
+@app.post("/api/server/speedtest")
+async def run_speedtest(username: str = Depends(get_current_user)):
+    """Run internal speedtest."""
+    try:
+        # Check if speedtest-cli is installed
+        result = subprocess.run(
+            ["which", "speedtest-cli"],
+            capture_output=True, text=True
+        )
+
+        if result.returncode != 0:
+            # Try to install
+            subprocess.run(
+                ["pip3", "install", "speedtest-cli"],
+                capture_output=True, timeout=60
+            )
+
+        # Run speedtest
+        result = subprocess.run(
+            ["speedtest-cli", "--json"],
+            capture_output=True, text=True, timeout=120
+        )
+
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            return {
+                "success": True,
+                "download": round(data["download"] / 1_000_000, 2),  # Mbps
+                "upload": round(data["upload"] / 1_000_000, 2),  # Mbps
+                "ping": round(data["ping"], 2),
+                "server": data.get("server", {}).get("name", "Unknown")
+            }
+        else:
+            return {"success": False, "message": result.stderr or "Speedtest failed"}
+
+    except Exception as e:
+        logger.error(f"Error running speedtest: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.get("/api/xui/check")
+async def check_xui_installation(username: str = Depends(get_current_user)):
+    """Check if 3x-ui is installed and get installation status."""
+    status = {
+        "installed": False,
+        "running": False,
+        "version": None,
+        "config_exists": False,
+        "database_exists": False
+    }
+
+    try:
+        # Check installation
+        status["installed"] = os.path.exists("/usr/local/x-ui/x-ui")
+        status["config_exists"] = os.path.exists("/usr/local/x-ui/bin/config.json")
+        status["database_exists"] = os.path.exists("/etc/x-ui/x-ui.db")
+
+        # Check if running
+        result = subprocess.run(
+            ["systemctl", "is-active", "x-ui"],
+            capture_output=True, text=True
+        )
+        status["running"] = result.stdout.strip() == "active"
+
+        # Get version
+        if status["installed"]:
+            try:
+                result = subprocess.run(
+                    ["/usr/local/x-ui/x-ui", "version"],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    status["version"] = result.stdout.strip()
+            except:
+                pass
+
+    except Exception as e:
+        logger.error(f"Error checking x-ui: {e}")
+
+    return status
+
+
+@app.post("/api/xui/install")
+async def install_xui(username: str = Depends(get_current_user)):
+    """Install 3x-ui panel."""
+    try:
+        # Run official install script
+        result = subprocess.run(
+            "bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)",
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+
+        if result.returncode == 0:
+            return {"success": True, "message": "3x-ui установлен"}
+        else:
+            return {"success": False, "message": result.stderr or "Installation failed"}
+
+    except Exception as e:
+        logger.error(f"Error installing x-ui: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/inbounds/apply-sni")
+async def apply_sni_to_inbounds(sni: str, username: str = Depends(get_current_user)):
+    """Apply SNI to all Reality inbounds."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, stream_settings FROM inbounds
+            WHERE protocol IN ('vless', 'trojan')
+        """)
+
+        updated = 0
+        for row in cursor.fetchall():
+            inbound_id, stream_settings = row
+            if not stream_settings:
+                continue
+
+            try:
+                settings = json.loads(stream_settings)
+                security = settings.get('security', '')
+
+                if security == 'reality' and 'realitySettings' in settings:
+                    settings['realitySettings']['serverNames'] = [sni]
+                    if 'dest' in settings['realitySettings']:
+                        settings['realitySettings']['dest'] = f"{sni}:443"
+
+                    cursor.execute(
+                        "UPDATE inbounds SET stream_settings = ? WHERE id = ?",
+                        (json.dumps(settings), inbound_id)
+                    )
+                    updated += 1
+
+            except Exception as e:
+                logger.error(f"Error updating inbound {inbound_id}: {e}")
+
+        conn.commit()
+        conn.close()
+
+        if updated > 0:
+            subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {
+            "success": True,
+            "message": f"SNI применен к {updated} inbounds",
+            "updated": updated,
+            "sni": sni
+        }
+
+    except Exception as e:
+        logger.error(f"Error applying SNI: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/users/regenerate-keys")
+async def regenerate_user_keys(inbound_id: Optional[int] = None, username: str = Depends(get_current_user)):
+    """Regenerate UUIDs/passwords for all users."""
+    import uuid
+
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        # Get inbounds
+        if inbound_id:
+            cursor.execute("SELECT id, settings, protocol FROM inbounds WHERE id = ?", (inbound_id,))
+        else:
+            cursor.execute("SELECT id, settings, protocol FROM inbounds")
+
+        updated_total = 0
+
+        for row in cursor.fetchall():
+            ib_id, settings_json, protocol = row
+            if not settings_json:
+                continue
+
+            try:
+                settings = json.loads(settings_json)
+                clients = settings.get('clients', [])
+
+                for client in clients:
+                    if protocol in ['vless', 'vmess']:
+                        client['id'] = str(uuid.uuid4())
+                    elif protocol == 'trojan':
+                        client['password'] = str(uuid.uuid4())[:16]
+
+                settings['clients'] = clients
+                cursor.execute(
+                    "UPDATE inbounds SET settings = ? WHERE id = ?",
+                    (json.dumps(settings), ib_id)
+                )
+                updated_total += len(clients)
+
+            except Exception as e:
+                logger.error(f"Error updating inbound {ib_id}: {e}")
+
+        conn.commit()
+        conn.close()
+
+        subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {
+            "success": True,
+            "message": f"Обновлено {updated_total} ключей",
+            "updated": updated_total
+        }
+
+    except Exception as e:
+        logger.error(f"Error regenerating keys: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.get("/api/protocols/check")
+async def check_protocols(username: str = Depends(get_current_user)):
+    """Check available protocols and their status."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT protocol, COUNT(*) as count,
+                   SUM(CASE WHEN enable = 1 THEN 1 ELSE 0 END) as enabled
+            FROM inbounds
+            GROUP BY protocol
+        """)
+
+        protocols = []
+        for row in cursor.fetchall():
+            protocol, count, enabled = row
+            protocols.append({
+                "protocol": protocol,
+                "total": count,
+                "enabled": enabled,
+                "disabled": count - enabled
+            })
+
+        conn.close()
+
+        return {"success": True, "protocols": protocols}
+
+    except Exception as e:
+        logger.error(f"Error checking protocols: {e}")
+        return {"success": False, "message": str(e)}
+
+
 # ==================== FINGERPRINT MANAGEMENT ====================
 
 @app.get("/api/inbounds/fingerprints")
