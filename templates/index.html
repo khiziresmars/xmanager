@@ -1385,36 +1385,23 @@
         bottom: 0;
         left: 0;
         right: 0;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
+        background: var(--bg-secondary);
+        border-top: 1px solid var(--border);
+        color: var(--text-primary);
         padding: 8px 20px;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
         z-index: 1000;
         font-size: 13px;
     ">
         <div style="display: flex; align-items: center; gap: 15px;">
             <span id="version-info">⚙️ Загрузка версии...</span>
-            <span id="update-status" style="display: none;"></span>
         </div>
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <button id="check-update-btn" onclick="checkForUpdates()" style="
-                background: rgba(255,255,255,0.2);
-                border: 1px solid rgba(255,255,255,0.3);
-                color: white;
-                padding: 5px 12px;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 12px;
-                transition: all 0.3s;
-            " onmouseover="this.style.background='rgba(255,255,255,0.3)'"
-               onmouseout="this.style.background='rgba(255,255,255,0.2)'">
-                🔄 Проверить обновления
-            </button>
+        <div id="update-buttons" style="display: none; align-items: center; gap: 10px;">
+            <span id="update-status" style="color: var(--success); font-size: 12px;"></span>
             <button id="perform-update-btn" onclick="performUpdate()" style="
-                background: #4CAF50;
+                background: var(--success);
                 border: none;
                 color: white;
                 padding: 5px 12px;
@@ -1422,10 +1409,8 @@
                 cursor: pointer;
                 font-size: 12px;
                 font-weight: 600;
-                display: none;
                 transition: all 0.3s;
-            " onmouseover="this.style.background='#45a049'"
-               onmouseout="this.style.background='#4CAF50'">
+            ">
                 ⬆️ Обновить до <span id="new-version"></span>
             </button>
         </div>
@@ -2783,14 +2768,8 @@
         }
 
         async function checkForUpdates(showLoading = true) {
-            const checkBtn = document.getElementById('check-update-btn');
-            const updateBtn = document.getElementById('perform-update-btn');
+            const updateButtons = document.getElementById('update-buttons');
             const updateStatus = document.getElementById('update-status');
-
-            if (showLoading) {
-                checkBtn.disabled = true;
-                checkBtn.textContent = '🔄 Проверка...';
-            }
 
             try {
                 const response = await fetch(API_URL + 'api/system/update/check?force=' + showLoading, {
@@ -2799,38 +2778,21 @@
                 const data = await response.json();
 
                 if (data.update_available) {
-                    // Show update button
-                    updateBtn.style.display = 'block';
+                    // Show update button only when update available
+                    updateButtons.style.display = 'flex';
                     document.getElementById('new-version').textContent = data.latest_version;
-
-                    updateStatus.style.display = 'block';
-                    updateStatus.innerHTML = `
-                        <span style="background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 4px;">
-                            ✨ Доступно обновление: ${data.latest_version}
-                        </span>
-                    `;
+                    updateStatus.textContent = `✨ v${data.latest_version} доступна`;
 
                     if (showLoading) {
                         showToast(`Доступна новая версия: ${data.latest_version}`, 'info');
                     }
                 } else {
-                    updateBtn.style.display = 'none';
-                    updateStatus.style.display = 'none';
-
-                    if (showLoading) {
-                        showToast('У вас установлена последняя версия', 'success');
-                    }
+                    // Hide update section when no update
+                    updateButtons.style.display = 'none';
                 }
             } catch (error) {
                 console.error('Error checking updates:', error);
-                if (showLoading) {
-                    showToast('Ошибка проверки обновлений', 'error');
-                }
-            } finally {
-                if (showLoading) {
-                    checkBtn.disabled = false;
-                    checkBtn.textContent = '🔄 Проверить обновления';
-                }
+                updateButtons.style.display = 'none';
             }
         }
 
