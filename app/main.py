@@ -89,6 +89,17 @@ async def auth_middleware(request, call_next):
 if os.path.exists("/opt/xui-manager/static"):
     app.mount("/static", StaticFiles(directory="/opt/xui-manager/static"), name="static")
 
+# Favicon route
+@app.get("/favicon.ico")
+async def favicon():
+    """Return a simple key emoji favicon"""
+    # 16x16 ICO with key symbol
+    import base64
+    ico_data = base64.b64decode(
+        "AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAIAAAAAAAAAQAABILAAASCwAAAAAAAAAAAAD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AIiIiP+IiIj/////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wCIiIj/iIiI/4iIiP////8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8AiIiI/4iIiP+IiIj/////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AIiIiP+IiIj/iIiI/////wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wCIiIj/iIiI/4iIiP////8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8AiIiI/4iIiP+IiIj/iIiI/4iIiP+IiIj/iIiI/4iIiP+IiIj/////AP///wD///8A////AP///wD///8A////AIiIiP+IiIj/iIiI/4iIiP+IiIj/iIiI/4iIiP+IiIj/iIiI/////wD///8A////AP///wD///8A////AP///wCIiIj/iIiI/4iIiP////8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8AiIiI/4iIiP+IiIj/////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AIiIiP+IiIj/iIiI/////wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wCIiIj/iIiI/4iIiP////8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8AiIiI/4iIiP+IiIj/////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AIiIiP+IiIj/////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A//8AAP//AAD8PwAA/D8AAPw/AAD8PwAA/D8AAPw/AAAAAAAAAAAAAAw/AAD8PwAA/D8AAPw/AAD8PwAA/n8AAP//AAA="
+    )
+    return Response(content=ico_data, media_type="image/x-icon")
+
 # Инициализация базы данных
 db = XUIDatabase()
 
