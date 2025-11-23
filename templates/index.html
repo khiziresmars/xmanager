@@ -664,6 +664,7 @@
             <button class="tab-btn" onclick="showTab('disabled')">🚫 Отключенные</button>
             <button class="tab-btn" onclick="showTab('monitoring')">📊 Мониторинг</button>
             <button class="tab-btn" onclick="showTab('api-tokens')">🔑 API Токены</button>
+            <button class="tab-btn" onclick="showTab('inbounds-manage')">📡 Inbounds</button>
             <button class="tab-btn" onclick="showTab('ssl')">🔐 SSL</button>
             <button class="tab-btn" onclick="showTab('xui-control')">⚙️ X-UI</button>
             <button class="tab-btn" onclick="showTab('system')">🖥️ Система</button>
@@ -1175,6 +1176,94 @@
                 <h3 style="margin-top: 0;">Информация о сертификате</h3>
                 <div id="ssl-cert-details" style="font-family: monospace; font-size: 13px; color: var(--text-secondary);">
                     Загрузка информации...
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Inbounds Management -->
+        <div id="tab-inbounds-manage" class="tab-content">
+            <h2>📡 Управление Inbounds</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Просмотр, редактирование и управление inbounds
+            </p>
+
+            <div class="btn-group" style="margin-bottom: 20px;">
+                <button class="btn btn-primary" onclick="loadInboundsTable()">🔄 Обновить</button>
+            </div>
+
+            <div class="table-container">
+                <table id="inbounds-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Название</th>
+                            <th>Протокол</th>
+                            <th>Порт</th>
+                            <th>Статус</th>
+                            <th>Пользователей</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inbounds-table-body">
+                        <tr><td colspan="7" style="text-align: center; padding: 20px;">Загрузка...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Inbound Edit Modal -->
+        <div id="inbound-edit-modal" class="modal" style="display: none;">
+            <div class="modal-content" style="max-width: 700px;">
+                <div class="modal-header">
+                    <h3 id="inbound-modal-title">Редактировать Inbound</h3>
+                    <button class="modal-close" onclick="closeInboundModal()">&times;</button>
+                </div>
+                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                    <input type="hidden" id="edit-inbound-id">
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Название</label>
+                            <input type="text" class="form-input" id="edit-inbound-remark">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Порт</label>
+                            <input type="number" class="form-input" id="edit-inbound-port">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Протокол</label>
+                            <input type="text" class="form-input" id="edit-inbound-protocol" readonly style="background: var(--bg-tertiary);">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Статус</label>
+                            <select class="form-input" id="edit-inbound-enable">
+                                <option value="1">Включен</option>
+                                <option value="0">Выключен</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Stream Settings (JSON)</label>
+                        <textarea class="form-input" id="edit-inbound-stream" rows="8" style="font-family: monospace; font-size: 12px;"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Settings (JSON)</label>
+                        <textarea class="form-input" id="edit-inbound-settings" rows="6" style="font-family: monospace; font-size: 12px;"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Sniffing (JSON)</label>
+                        <textarea class="form-input" id="edit-inbound-sniffing" rows="4" style="font-family: monospace; font-size: 12px;"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeInboundModal()">Отмена</button>
+                    <button class="btn btn-primary" onclick="saveInbound()">💾 Сохранить</button>
                 </div>
             </div>
         </div>
@@ -3668,6 +3757,185 @@ Subject: ${cert.subject || 'N/A'}
             } catch (error) {
                 console.error('Error:', error);
                 showToast('Ошибка обновления Xray', 'error');
+            }
+        }
+
+        // ==================== INBOUND MANAGEMENT ====================
+
+        async function loadInboundsTable() {
+            const tbody = document.getElementById('inbounds-table-body');
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">⏳ Загрузка...</td></tr>';
+
+            try {
+                const response = await fetch(API_URL + 'api/inbounds', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.inbounds && data.inbounds.length > 0) {
+                    tbody.innerHTML = data.inbounds.map(ib => `
+                        <tr>
+                            <td>${ib.id}</td>
+                            <td><strong>${ib.remark || '-'}</strong></td>
+                            <td><span style="background: var(--accent); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px;">${ib.protocol}</span></td>
+                            <td>${ib.port}</td>
+                            <td>${ib.enable ? '<span style="color: var(--success);">✅ Вкл</span>' : '<span style="color: var(--danger);">❌ Выкл</span>'}</td>
+                            <td>${ib.users_count || 0}</td>
+                            <td>
+                                <div class="btn-group" style="gap: 4px;">
+                                    <button class="btn btn-primary" style="padding: 4px 8px; font-size: 11px;" onclick="editInbound(${ib.id})">✏️</button>
+                                    <button class="btn ${ib.enable ? 'btn-warning' : 'btn-success'}" style="padding: 4px 8px; font-size: 11px;" onclick="toggleInbound(${ib.id})">${ib.enable ? '⏸️' : '▶️'}</button>
+                                    <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="deleteInbound(${ib.id}, '${ib.remark}')">🗑️</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">Нет inbounds</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--danger);">Ошибка загрузки</td></tr>';
+            }
+        }
+
+        async function editInbound(id) {
+            try {
+                const response = await fetch(API_URL + `api/inbounds/${id}/full`, {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success && data.inbound) {
+                    const ib = data.inbound;
+                    document.getElementById('edit-inbound-id').value = id;
+                    document.getElementById('edit-inbound-remark').value = ib.remark || '';
+                    document.getElementById('edit-inbound-port').value = ib.port || '';
+                    document.getElementById('edit-inbound-protocol').value = ib.protocol || '';
+                    document.getElementById('edit-inbound-enable').value = ib.enable ? '1' : '0';
+
+                    // Format JSON fields
+                    document.getElementById('edit-inbound-stream').value =
+                        ib.stream_settings ? JSON.stringify(ib.stream_settings, null, 2) : '';
+                    document.getElementById('edit-inbound-settings').value =
+                        ib.settings ? JSON.stringify(ib.settings, null, 2) : '';
+                    document.getElementById('edit-inbound-sniffing').value =
+                        ib.sniffing ? JSON.stringify(ib.sniffing, null, 2) : '';
+
+                    document.getElementById('inbound-modal-title').textContent = `Редактировать: ${ib.remark}`;
+                    document.getElementById('inbound-edit-modal').style.display = 'flex';
+                } else {
+                    showToast('Ошибка загрузки inbound', 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка загрузки inbound', 'error');
+            }
+        }
+
+        function closeInboundModal() {
+            document.getElementById('inbound-edit-modal').style.display = 'none';
+        }
+
+        async function saveInbound() {
+            const id = document.getElementById('edit-inbound-id').value;
+
+            // Parse JSON fields
+            let streamSettings, settings, sniffing;
+            try {
+                const streamText = document.getElementById('edit-inbound-stream').value.trim();
+                streamSettings = streamText ? JSON.parse(streamText) : null;
+            } catch (e) {
+                showToast('Ошибка в Stream Settings JSON', 'error');
+                return;
+            }
+
+            try {
+                const settingsText = document.getElementById('edit-inbound-settings').value.trim();
+                settings = settingsText ? JSON.parse(settingsText) : null;
+            } catch (e) {
+                showToast('Ошибка в Settings JSON', 'error');
+                return;
+            }
+
+            try {
+                const sniffingText = document.getElementById('edit-inbound-sniffing').value.trim();
+                sniffing = sniffingText ? JSON.parse(sniffingText) : null;
+            } catch (e) {
+                showToast('Ошибка в Sniffing JSON', 'error');
+                return;
+            }
+
+            const data = {
+                remark: document.getElementById('edit-inbound-remark').value,
+                port: parseInt(document.getElementById('edit-inbound-port').value),
+                enable: parseInt(document.getElementById('edit-inbound-enable').value),
+                stream_settings: streamSettings,
+                settings: settings,
+                sniffing: sniffing
+            };
+
+            try {
+                const response = await fetch(API_URL + `api/inbounds/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showToast('✅ Inbound сохранен', 'success');
+                    closeInboundModal();
+                    loadInboundsTable();
+                } else {
+                    showToast('Ошибка: ' + (result.message || result.detail), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка сохранения', 'error');
+            }
+        }
+
+        async function toggleInbound(id) {
+            try {
+                const response = await fetch(API_URL + `api/inbounds/${id}/toggle`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadInboundsTable();
+                } else {
+                    showToast('Ошибка: ' + (data.message || data.detail), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка переключения', 'error');
+            }
+        }
+
+        async function deleteInbound(id, name) {
+            if (!confirm(`Удалить inbound "${name}"?\n\n⚠️ Все пользователи этого inbound будут удалены!`)) return;
+
+            try {
+                const response = await fetch(API_URL + `api/inbounds/${id}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ ${data.message}`, 'success');
+                    loadInboundsTable();
+                } else {
+                    showToast('Ошибка: ' + (data.message || data.detail), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка удаления', 'error');
             }
         }
 

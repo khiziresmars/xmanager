@@ -1124,6 +1124,172 @@ async def get_inbound(inbound_id: int):
         logger.error(f"Error getting inbound: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/api/inbounds/{inbound_id}/full")
+async def get_inbound_full(inbound_id: int, username: str = Depends(get_current_user)):
+    """Get full inbound details with all settings parsed."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM inbounds WHERE id = ?", (inbound_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Inbound not found")
+
+        columns = [desc[0] for desc in cursor.description]
+        inbound = dict(zip(columns, row))
+
+        # Parse JSON fields
+        for field in ['settings', 'stream_settings', 'sniffing']:
+            if inbound.get(field):
+                try:
+                    inbound[field] = json.loads(inbound[field])
+                except:
+                    pass
+
+        conn.close()
+        return {"success": True, "inbound": inbound}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/inbounds/{inbound_id}")
+async def update_inbound(inbound_id: int, request: Request, username: str = Depends(get_current_user)):
+    """Update inbound settings."""
+    try:
+        data = await request.json()
+
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        # Check inbound exists
+        cursor.execute("SELECT id FROM inbounds WHERE id = ?", (inbound_id,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Inbound not found")
+
+        # Build update query
+        updates = []
+        values = []
+
+        # Simple fields
+        simple_fields = ['remark', 'port', 'protocol', 'enable', 'expiry_time', 'total', 'listen']
+        for field in simple_fields:
+            if field in data:
+                updates.append(f"{field} = ?")
+                values.append(data[field])
+
+        # JSON fields
+        json_fields = ['settings', 'stream_settings', 'sniffing']
+        for field in json_fields:
+            if field in data:
+                updates.append(f"{field} = ?")
+                if isinstance(data[field], dict):
+                    values.append(json.dumps(data[field]))
+                else:
+                    values.append(data[field])
+
+        if updates:
+            values.append(inbound_id)
+            query = f"UPDATE inbounds SET {', '.join(updates)} WHERE id = ?"
+            cursor.execute(query, values)
+            conn.commit()
+
+        conn.close()
+
+        # Restart x-ui to apply changes
+        subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {"success": True, "message": "Inbound обновлен"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/inbounds/{inbound_id}/toggle")
+async def toggle_inbound(inbound_id: int, username: str = Depends(get_current_user)):
+    """Toggle inbound enable/disable."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT enable FROM inbounds WHERE id = ?", (inbound_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Inbound not found")
+
+        new_state = 0 if row[0] == 1 else 1
+        cursor.execute("UPDATE inbounds SET enable = ? WHERE id = ?", (new_state, inbound_id))
+        conn.commit()
+        conn.close()
+
+        subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {
+            "success": True,
+            "enabled": bool(new_state),
+            "message": "Inbound включен" if new_state else "Inbound выключен"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error toggling inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/inbounds/{inbound_id}")
+async def delete_inbound(inbound_id: int, username: str = Depends(get_current_user)):
+    """Delete inbound and all its users."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        # Check inbound exists
+        cursor.execute("SELECT remark FROM inbounds WHERE id = ?", (inbound_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Inbound not found")
+
+        remark = row[0]
+
+        # Delete users first
+        cursor.execute("DELETE FROM client_traffics WHERE inbound_id = ?", (inbound_id,))
+        deleted_users = cursor.rowcount
+
+        # Delete inbound
+        cursor.execute("DELETE FROM inbounds WHERE id = ?", (inbound_id,))
+        conn.commit()
+        conn.close()
+
+        subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {
+            "success": True,
+            "message": f"Inbound '{remark}' удален",
+            "deleted_users": deleted_users
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== УПРАВЛЕНИЕ ОЧЕРЕДЯМИ ====================
 
 @app.post("/api/queues/bulk-create")
