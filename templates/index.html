@@ -3778,7 +3778,7 @@ Subject: ${cert.subject || 'N/A'}
 
         function openPanel() {
             const host = window.location.hostname;
-            window.open(`http://${host}${panelUrl}`, '_blank');
+            window.open(`https://${host}/esmars/panel/`, '_blank');
         }
 
         async function runSpeedtest() {
@@ -4525,6 +4525,8 @@ Subject: ${cert.subject || 'N/A'}
             loadInbounds();
             loadUsers();
             loadVersion();  // Load version info
+            loadInboundsTable();  // Load inbounds table
+            loadXuiStatus();  // Load X-UI status
 
             // Refresh stats every 30 seconds
             setInterval(loadStats, 30000);
