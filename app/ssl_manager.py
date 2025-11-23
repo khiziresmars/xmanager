@@ -27,32 +27,37 @@ class SSLManager:
         self.renewal_threshold_days = 30  # Renew if less than 30 days left
 
     def get_domain_from_config(self) -> Optional[str]:
-        """Get domain from various sources."""
+        """Get domain from various sources, prioritizing 3x-ui database."""
         domain = None
 
-        # Try to get from 3x-ui database
+        # Try to get from 3x-ui database (primary source)
         try:
             if os.path.exists(self.xui_db_path):
                 conn = sqlite3.connect(self.xui_db_path)
                 cursor = conn.cursor()
 
-                # Check various settings that might contain domain
+                # Check all relevant settings
                 cursor.execute("""
                     SELECT key, value FROM settings
-                    WHERE key IN ('webCertFile', 'webKeyFile', 'webDomain')
+                    WHERE key IN ('webCertFile', 'webKeyFile', 'webDomain', 'tgBotChatId', 'webListen')
+                    AND value IS NOT NULL AND value != ''
                 """)
 
-                for key, value in cursor.fetchall():
-                    if key == 'webDomain' and value:
-                        domain = value
-                        break
-                    elif key == 'webCertFile' and value:
-                        # Extract domain from path like /etc/letsencrypt/live/domain/...
-                        if '/letsencrypt/live/' in value:
-                            parts = value.split('/letsencrypt/live/')
-                            if len(parts) > 1:
-                                domain = parts[1].split('/')[0]
-                                break
+                settings = dict(cursor.fetchall())
+
+                # Priority 1: webDomain if set
+                if settings.get('webDomain'):
+                    domain = settings['webDomain']
+                    logger.info(f"Got domain from webDomain setting: {domain}")
+
+                # Priority 2: Extract from webCertFile path
+                if not domain and settings.get('webCertFile'):
+                    cert_file = settings['webCertFile']
+                    if '/letsencrypt/live/' in cert_file:
+                        parts = cert_file.split('/letsencrypt/live/')
+                        if len(parts) > 1:
+                            domain = parts[1].split('/')[0]
+                            logger.info(f"Got domain from webCertFile path: {domain}")
 
                 conn.close()
         except Exception as e:
@@ -64,13 +69,17 @@ class SSLManager:
                 if os.path.exists(self.xui_config_path):
                     with open(self.xui_config_path, 'r') as f:
                         config = json.load(f)
-                        domain = config.get('certDomain', '')
+                        if config.get('certDomain'):
+                            domain = config['certDomain']
+                            logger.info(f"Got domain from config.json: {domain}")
             except Exception as e:
                 logger.error(f"Error reading domain from x-ui config: {e}")
 
         # Try to get from Nginx configs
         if not domain:
             domain = self._get_domain_from_nginx()
+            if domain:
+                logger.info(f"Got domain from nginx config: {domain}")
 
         # Try to get from Let's Encrypt directory
         if not domain:
@@ -80,10 +89,60 @@ class SSLManager:
                               if os.path.isdir(os.path.join(self.letsencrypt_base, d))]
                     if domains:
                         domain = domains[0]
+                        logger.info(f"Got domain from letsencrypt directory: {domain}")
             except Exception as e:
                 logger.error(f"Error reading from letsencrypt directory: {e}")
 
         return domain
+
+    def get_domains_from_3xui(self) -> list:
+        """Get all domains configured in 3x-ui database."""
+        domains = set()
+
+        try:
+            if os.path.exists(self.xui_db_path):
+                conn = sqlite3.connect(self.xui_db_path)
+                cursor = conn.cursor()
+
+                # Get from settings
+                cursor.execute("""
+                    SELECT key, value FROM settings
+                    WHERE key IN ('webCertFile', 'webKeyFile', 'webDomain')
+                    AND value IS NOT NULL AND value != ''
+                """)
+
+                for key, value in cursor.fetchall():
+                    if key == 'webDomain' and value:
+                        domains.add(value)
+                    elif key in ('webCertFile', 'webKeyFile') and '/letsencrypt/live/' in value:
+                        parts = value.split('/letsencrypt/live/')
+                        if len(parts) > 1:
+                            domains.add(parts[1].split('/')[0])
+
+                # Also check inbounds for SNI domains
+                cursor.execute("SELECT stream_settings FROM inbounds WHERE stream_settings IS NOT NULL")
+                for (stream_settings,) in cursor.fetchall():
+                    try:
+                        settings = json.loads(stream_settings)
+                        # Check reality settings
+                        if 'realitySettings' in settings:
+                            sni = settings['realitySettings'].get('serverNames', [])
+                            for s in sni:
+                                if s and '.' in s:
+                                    domains.add(s)
+                        # Check TLS settings
+                        if 'tlsSettings' in settings:
+                            sni = settings['tlsSettings'].get('serverName', '')
+                            if sni and '.' in sni:
+                                domains.add(sni)
+                    except:
+                        pass
+
+                conn.close()
+        except Exception as e:
+            logger.error(f"Error getting domains from 3x-ui: {e}")
+
+        return list(domains)
 
     def get_all_domains(self) -> list:
         """Get all domains with Let's Encrypt certificates."""

@@ -2183,6 +2183,25 @@ async def get_ssl_domain(username: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/ssl/3xui-domains")
+async def get_3xui_domains(username: str = Depends(get_current_user)):
+    """
+    Get all domains configured in 3x-ui database.
+
+    Returns domains from settings and inbound SNI configurations.
+    """
+    try:
+        domains = ssl_manager.get_domains_from_3xui()
+        return {
+            "success": True,
+            "count": len(domains),
+            "domains": domains
+        }
+    except Exception as e:
+        logger.error(f"Error getting 3x-ui domains: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== ЗАПУСК ПРИЛОЖЕНИЯ ====================
 
 if __name__ == "__main__":
