@@ -59,7 +59,7 @@ app.add_middleware(
 async def auth_middleware(request, call_next):
     """Middleware для проверки аутентификации на всех защищенных маршрутах"""
     # Публичные маршруты, не требующие аутентификации
-    public_paths = ["/login", "/api/auth/login", "/api/health"]
+    public_paths = ["/login", "/api/auth/login", "/api/health", "/api/version", "/favicon.ico"]
 
     # Проверяем, является ли путь публичным
     if request.url.path in public_paths:
