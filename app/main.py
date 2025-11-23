@@ -2752,12 +2752,15 @@ async def test_sni_domain(domain: str, port: int = 443, username: str = Depends(
 
 
 @app.post("/api/sni/scan")
-async def scan_sni_domains(domains: List[str], port: int = 443, username: str = Depends(get_current_user)):
+async def scan_sni_domains(request: Request, port: int = 443, username: str = Depends(get_current_user)):
     """Scan multiple domains for Reality SNI suitability."""
     import socket
     import ssl
     import time
     import concurrent.futures
+
+    data = await request.json()
+    domains = data.get("domains", [])
 
     def test_domain(domain):
         result = {
