@@ -2358,6 +2358,155 @@ async def update_dat_files(username: str = Depends(get_current_user)):
         return {"success": False, "message": str(e)}
 
 
+@app.post("/api/system/update-3xui")
+async def update_3xui(username: str = Depends(get_current_user)):
+    """Update 3x-ui panel with database backup."""
+    import subprocess
+    import shutil
+    from datetime import datetime
+
+    try:
+        # Create backup directory
+        backup_dir = "/root/x-ui-backups"
+        os.makedirs(backup_dir, exist_ok=True)
+
+        # Backup database
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        db_path = "/etc/x-ui/x-ui.db"
+        backup_path = f"{backup_dir}/x-ui_{timestamp}.db"
+
+        if os.path.exists(db_path):
+            shutil.copy2(db_path, backup_path)
+            logger.info(f"Database backed up to {backup_path}")
+
+        # Stop x-ui
+        subprocess.run(['systemctl', 'stop', 'x-ui'], check=True)
+
+        # Run update script
+        result = subprocess.run(
+            "bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)",
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+
+        # Start x-ui
+        subprocess.run(['systemctl', 'start', 'x-ui'], check=True)
+
+        return {
+            "success": True,
+            "message": "3x-ui обновлен",
+            "backup_path": backup_path if os.path.exists(db_path) else None
+        }
+
+    except Exception as e:
+        logger.error(f"Error updating 3x-ui: {e}")
+        # Try to start x-ui in case of error
+        subprocess.run(['systemctl', 'start', 'x-ui'], capture_output=True)
+        return {"success": False, "message": str(e)}
+
+
+@app.get("/api/system/xray-versions")
+async def get_xray_versions(username: str = Depends(get_current_user)):
+    """Get available Xray versions."""
+    import urllib.request
+    import json
+
+    try:
+        # Get releases from GitHub
+        url = "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=10"
+        req = urllib.request.Request(url, headers={'User-Agent': 'XManager'})
+
+        with urllib.request.urlopen(req, timeout=30) as response:
+            releases = json.loads(response.read().decode())
+
+        versions = []
+        for release in releases:
+            versions.append({
+                "version": release["tag_name"],
+                "name": release["name"],
+                "published": release["published_at"],
+                "prerelease": release["prerelease"]
+            })
+
+        # Get current version
+        current = "unknown"
+        try:
+            result = subprocess.run(
+                ["/usr/local/x-ui/bin/xray-linux-amd64", "-version"],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                # Parse version from output
+                import re
+                match = re.search(r'Xray (\d+\.\d+\.\d+)', result.stdout)
+                if match:
+                    current = f"v{match.group(1)}"
+        except:
+            pass
+
+        return {
+            "success": True,
+            "current_version": current,
+            "versions": versions
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting Xray versions: {e}")
+        return {"success": False, "message": str(e), "versions": []}
+
+
+@app.post("/api/system/install-xray")
+async def install_xray_version(version: str, username: str = Depends(get_current_user)):
+    """Install specific Xray version."""
+    import subprocess
+
+    try:
+        # Stop x-ui
+        subprocess.run(['systemctl', 'stop', 'x-ui'], check=True)
+
+        # Download and install specific version
+        install_script = f"""
+        cd /usr/local/x-ui/bin
+
+        # Download specific version
+        ARCH=$(uname -m)
+        case $ARCH in
+            x86_64) ARCH="64" ;;
+            aarch64) ARCH="arm64-v8a" ;;
+            *) ARCH="64" ;;
+        esac
+
+        wget -q "https://github.com/XTLS/Xray-core/releases/download/{version}/Xray-linux-$ARCH.zip" -O xray.zip
+        unzip -o xray.zip xray
+        mv xray xray-linux-amd64
+        chmod +x xray-linux-amd64
+        rm xray.zip
+        """
+
+        result = subprocess.run(
+            install_script,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+
+        # Start x-ui
+        subprocess.run(['systemctl', 'start', 'x-ui'], check=True)
+
+        if result.returncode == 0:
+            return {"success": True, "message": f"Xray {version} установлен"}
+        else:
+            return {"success": False, "message": result.stderr or "Ошибка установки"}
+
+    except Exception as e:
+        logger.error(f"Error installing Xray: {e}")
+        subprocess.run(['systemctl', 'start', 'x-ui'], capture_output=True)
+        return {"success": False, "message": str(e)}
+
+
 # ==================== ЗАПУСК ПРИЛОЖЕНИЯ ====================
 
 if __name__ == "__main__":
