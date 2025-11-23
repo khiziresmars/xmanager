@@ -1124,6 +1124,172 @@ async def get_inbound(inbound_id: int):
         logger.error(f"Error getting inbound: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/api/inbounds/{inbound_id}/full")
+async def get_inbound_full(inbound_id: int, username: str = Depends(get_current_user)):
+    """Get full inbound details with all settings parsed."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM inbounds WHERE id = ?", (inbound_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Inbound not found")
+
+        columns = [desc[0] for desc in cursor.description]
+        inbound = dict(zip(columns, row))
+
+        # Parse JSON fields
+        for field in ['settings', 'stream_settings', 'sniffing']:
+            if inbound.get(field):
+                try:
+                    inbound[field] = json.loads(inbound[field])
+                except:
+                    pass
+
+        conn.close()
+        return {"success": True, "inbound": inbound}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/inbounds/{inbound_id}")
+async def update_inbound(inbound_id: int, request: Request, username: str = Depends(get_current_user)):
+    """Update inbound settings."""
+    try:
+        data = await request.json()
+
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        # Check inbound exists
+        cursor.execute("SELECT id FROM inbounds WHERE id = ?", (inbound_id,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Inbound not found")
+
+        # Build update query
+        updates = []
+        values = []
+
+        # Simple fields
+        simple_fields = ['remark', 'port', 'protocol', 'enable', 'expiry_time', 'total', 'listen']
+        for field in simple_fields:
+            if field in data:
+                updates.append(f"{field} = ?")
+                values.append(data[field])
+
+        # JSON fields
+        json_fields = ['settings', 'stream_settings', 'sniffing']
+        for field in json_fields:
+            if field in data:
+                updates.append(f"{field} = ?")
+                if isinstance(data[field], dict):
+                    values.append(json.dumps(data[field]))
+                else:
+                    values.append(data[field])
+
+        if updates:
+            values.append(inbound_id)
+            query = f"UPDATE inbounds SET {', '.join(updates)} WHERE id = ?"
+            cursor.execute(query, values)
+            conn.commit()
+
+        conn.close()
+
+        # Restart x-ui to apply changes
+        subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {"success": True, "message": "Inbound обновлен"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/inbounds/{inbound_id}/toggle")
+async def toggle_inbound(inbound_id: int, username: str = Depends(get_current_user)):
+    """Toggle inbound enable/disable."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT enable FROM inbounds WHERE id = ?", (inbound_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Inbound not found")
+
+        new_state = 0 if row[0] == 1 else 1
+        cursor.execute("UPDATE inbounds SET enable = ? WHERE id = ?", (new_state, inbound_id))
+        conn.commit()
+        conn.close()
+
+        subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {
+            "success": True,
+            "enabled": bool(new_state),
+            "message": "Inbound включен" if new_state else "Inbound выключен"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error toggling inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/inbounds/{inbound_id}")
+async def delete_inbound(inbound_id: int, username: str = Depends(get_current_user)):
+    """Delete inbound and all its users."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        # Check inbound exists
+        cursor.execute("SELECT remark FROM inbounds WHERE id = ?", (inbound_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Inbound not found")
+
+        remark = row[0]
+
+        # Delete users first
+        cursor.execute("DELETE FROM client_traffics WHERE inbound_id = ?", (inbound_id,))
+        deleted_users = cursor.rowcount
+
+        # Delete inbound
+        cursor.execute("DELETE FROM inbounds WHERE id = ?", (inbound_id,))
+        conn.commit()
+        conn.close()
+
+        subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {
+            "success": True,
+            "message": f"Inbound '{remark}' удален",
+            "deleted_users": deleted_users
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== УПРАВЛЕНИЕ ОЧЕРЕДЯМИ ====================
 
 @app.post("/api/queues/bulk-create")
@@ -2356,6 +2522,503 @@ async def update_dat_files(username: str = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Error updating dat files: {e}")
         return {"success": False, "message": str(e)}
+
+
+# ==================== FINGERPRINT MANAGEMENT ====================
+
+@app.get("/api/inbounds/fingerprints")
+async def get_inbound_fingerprints(username: str = Depends(get_current_user)):
+    """Get fingerprint settings for all inbounds."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, remark, protocol, stream_settings
+            FROM inbounds
+            WHERE protocol IN ('vless', 'trojan')
+        """)
+
+        inbounds = []
+        for row in cursor.fetchall():
+            inbound_id, remark, protocol, stream_settings = row
+            fingerprint = None
+            security = None
+
+            if stream_settings:
+                try:
+                    settings = json.loads(stream_settings)
+                    security = settings.get('security', 'none')
+
+                    # Check Reality settings
+                    if security == 'reality':
+                        reality = settings.get('realitySettings', {})
+                        fingerprint = reality.get('fingerprint', 'chrome')
+                    # Check TLS settings
+                    elif security == 'tls':
+                        tls = settings.get('tlsSettings', {})
+                        fingerprint = tls.get('fingerprint', 'chrome')
+                except:
+                    pass
+
+            if fingerprint:  # Only include inbounds with fingerprint support
+                inbounds.append({
+                    "id": inbound_id,
+                    "remark": remark,
+                    "protocol": protocol,
+                    "security": security,
+                    "fingerprint": fingerprint
+                })
+
+        conn.close()
+
+        # Available fingerprint options
+        fingerprint_options = [
+            "chrome", "firefox", "safari", "ios", "android",
+            "edge", "360", "qq", "random", "randomized"
+        ]
+
+        return {
+            "success": True,
+            "inbounds": inbounds,
+            "options": fingerprint_options
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting fingerprints: {e}")
+        return {"success": False, "message": str(e), "inbounds": []}
+
+
+@app.post("/api/inbounds/fingerprints/update")
+async def update_inbound_fingerprints(
+    fingerprint: str = "randomized",
+    inbound_ids: Optional[List[int]] = None,
+    username: str = Depends(get_current_user)
+):
+    """Update fingerprint on all or selected inbounds."""
+    try:
+        valid_fingerprints = [
+            "chrome", "firefox", "safari", "ios", "android",
+            "edge", "360", "qq", "random", "randomized"
+        ]
+
+        if fingerprint not in valid_fingerprints:
+            return {"success": False, "message": f"Invalid fingerprint. Valid: {', '.join(valid_fingerprints)}"}
+
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        # Get inbounds to update
+        if inbound_ids:
+            placeholders = ','.join('?' * len(inbound_ids))
+            cursor.execute(f"""
+                SELECT id, stream_settings
+                FROM inbounds
+                WHERE id IN ({placeholders}) AND protocol IN ('vless', 'trojan')
+            """, inbound_ids)
+        else:
+            cursor.execute("""
+                SELECT id, stream_settings
+                FROM inbounds
+                WHERE protocol IN ('vless', 'trojan')
+            """)
+
+        updated_count = 0
+        for row in cursor.fetchall():
+            inbound_id, stream_settings = row
+
+            if not stream_settings:
+                continue
+
+            try:
+                settings = json.loads(stream_settings)
+                security = settings.get('security', 'none')
+                updated = False
+
+                # Update Reality fingerprint
+                if security == 'reality' and 'realitySettings' in settings:
+                    settings['realitySettings']['fingerprint'] = fingerprint
+                    updated = True
+                # Update TLS fingerprint
+                elif security == 'tls' and 'tlsSettings' in settings:
+                    settings['tlsSettings']['fingerprint'] = fingerprint
+                    updated = True
+
+                if updated:
+                    cursor.execute(
+                        "UPDATE inbounds SET stream_settings = ? WHERE id = ?",
+                        (json.dumps(settings), inbound_id)
+                    )
+                    updated_count += 1
+
+            except Exception as e:
+                logger.error(f"Error updating inbound {inbound_id}: {e}")
+                continue
+
+        conn.commit()
+        conn.close()
+
+        # Restart x-ui to apply changes
+        if updated_count > 0:
+            subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {
+            "success": True,
+            "message": f"Обновлено {updated_count} inbounds",
+            "updated_count": updated_count,
+            "fingerprint": fingerprint
+        }
+
+    except Exception as e:
+        logger.error(f"Error updating fingerprints: {e}")
+        return {"success": False, "message": str(e)}
+
+
+# ==================== SNI SCANNER ====================
+
+@app.post("/api/sni/test")
+async def test_sni_domain(domain: str, port: int = 443, username: str = Depends(get_current_user)):
+    """Test a single domain for TLS 1.3 support and latency."""
+    import socket
+    import ssl
+    import time
+
+    result = {
+        "domain": domain,
+        "port": port,
+        "tls_support": False,
+        "tls_version": None,
+        "h2_support": False,
+        "latency_ms": None,
+        "cert_valid": False,
+        "cert_issuer": None,
+        "error": None
+    }
+
+    try:
+        # Measure connection latency
+        start_time = time.time()
+
+        # Create SSL context for TLS 1.3
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.set_alpn_protocols(['h2', 'http/1.1'])
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+
+        # Connect
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect((domain, port))
+
+        ssl_sock = context.wrap_socket(sock, server_hostname=domain)
+
+        end_time = time.time()
+        result["latency_ms"] = round((end_time - start_time) * 1000, 2)
+
+        # Get TLS version
+        tls_version = ssl_sock.version()
+        result["tls_version"] = tls_version
+        result["tls_support"] = tls_version in ['TLSv1.3', 'TLSv1.2']
+
+        # Check H2 support
+        alpn = ssl_sock.selected_alpn_protocol()
+        result["h2_support"] = alpn == 'h2'
+
+        # Get certificate info
+        try:
+            cert = ssl_sock.getpeercert(binary_form=False)
+            if cert:
+                result["cert_valid"] = True
+                issuer = dict(x[0] for x in cert.get('issuer', []))
+                result["cert_issuer"] = issuer.get('organizationName', issuer.get('commonName', 'Unknown'))
+        except:
+            # Binary cert for self-signed
+            result["cert_valid"] = True
+
+        ssl_sock.close()
+        sock.close()
+
+    except socket.timeout:
+        result["error"] = "Timeout"
+    except socket.gaierror:
+        result["error"] = "DNS Error"
+    except ssl.SSLError as e:
+        result["error"] = f"SSL: {str(e)[:50]}"
+    except Exception as e:
+        result["error"] = str(e)[:50]
+
+    return result
+
+
+@app.post("/api/sni/scan")
+async def scan_sni_domains(domains: List[str], port: int = 443, username: str = Depends(get_current_user)):
+    """Scan multiple domains for Reality SNI suitability."""
+    import socket
+    import ssl
+    import time
+    import concurrent.futures
+
+    def test_domain(domain):
+        result = {
+            "domain": domain,
+            "tls13": False,
+            "h2": False,
+            "latency": None,
+            "status": "error"
+        }
+
+        try:
+            start = time.time()
+
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            context.set_alpn_protocols(['h2', 'http/1.1'])
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(3)
+            sock.connect((domain, port))
+            ssl_sock = context.wrap_socket(sock, server_hostname=domain)
+
+            result["latency"] = round((time.time() - start) * 1000, 1)
+            result["tls13"] = ssl_sock.version() == 'TLSv1.3'
+            result["h2"] = ssl_sock.selected_alpn_protocol() == 'h2'
+            result["status"] = "ok" if result["tls13"] and result["h2"] else "partial"
+
+            ssl_sock.close()
+            sock.close()
+
+        except:
+            result["status"] = "error"
+
+        return result
+
+    # Run scans in parallel
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(test_domain, d.strip()): d for d in domains if d.strip()}
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
+
+    # Sort by latency (valid first)
+    results.sort(key=lambda x: (x["status"] != "ok", x["latency"] or 9999))
+
+    return {"success": True, "results": results}
+
+
+@app.get("/api/sni/saved")
+async def get_saved_sni(username: str = Depends(get_current_user)):
+    """Get saved SNI domains from config."""
+    try:
+        config_path = "/etc/x-ui/sni_favorites.json"
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                data = json.load(f)
+                return {"success": True, "domains": data.get("domains", [])}
+        return {"success": True, "domains": []}
+    except Exception as e:
+        return {"success": False, "message": str(e), "domains": []}
+
+
+@app.post("/api/sni/save")
+async def save_sni_domain(domain: str, latency: Optional[float] = None, username: str = Depends(get_current_user)):
+    """Save a favorite SNI domain."""
+    try:
+        config_path = "/etc/x-ui/sni_favorites.json"
+        data = {"domains": []}
+
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                data = json.load(f)
+
+        # Add domain if not exists
+        domains = data.get("domains", [])
+        existing = [d for d in domains if d["domain"] == domain]
+        if not existing:
+            domains.append({
+                "domain": domain,
+                "latency": latency,
+                "added": datetime.now().isoformat()
+            })
+            data["domains"] = domains
+
+            with open(config_path, 'w') as f:
+                json.dump(data, f, indent=2)
+
+        return {"success": True, "message": f"{domain} сохранен"}
+
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@app.delete("/api/sni/saved/{domain}")
+async def delete_saved_sni(domain: str, username: str = Depends(get_current_user)):
+    """Delete a saved SNI domain."""
+    try:
+        config_path = "/etc/x-ui/sni_favorites.json"
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                data = json.load(f)
+
+            data["domains"] = [d for d in data.get("domains", []) if d["domain"] != domain]
+
+            with open(config_path, 'w') as f:
+                json.dump(data, f, indent=2)
+
+        return {"success": True, "message": f"{domain} удален"}
+
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/sni/discover")
+async def discover_sni_domains(
+    count: int = 20,
+    provider: str = "cloudflare",
+    username: str = Depends(get_current_user)
+):
+    """Auto-discover SNI domains by scanning CDN IP ranges."""
+    import socket
+    import ssl
+    import time
+    import random
+    import concurrent.futures
+
+    # CDN IP ranges (sample IPs from each provider)
+    cdn_ranges = {
+        "cloudflare": [
+            "104.16.", "104.17.", "104.18.", "104.19.", "104.20.",
+            "104.21.", "104.22.", "104.23.", "104.24.", "104.25.",
+            "172.67.", "141.101."
+        ],
+        "google": [
+            "142.250.", "172.217.", "216.58.", "74.125."
+        ],
+        "amazon": [
+            "13.32.", "13.33.", "13.35.", "52.84.", "52.85."
+        ],
+        "microsoft": [
+            "20.36.", "20.42.", "20.50.", "40.79.", "40.90."
+        ],
+        "fastly": [
+            "151.101.", "199.232."
+        ]
+    }
+
+    ranges = cdn_ranges.get(provider, cdn_ranges["cloudflare"])
+
+    def scan_ip(ip):
+        """Scan single IP for domain and TLS support."""
+        result = None
+        try:
+            # Reverse DNS lookup
+            hostname = socket.gethostbyaddr(ip)[0]
+            if not hostname or hostname == ip:
+                return None
+
+            # Test TLS
+            start = time.time()
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            context.set_alpn_protocols(['h2', 'http/1.1'])
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            sock.connect((ip, 443))
+            ssl_sock = context.wrap_socket(sock, server_hostname=hostname)
+
+            latency = round((time.time() - start) * 1000, 1)
+            tls13 = ssl_sock.version() == 'TLSv1.3'
+            h2 = ssl_sock.selected_alpn_protocol() == 'h2'
+
+            ssl_sock.close()
+            sock.close()
+
+            if tls13 and h2:
+                return {
+                    "domain": hostname,
+                    "ip": ip,
+                    "tls13": True,
+                    "h2": True,
+                    "latency": latency,
+                    "status": "ok"
+                }
+        except:
+            pass
+        return None
+
+    # Generate random IPs from ranges
+    ips_to_scan = []
+    for _ in range(count * 5):  # Scan more IPs to find enough results
+        prefix = random.choice(ranges)
+        if prefix.count('.') == 2:
+            ip = f"{prefix}{random.randint(1, 254)}.{random.randint(1, 254)}"
+        else:
+            ip = f"{prefix}{random.randint(1, 254)}"
+        ips_to_scan.append(ip)
+
+    # Remove duplicates
+    ips_to_scan = list(set(ips_to_scan))[:count * 3]
+
+    # Scan in parallel
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = {executor.submit(scan_ip, ip): ip for ip in ips_to_scan}
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            if result:
+                results.append(result)
+                if len(results) >= count:
+                    break
+
+    # Sort by latency
+    results.sort(key=lambda x: x["latency"])
+
+    return {
+        "success": True,
+        "provider": provider,
+        "scanned": len(ips_to_scan),
+        "found": len(results),
+        "results": results[:count]
+    }
+
+
+@app.get("/api/sni/suggestions")
+async def get_sni_suggestions(username: str = Depends(get_current_user)):
+    """Get popular SNI domain suggestions for Reality."""
+    suggestions = [
+        # CDN/Cloud
+        "www.google.com",
+        "www.microsoft.com",
+        "www.apple.com",
+        "www.cloudflare.com",
+        "cdn.cloudflare.com",
+        "www.amazon.com",
+        "aws.amazon.com",
+        # Tech
+        "www.github.com",
+        "www.gitlab.com",
+        "www.npmjs.com",
+        "registry.npmjs.org",
+        "www.docker.com",
+        # Services
+        "www.paypal.com",
+        "www.spotify.com",
+        "www.netflix.com",
+        "www.twitch.tv",
+        "discord.com",
+        # Regional
+        "www.samsung.com",
+        "www.lg.com",
+        "www.sony.com",
+        "www.asus.com",
+        "www.lenovo.com"
+    ]
+    return {"success": True, "suggestions": suggestions}
 
 
 @app.post("/api/system/update-3xui")

@@ -577,6 +577,11 @@
                 justify-content: center;
             }
 
+            /* SNI Scanner responsive */
+            #tab-sni-scanner > div:first-of-type {
+                grid-template-columns: 1fr !important;
+            }
+
             .page-size-selector {
                 justify-content: center;
             }
@@ -663,7 +668,9 @@
             <button class="tab-btn" onclick="showTab('expired')">⏰ Истекшие</button>
             <button class="tab-btn" onclick="showTab('disabled')">🚫 Отключенные</button>
             <button class="tab-btn" onclick="showTab('monitoring')">📊 Мониторинг</button>
-            <button class="tab-btn" onclick="showTab('api-tokens')">🔑 API Токены</button>
+            <button class="tab-btn" onclick="showTab('api-tokens')">🔑 API</button>
+            <button class="tab-btn" onclick="showTab('inbounds-manage')">📡 Inbounds</button>
+            <button class="tab-btn" onclick="showTab('sni-scanner')">🔍 SNI</button>
             <button class="tab-btn" onclick="showTab('ssl')">🔐 SSL</button>
             <button class="tab-btn" onclick="showTab('xui-control')">⚙️ X-UI</button>
             <button class="tab-btn" onclick="showTab('system')">🖥️ Система</button>
@@ -1127,6 +1134,85 @@
             </div>
         </div>
 
+        <!-- Tab: SNI Scanner -->
+        <div id="tab-sni-scanner" class="tab-content">
+            <h2>🔍 SNI Scanner для Reality</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+                Поиск и тестирование доменов для Reality SNI (TLS 1.3 + H2)
+            </p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                <!-- Single Domain Test -->
+                <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                    <h3 style="margin-top: 0; font-size: 16px;">Тест одного домена</h3>
+                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <input type="text" class="form-input" id="sni-single-domain" placeholder="example.com" style="flex: 1;">
+                        <button class="btn btn-primary" onclick="testSingleSNI()">🔍 Тест</button>
+                    </div>
+                    <div id="sni-single-result" style="font-size: 13px; color: var(--text-secondary);"></div>
+                </div>
+
+                <!-- Saved Domains -->
+                <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                    <h3 style="margin-top: 0; font-size: 16px;">Сохраненные домены</h3>
+                    <div id="sni-saved-list" style="max-height: 150px; overflow-y: auto; font-size: 13px;">
+                        <span style="color: var(--text-secondary);">Нет сохраненных доменов</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Auto Discovery -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0; font-size: 16px;">🔎 Автоматический поиск SNI</h3>
+                <p style="color: var(--text-secondary); font-size: 12px; margin-bottom: 15px;">
+                    Сканирует IP диапазоны CDN и находит подходящие домены автоматически
+                </p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                    <select class="form-input" id="sni-provider" style="width: auto; min-width: 140px;">
+                        <option value="cloudflare">Cloudflare</option>
+                        <option value="google">Google</option>
+                        <option value="amazon">Amazon</option>
+                        <option value="microsoft">Microsoft</option>
+                        <option value="fastly">Fastly</option>
+                    </select>
+                    <input type="number" class="form-input" id="sni-discover-count" value="20" min="5" max="50" style="width: 70px;" title="Количество">
+                    <button class="btn btn-success" onclick="discoverSNI()">🚀 Найти</button>
+                </div>
+            </div>
+
+            <!-- Manual Bulk Scan -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0; font-size: 16px;">Проверка списка доменов</h3>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-secondary" onclick="loadSNISuggestions()">📋 Популярные</button>
+                    <button class="btn btn-primary" onclick="scanSNIDomains()">🔍 Проверить</button>
+                </div>
+                <textarea class="form-input" id="sni-domains-list" rows="3" placeholder="Домены для проверки (по одному на строку)" style="font-family: monospace; font-size: 12px;"></textarea>
+            </div>
+
+            <!-- Scan Results -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                <h3 style="margin-top: 0; font-size: 16px;">Результаты сканирования</h3>
+                <div class="table-container">
+                    <table id="sni-results-table">
+                        <thead>
+                            <tr>
+                                <th>Домен</th>
+                                <th>TLS 1.3</th>
+                                <th>H2</th>
+                                <th>Latency</th>
+                                <th>Статус</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sni-results-body">
+                            <tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--text-secondary);">Нажмите "Сканировать" для начала</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- Tab: SSL Certificate Management -->
         <div id="tab-ssl" class="tab-content">
             <h2>🔐 Управление SSL сертификатом</h2>
@@ -1179,6 +1265,94 @@
             </div>
         </div>
 
+        <!-- Tab: Inbounds Management -->
+        <div id="tab-inbounds-manage" class="tab-content">
+            <h2>📡 Управление Inbounds</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Просмотр, редактирование и управление inbounds
+            </p>
+
+            <div class="btn-group" style="margin-bottom: 20px;">
+                <button class="btn btn-primary" onclick="loadInboundsTable()">🔄 Обновить</button>
+            </div>
+
+            <div class="table-container">
+                <table id="inbounds-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Название</th>
+                            <th>Протокол</th>
+                            <th>Порт</th>
+                            <th>Статус</th>
+                            <th>Пользователей</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inbounds-table-body">
+                        <tr><td colspan="7" style="text-align: center; padding: 20px;">Загрузка...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Inbound Edit Modal -->
+        <div id="inbound-edit-modal" class="modal" style="display: none;">
+            <div class="modal-content" style="max-width: 700px;">
+                <div class="modal-header">
+                    <h3 id="inbound-modal-title">Редактировать Inbound</h3>
+                    <button class="modal-close" onclick="closeInboundModal()">&times;</button>
+                </div>
+                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                    <input type="hidden" id="edit-inbound-id">
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Название</label>
+                            <input type="text" class="form-input" id="edit-inbound-remark">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Порт</label>
+                            <input type="number" class="form-input" id="edit-inbound-port">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Протокол</label>
+                            <input type="text" class="form-input" id="edit-inbound-protocol" readonly style="background: var(--bg-tertiary);">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Статус</label>
+                            <select class="form-input" id="edit-inbound-enable">
+                                <option value="1">Включен</option>
+                                <option value="0">Выключен</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Stream Settings (JSON)</label>
+                        <textarea class="form-input" id="edit-inbound-stream" rows="8" style="font-family: monospace; font-size: 12px;"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Settings (JSON)</label>
+                        <textarea class="form-input" id="edit-inbound-settings" rows="6" style="font-family: monospace; font-size: 12px;"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Sniffing (JSON)</label>
+                        <textarea class="form-input" id="edit-inbound-sniffing" rows="4" style="font-family: monospace; font-size: 12px;"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeInboundModal()">Отмена</button>
+                    <button class="btn btn-primary" onclick="saveInbound()">💾 Сохранить</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Tab: X-UI Control -->
         <div id="tab-xui-control" class="tab-content">
             <h2>⚙️ Управление X-UI</h2>
@@ -1221,7 +1395,7 @@
                 <pre id="xui-logs" style="background: var(--bg-primary); padding: 15px; border-radius: 8px; max-height: 300px; overflow-y: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all;">Нажмите кнопку для загрузки логов...</pre>
             </div>
 
-            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
                 <h3 style="margin-top: 0;">Обновление данных</h3>
                 <div class="btn-group" style="flex-wrap: wrap;">
                     <button class="btn btn-primary" onclick="updateDatFiles()">🌍 Обновить GeoIP/GeoSite</button>
@@ -1230,6 +1404,30 @@
                 <p style="color: #888; font-size: 12px; margin-top: 15px; margin-bottom: 0;">
                     GeoIP/GeoSite - базы данных для маршрутизации по странам (Россия, Иран и др.)
                 </p>
+            </div>
+
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                <h3 style="margin-top: 0;">Fingerprint (TLS/Reality)</h3>
+                <p style="color: #888; font-size: 12px; margin-bottom: 15px;">
+                    Обновить fingerprint на всех inbounds с поддержкой TLS/Reality
+                </p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                    <select id="fingerprint-select" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); min-width: 150px;">
+                        <option value="randomized">randomized</option>
+                        <option value="random">random</option>
+                        <option value="chrome">chrome</option>
+                        <option value="firefox">firefox</option>
+                        <option value="safari">safari</option>
+                        <option value="ios">ios</option>
+                        <option value="android">android</option>
+                        <option value="edge">edge</option>
+                        <option value="360">360</option>
+                        <option value="qq">qq</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="updateFingerprints()">🔄 Обновить все</button>
+                    <button class="btn btn-secondary" onclick="loadFingerprints()">📋 Показать текущие</button>
+                </div>
+                <div id="fingerprint-info" style="margin-top: 15px; font-size: 12px; color: var(--text-secondary);"></div>
             </div>
         </div>
 
@@ -3644,6 +3842,456 @@ Subject: ${cert.subject || 'N/A'}
             } catch (error) {
                 console.error('Error:', error);
                 showToast('Ошибка обновления Xray', 'error');
+            }
+        }
+
+        // ==================== INBOUND MANAGEMENT ====================
+
+        async function loadInboundsTable() {
+            const tbody = document.getElementById('inbounds-table-body');
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">⏳ Загрузка...</td></tr>';
+
+            try {
+                const response = await fetch(API_URL + 'api/inbounds', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.inbounds && data.inbounds.length > 0) {
+                    tbody.innerHTML = data.inbounds.map(ib => `
+                        <tr>
+                            <td>${ib.id}</td>
+                            <td><strong>${ib.remark || '-'}</strong></td>
+                            <td><span style="background: var(--accent); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px;">${ib.protocol}</span></td>
+                            <td>${ib.port}</td>
+                            <td>${ib.enable ? '<span style="color: var(--success);">✅ Вкл</span>' : '<span style="color: var(--danger);">❌ Выкл</span>'}</td>
+                            <td>${ib.users_count || 0}</td>
+                            <td>
+                                <div class="btn-group" style="gap: 4px;">
+                                    <button class="btn btn-primary" style="padding: 4px 8px; font-size: 11px;" onclick="editInbound(${ib.id})">✏️</button>
+                                    <button class="btn ${ib.enable ? 'btn-warning' : 'btn-success'}" style="padding: 4px 8px; font-size: 11px;" onclick="toggleInbound(${ib.id})">${ib.enable ? '⏸️' : '▶️'}</button>
+                                    <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="deleteInbound(${ib.id}, '${ib.remark}')">🗑️</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">Нет inbounds</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--danger);">Ошибка загрузки</td></tr>';
+            }
+        }
+
+        async function editInbound(id) {
+            try {
+                const response = await fetch(API_URL + `api/inbounds/${id}/full`, {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success && data.inbound) {
+                    const ib = data.inbound;
+                    document.getElementById('edit-inbound-id').value = id;
+                    document.getElementById('edit-inbound-remark').value = ib.remark || '';
+                    document.getElementById('edit-inbound-port').value = ib.port || '';
+                    document.getElementById('edit-inbound-protocol').value = ib.protocol || '';
+                    document.getElementById('edit-inbound-enable').value = ib.enable ? '1' : '0';
+
+                    // Format JSON fields
+                    document.getElementById('edit-inbound-stream').value =
+                        ib.stream_settings ? JSON.stringify(ib.stream_settings, null, 2) : '';
+                    document.getElementById('edit-inbound-settings').value =
+                        ib.settings ? JSON.stringify(ib.settings, null, 2) : '';
+                    document.getElementById('edit-inbound-sniffing').value =
+                        ib.sniffing ? JSON.stringify(ib.sniffing, null, 2) : '';
+
+                    document.getElementById('inbound-modal-title').textContent = `Редактировать: ${ib.remark}`;
+                    document.getElementById('inbound-edit-modal').style.display = 'flex';
+                } else {
+                    showToast('Ошибка загрузки inbound', 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка загрузки inbound', 'error');
+            }
+        }
+
+        function closeInboundModal() {
+            document.getElementById('inbound-edit-modal').style.display = 'none';
+        }
+
+        async function saveInbound() {
+            const id = document.getElementById('edit-inbound-id').value;
+
+            // Parse JSON fields
+            let streamSettings, settings, sniffing;
+            try {
+                const streamText = document.getElementById('edit-inbound-stream').value.trim();
+                streamSettings = streamText ? JSON.parse(streamText) : null;
+            } catch (e) {
+                showToast('Ошибка в Stream Settings JSON', 'error');
+                return;
+            }
+
+            try {
+                const settingsText = document.getElementById('edit-inbound-settings').value.trim();
+                settings = settingsText ? JSON.parse(settingsText) : null;
+            } catch (e) {
+                showToast('Ошибка в Settings JSON', 'error');
+                return;
+            }
+
+            try {
+                const sniffingText = document.getElementById('edit-inbound-sniffing').value.trim();
+                sniffing = sniffingText ? JSON.parse(sniffingText) : null;
+            } catch (e) {
+                showToast('Ошибка в Sniffing JSON', 'error');
+                return;
+            }
+
+            const data = {
+                remark: document.getElementById('edit-inbound-remark').value,
+                port: parseInt(document.getElementById('edit-inbound-port').value),
+                enable: parseInt(document.getElementById('edit-inbound-enable').value),
+                stream_settings: streamSettings,
+                settings: settings,
+                sniffing: sniffing
+            };
+
+            try {
+                const response = await fetch(API_URL + `api/inbounds/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    showToast('✅ Inbound сохранен', 'success');
+                    closeInboundModal();
+                    loadInboundsTable();
+                } else {
+                    showToast('Ошибка: ' + (result.message || result.detail), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка сохранения', 'error');
+            }
+        }
+
+        async function toggleInbound(id) {
+            try {
+                const response = await fetch(API_URL + `api/inbounds/${id}/toggle`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadInboundsTable();
+                } else {
+                    showToast('Ошибка: ' + (data.message || data.detail), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка переключения', 'error');
+            }
+        }
+
+        async function deleteInbound(id, name) {
+            if (!confirm(`Удалить inbound "${name}"?\n\n⚠️ Все пользователи этого inbound будут удалены!`)) return;
+
+            try {
+                const response = await fetch(API_URL + `api/inbounds/${id}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ ${data.message}`, 'success');
+                    loadInboundsTable();
+                } else {
+                    showToast('Ошибка: ' + (data.message || data.detail), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка удаления', 'error');
+            }
+        }
+
+        // ==================== SNI SCANNER ====================
+
+        async function discoverSNI() {
+            const provider = document.getElementById('sni-provider').value;
+            const count = parseInt(document.getElementById('sni-discover-count').value) || 20;
+
+            const tbody = document.getElementById('sni-results-body');
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 20px;">
+                <span style="color: var(--accent);">🔎 Сканирование ${provider} IP диапазонов...<br>
+                <small style="color: var(--text-secondary);">Это может занять до 30 секунд</small></span>
+            </td></tr>`;
+
+            try {
+                const response = await fetch(API_URL + `api/sni/discover?provider=${provider}&count=${count}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.results && data.results.length > 0) {
+                    tbody.innerHTML = data.results.map(r => `
+                        <tr>
+                            <td><strong>${r.domain}</strong><br><small style="color: var(--text-secondary);">${r.ip}</small></td>
+                            <td>✅</td>
+                            <td>✅</td>
+                            <td>${r.latency}ms</td>
+                            <td style="color: var(--success);">✅ OK</td>
+                            <td>
+                                <button class="btn btn-success" style="padding: 3px 6px; font-size: 10px;" onclick="saveSNI('${r.domain}', ${r.latency})">💾</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                    showToast(`✅ Найдено ${data.found} доменов из ${data.scanned} IP`, 'success');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--warning);">Домены не найдены. Попробуйте другой провайдер.</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--danger);">Ошибка сканирования</td></tr>';
+            }
+        }
+
+        async function testSingleSNI() {
+            const domain = document.getElementById('sni-single-domain').value.trim();
+            if (!domain) {
+                showToast('Введите домен', 'error');
+                return;
+            }
+
+            const resultDiv = document.getElementById('sni-single-result');
+            resultDiv.innerHTML = '<span style="color: var(--accent);">⏳ Тестирование...</span>';
+
+            try {
+                const response = await fetch(API_URL + `api/sni/test?domain=${encodeURIComponent(domain)}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.error) {
+                    resultDiv.innerHTML = `<span style="color: var(--danger);">❌ ${data.error}</span>`;
+                } else {
+                    const tls = data.tls_version === 'TLSv1.3' ? '✅' : '⚠️';
+                    const h2 = data.h2_support ? '✅' : '❌';
+                    resultDiv.innerHTML = `
+                        <div style="padding: 10px; background: var(--bg-primary); border-radius: 6px;">
+                            <div><strong>${domain}</strong></div>
+                            <div style="margin-top: 8px;">
+                                ${tls} TLS: ${data.tls_version || '-'} |
+                                ${h2} H2: ${data.h2_support ? 'Да' : 'Нет'} |
+                                ⏱️ ${data.latency_ms}ms
+                            </div>
+                            ${data.tls_version === 'TLSv1.3' && data.h2_support ?
+                                `<button class="btn btn-success" style="margin-top: 8px; padding: 4px 8px; font-size: 11px;" onclick="saveSNI('${domain}', ${data.latency_ms})">💾 Сохранить</button>` : ''}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                resultDiv.innerHTML = '<span style="color: var(--danger);">❌ Ошибка</span>';
+            }
+        }
+
+        async function loadSNISuggestions() {
+            try {
+                const response = await fetch(API_URL + 'api/sni/suggestions', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.suggestions) {
+                    document.getElementById('sni-domains-list').value = data.suggestions.join('\n');
+                    showToast('Загружены популярные домены', 'success');
+                }
+            } catch (error) {
+                showToast('Ошибка загрузки', 'error');
+            }
+        }
+
+        async function scanSNIDomains() {
+            const domainsText = document.getElementById('sni-domains-list').value.trim();
+            if (!domainsText) {
+                showToast('Введите домены для сканирования', 'error');
+                return;
+            }
+
+            const domains = domainsText.split('\n').map(d => d.trim()).filter(d => d);
+            if (domains.length === 0) return;
+
+            const tbody = document.getElementById('sni-results-body');
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;"><span style="color: var(--accent);">⏳ Сканирование ' + domains.length + ' доменов...</span></td></tr>';
+
+            try {
+                const response = await fetch(API_URL + 'api/sni/scan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ domains: domains })
+                });
+                const data = await response.json();
+
+                if (data.results && data.results.length > 0) {
+                    tbody.innerHTML = data.results.map(r => {
+                        const statusColor = r.status === 'ok' ? 'var(--success)' : r.status === 'partial' ? 'var(--warning)' : 'var(--danger)';
+                        const statusText = r.status === 'ok' ? '✅ OK' : r.status === 'partial' ? '⚠️ Частично' : '❌ Ошибка';
+                        return `
+                            <tr>
+                                <td><strong>${r.domain}</strong></td>
+                                <td>${r.tls13 ? '✅' : '❌'}</td>
+                                <td>${r.h2 ? '✅' : '❌'}</td>
+                                <td>${r.latency ? r.latency + 'ms' : '-'}</td>
+                                <td style="color: ${statusColor};">${statusText}</td>
+                                <td>
+                                    ${r.status === 'ok' ? `<button class="btn btn-success" style="padding: 3px 6px; font-size: 10px;" onclick="saveSNI('${r.domain}', ${r.latency})">💾</button>` : ''}
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+                    showToast(`Сканирование завершено: ${data.results.filter(r => r.status === 'ok').length} подходящих`, 'success');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">Нет результатов</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--danger);">Ошибка сканирования</td></tr>';
+            }
+        }
+
+        async function saveSNI(domain, latency) {
+            try {
+                const response = await fetch(API_URL + `api/sni/save?domain=${encodeURIComponent(domain)}&latency=${latency || 0}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ ${domain} сохранен`, 'success');
+                    loadSavedSNI();
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showToast('Ошибка сохранения', 'error');
+            }
+        }
+
+        async function loadSavedSNI() {
+            try {
+                const response = await fetch(API_URL + 'api/sni/saved', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                const list = document.getElementById('sni-saved-list');
+                if (data.domains && data.domains.length > 0) {
+                    list.innerHTML = data.domains.map(d => `
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border);">
+                            <span><strong>${d.domain}</strong> <span style="color: var(--text-secondary);">${d.latency ? d.latency + 'ms' : ''}</span></span>
+                            <button class="btn btn-danger" style="padding: 2px 6px; font-size: 10px;" onclick="deleteSavedSNI('${d.domain}')">🗑️</button>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = '<span style="color: var(--text-secondary);">Нет сохраненных доменов</span>';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        async function deleteSavedSNI(domain) {
+            try {
+                const response = await fetch(API_URL + `api/sni/saved/${encodeURIComponent(domain)}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`${domain} удален`, 'success');
+                    loadSavedSNI();
+                }
+            } catch (error) {
+                showToast('Ошибка удаления', 'error');
+            }
+        }
+
+        // ==================== FINGERPRINT MANAGEMENT ====================
+
+        async function loadFingerprints() {
+            const info = document.getElementById('fingerprint-info');
+            info.innerHTML = '<span style="color: var(--accent);">⏳ Загрузка...</span>';
+
+            try {
+                const response = await fetch(API_URL + 'api/inbounds/fingerprints', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success && data.inbounds.length > 0) {
+                    let html = '<div style="margin-top: 10px;"><strong>Текущие fingerprints:</strong></div>';
+                    html += '<div style="margin-top: 8px; max-height: 150px; overflow-y: auto;">';
+                    data.inbounds.forEach(ib => {
+                        html += `<div style="padding: 4px 0; border-bottom: 1px solid var(--border);">
+                            <span style="color: var(--text-primary);">${ib.remark}</span>
+                            <span style="color: var(--text-secondary);"> (${ib.protocol}/${ib.security})</span>:
+                            <span style="color: var(--accent); font-weight: 500;">${ib.fingerprint}</span>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    info.innerHTML = html;
+                } else if (data.inbounds && data.inbounds.length === 0) {
+                    info.innerHTML = '<span style="color: var(--warning);">⚠️ Нет inbounds с поддержкой fingerprint (TLS/Reality)</span>';
+                } else {
+                    info.innerHTML = `<span style="color: var(--danger);">❌ ${data.message || 'Ошибка'}</span>`;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                info.innerHTML = '<span style="color: var(--danger);">❌ Ошибка загрузки</span>';
+            }
+        }
+
+        async function updateFingerprints() {
+            const fingerprint = document.getElementById('fingerprint-select').value;
+            if (!confirm(`Обновить fingerprint на всех inbounds?\n\nНовое значение: ${fingerprint}\n\nX-UI будет перезапущен.`)) return;
+
+            const info = document.getElementById('fingerprint-info');
+            info.innerHTML = '<span style="color: var(--accent);">⏳ Обновление...</span>';
+
+            try {
+                const response = await fetch(API_URL + `api/inbounds/fingerprints/update?fingerprint=${fingerprint}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ Обновлено ${data.updated_count} inbounds`, 'success');
+                    info.innerHTML = `<span style="color: var(--success);">✅ Fingerprint обновлен на ${data.updated_count} inbounds</span>`;
+                    loadXuiStatus();
+                } else {
+                    showToast('Ошибка: ' + (data.message || 'Unknown'), 'error');
+                    info.innerHTML = `<span style="color: var(--danger);">❌ ${data.message || 'Ошибка'}</span>`;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка обновления fingerprint', 'error');
+                info.innerHTML = '<span style="color: var(--danger);">❌ Ошибка обновления</span>';
             }
         }
 
