@@ -27,6 +27,7 @@ from app.queue import queue_manager, QueueStatus
 from app.version import get_current_version, get_version_info, CURRENT_VERSION
 from app.update_manager import update_manager
 from app.background_tasks import background_tasks
+from app.ssl_manager import ssl_manager
 
 # Настройка логирования
 logging.basicConfig(
@@ -99,6 +100,16 @@ async def startup_event():
     logger.info("Application startup - starting background tasks...")
     await background_tasks.start()
     logger.info("Background tasks started successfully")
+
+    # Check SSL certificate and auto-renew if needed
+    try:
+        ssl_result = ssl_manager.check_and_auto_renew()
+        if ssl_result.get("renewed"):
+            logger.info(f"SSL certificate auto-renewed: {ssl_result.get('message')}")
+        else:
+            logger.info(f"SSL check: {ssl_result.get('message')}")
+    except Exception as e:
+        logger.warning(f"SSL auto-check failed: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -2023,6 +2034,115 @@ async def cleanup_expired_users(
 
     except Exception as e:
         logger.error(f"Error cleaning expired users: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== SSL/CERTIFICATE MANAGEMENT ====================
+
+@app.get("/api/ssl/status")
+async def get_ssl_status(username: str = Depends(get_current_user)):
+    """
+    Get current SSL certificate status and information.
+
+    Returns certificate details including expiry date, domain,
+    and whether renewal is needed.
+    """
+    try:
+        cert_info = ssl_manager.get_certificate_info()
+        domain = ssl_manager.get_domain_from_config()
+
+        return {
+            "success": True,
+            "domain": domain,
+            "certificate": cert_info
+        }
+    except Exception as e:
+        logger.error(f"Error getting SSL status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ssl/renew")
+async def renew_ssl_certificate(
+    force: bool = Query(False, description="Force renewal even if certificate is still valid"),
+    username: str = Depends(get_current_user)
+):
+    """
+    Renew SSL certificate using Let's Encrypt.
+
+    This will:
+    1. Renew the certificate using certbot
+    2. Update 3x-ui configuration
+    3. Restart Nginx and 3x-ui services
+    """
+    try:
+        result = ssl_manager.full_certificate_renewal(force=force)
+
+        if result.get("success"):
+            logger.info(f"SSL certificate renewal completed: {result.get('message')}")
+        else:
+            logger.error(f"SSL certificate renewal failed: {result.get('message')}")
+
+        return result
+    except Exception as e:
+        logger.error(f"Error renewing SSL certificate: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ssl/update-3xui")
+async def update_3xui_certificate(username: str = Depends(get_current_user)):
+    """
+    Update 3x-ui panel to use current Let's Encrypt certificate.
+
+    Use this if certificate was renewed externally and 3x-ui
+    needs to be updated to use the new certificate.
+    """
+    try:
+        result = ssl_manager.update_3xui_certificate()
+
+        if result.get("success"):
+            # Restart 3x-ui to apply changes
+            restart_result = ssl_manager.restart_services()
+            result["restart_result"] = restart_result
+            logger.info("3x-ui certificate updated and services restarted")
+
+        return result
+    except Exception as e:
+        logger.error(f"Error updating 3x-ui certificate: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ssl/restart-services")
+async def restart_ssl_services(username: str = Depends(get_current_user)):
+    """
+    Restart Nginx and 3x-ui services.
+
+    Use after manual certificate changes to apply new certificate.
+    """
+    try:
+        result = ssl_manager.restart_services()
+        logger.info(f"Services restart requested: {result}")
+        return {
+            "success": True,
+            "services": result
+        }
+    except Exception as e:
+        logger.error(f"Error restarting services: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/ssl/domain")
+async def get_ssl_domain(username: str = Depends(get_current_user)):
+    """
+    Get the configured domain for SSL certificate.
+    """
+    try:
+        domain = ssl_manager.get_domain_from_config()
+        return {
+            "success": True,
+            "domain": domain
+        }
+    except Exception as e:
+        logger.error(f"Error getting domain: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
