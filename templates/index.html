@@ -577,6 +577,11 @@
                 justify-content: center;
             }
 
+            /* SNI Scanner responsive */
+            #tab-sni-scanner > div:first-of-type {
+                grid-template-columns: 1fr !important;
+            }
+
             .page-size-selector {
                 justify-content: center;
             }
@@ -663,8 +668,9 @@
             <button class="tab-btn" onclick="showTab('expired')">⏰ Истекшие</button>
             <button class="tab-btn" onclick="showTab('disabled')">🚫 Отключенные</button>
             <button class="tab-btn" onclick="showTab('monitoring')">📊 Мониторинг</button>
-            <button class="tab-btn" onclick="showTab('api-tokens')">🔑 API Токены</button>
+            <button class="tab-btn" onclick="showTab('api-tokens')">🔑 API</button>
             <button class="tab-btn" onclick="showTab('inbounds-manage')">📡 Inbounds</button>
+            <button class="tab-btn" onclick="showTab('sni-scanner')">🔍 SNI</button>
             <button class="tab-btn" onclick="showTab('ssl')">🔐 SSL</button>
             <button class="tab-btn" onclick="showTab('xui-control')">⚙️ X-UI</button>
             <button class="tab-btn" onclick="showTab('system')">🖥️ Система</button>
@@ -1124,6 +1130,66 @@
                     <button id="close-ssl-modal-btn" class="btn btn-secondary" onclick="closeSSLModal()" style="display: none;">
                         Закрыть
                     </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: SNI Scanner -->
+        <div id="tab-sni-scanner" class="tab-content">
+            <h2>🔍 SNI Scanner для Reality</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+                Поиск и тестирование доменов для Reality SNI (TLS 1.3 + H2)
+            </p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                <!-- Single Domain Test -->
+                <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                    <h3 style="margin-top: 0; font-size: 16px;">Тест одного домена</h3>
+                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <input type="text" class="form-input" id="sni-single-domain" placeholder="example.com" style="flex: 1;">
+                        <button class="btn btn-primary" onclick="testSingleSNI()">🔍 Тест</button>
+                    </div>
+                    <div id="sni-single-result" style="font-size: 13px; color: var(--text-secondary);"></div>
+                </div>
+
+                <!-- Saved Domains -->
+                <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                    <h3 style="margin-top: 0; font-size: 16px;">Сохраненные домены</h3>
+                    <div id="sni-saved-list" style="max-height: 150px; overflow-y: auto; font-size: 13px;">
+                        <span style="color: var(--text-secondary);">Нет сохраненных доменов</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bulk Scan -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0; font-size: 16px;">Массовое сканирование</h3>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-secondary" onclick="loadSNISuggestions()">📋 Популярные домены</button>
+                    <button class="btn btn-primary" onclick="scanSNIDomains()">🚀 Сканировать</button>
+                </div>
+                <textarea class="form-input" id="sni-domains-list" rows="4" placeholder="Введите домены (по одному на строку)&#10;www.google.com&#10;www.microsoft.com&#10;www.cloudflare.com" style="font-family: monospace; font-size: 12px;"></textarea>
+            </div>
+
+            <!-- Scan Results -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                <h3 style="margin-top: 0; font-size: 16px;">Результаты сканирования</h3>
+                <div class="table-container">
+                    <table id="sni-results-table">
+                        <thead>
+                            <tr>
+                                <th>Домен</th>
+                                <th>TLS 1.3</th>
+                                <th>H2</th>
+                                <th>Latency</th>
+                                <th>Статус</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sni-results-body">
+                            <tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--text-secondary);">Нажмите "Сканировать" для начала</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -3935,6 +4001,173 @@ Subject: ${cert.subject || 'N/A'}
                 }
             } catch (error) {
                 console.error('Error:', error);
+                showToast('Ошибка удаления', 'error');
+            }
+        }
+
+        // ==================== SNI SCANNER ====================
+
+        async function testSingleSNI() {
+            const domain = document.getElementById('sni-single-domain').value.trim();
+            if (!domain) {
+                showToast('Введите домен', 'error');
+                return;
+            }
+
+            const resultDiv = document.getElementById('sni-single-result');
+            resultDiv.innerHTML = '<span style="color: var(--accent);">⏳ Тестирование...</span>';
+
+            try {
+                const response = await fetch(API_URL + `api/sni/test?domain=${encodeURIComponent(domain)}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.error) {
+                    resultDiv.innerHTML = `<span style="color: var(--danger);">❌ ${data.error}</span>`;
+                } else {
+                    const tls = data.tls_version === 'TLSv1.3' ? '✅' : '⚠️';
+                    const h2 = data.h2_support ? '✅' : '❌';
+                    resultDiv.innerHTML = `
+                        <div style="padding: 10px; background: var(--bg-primary); border-radius: 6px;">
+                            <div><strong>${domain}</strong></div>
+                            <div style="margin-top: 8px;">
+                                ${tls} TLS: ${data.tls_version || '-'} |
+                                ${h2} H2: ${data.h2_support ? 'Да' : 'Нет'} |
+                                ⏱️ ${data.latency_ms}ms
+                            </div>
+                            ${data.tls_version === 'TLSv1.3' && data.h2_support ?
+                                `<button class="btn btn-success" style="margin-top: 8px; padding: 4px 8px; font-size: 11px;" onclick="saveSNI('${domain}', ${data.latency_ms})">💾 Сохранить</button>` : ''}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                resultDiv.innerHTML = '<span style="color: var(--danger);">❌ Ошибка</span>';
+            }
+        }
+
+        async function loadSNISuggestions() {
+            try {
+                const response = await fetch(API_URL + 'api/sni/suggestions', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.suggestions) {
+                    document.getElementById('sni-domains-list').value = data.suggestions.join('\n');
+                    showToast('Загружены популярные домены', 'success');
+                }
+            } catch (error) {
+                showToast('Ошибка загрузки', 'error');
+            }
+        }
+
+        async function scanSNIDomains() {
+            const domainsText = document.getElementById('sni-domains-list').value.trim();
+            if (!domainsText) {
+                showToast('Введите домены для сканирования', 'error');
+                return;
+            }
+
+            const domains = domainsText.split('\n').map(d => d.trim()).filter(d => d);
+            if (domains.length === 0) return;
+
+            const tbody = document.getElementById('sni-results-body');
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;"><span style="color: var(--accent);">⏳ Сканирование ' + domains.length + ' доменов...</span></td></tr>';
+
+            try {
+                const response = await fetch(API_URL + 'api/sni/scan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ domains: domains })
+                });
+                const data = await response.json();
+
+                if (data.results && data.results.length > 0) {
+                    tbody.innerHTML = data.results.map(r => {
+                        const statusColor = r.status === 'ok' ? 'var(--success)' : r.status === 'partial' ? 'var(--warning)' : 'var(--danger)';
+                        const statusText = r.status === 'ok' ? '✅ OK' : r.status === 'partial' ? '⚠️ Частично' : '❌ Ошибка';
+                        return `
+                            <tr>
+                                <td><strong>${r.domain}</strong></td>
+                                <td>${r.tls13 ? '✅' : '❌'}</td>
+                                <td>${r.h2 ? '✅' : '❌'}</td>
+                                <td>${r.latency ? r.latency + 'ms' : '-'}</td>
+                                <td style="color: ${statusColor};">${statusText}</td>
+                                <td>
+                                    ${r.status === 'ok' ? `<button class="btn btn-success" style="padding: 3px 6px; font-size: 10px;" onclick="saveSNI('${r.domain}', ${r.latency})">💾</button>` : ''}
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+                    showToast(`Сканирование завершено: ${data.results.filter(r => r.status === 'ok').length} подходящих`, 'success');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">Нет результатов</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--danger);">Ошибка сканирования</td></tr>';
+            }
+        }
+
+        async function saveSNI(domain, latency) {
+            try {
+                const response = await fetch(API_URL + `api/sni/save?domain=${encodeURIComponent(domain)}&latency=${latency || 0}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ ${domain} сохранен`, 'success');
+                    loadSavedSNI();
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                showToast('Ошибка сохранения', 'error');
+            }
+        }
+
+        async function loadSavedSNI() {
+            try {
+                const response = await fetch(API_URL + 'api/sni/saved', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                const list = document.getElementById('sni-saved-list');
+                if (data.domains && data.domains.length > 0) {
+                    list.innerHTML = data.domains.map(d => `
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border);">
+                            <span><strong>${d.domain}</strong> <span style="color: var(--text-secondary);">${d.latency ? d.latency + 'ms' : ''}</span></span>
+                            <button class="btn btn-danger" style="padding: 2px 6px; font-size: 10px;" onclick="deleteSavedSNI('${d.domain}')">🗑️</button>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = '<span style="color: var(--text-secondary);">Нет сохраненных доменов</span>';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        async function deleteSavedSNI(domain) {
+            try {
+                const response = await fetch(API_URL + `api/sni/saved/${encodeURIComponent(domain)}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`${domain} удален`, 'success');
+                    loadSavedSNI();
+                }
+            } catch (error) {
                 showToast('Ошибка удаления', 'error');
             }
         }

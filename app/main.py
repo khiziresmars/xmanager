@@ -2674,6 +2674,239 @@ async def update_inbound_fingerprints(
         return {"success": False, "message": str(e)}
 
 
+# ==================== SNI SCANNER ====================
+
+@app.post("/api/sni/test")
+async def test_sni_domain(domain: str, port: int = 443, username: str = Depends(get_current_user)):
+    """Test a single domain for TLS 1.3 support and latency."""
+    import socket
+    import ssl
+    import time
+
+    result = {
+        "domain": domain,
+        "port": port,
+        "tls_support": False,
+        "tls_version": None,
+        "h2_support": False,
+        "latency_ms": None,
+        "cert_valid": False,
+        "cert_issuer": None,
+        "error": None
+    }
+
+    try:
+        # Measure connection latency
+        start_time = time.time()
+
+        # Create SSL context for TLS 1.3
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.set_alpn_protocols(['h2', 'http/1.1'])
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+
+        # Connect
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect((domain, port))
+
+        ssl_sock = context.wrap_socket(sock, server_hostname=domain)
+
+        end_time = time.time()
+        result["latency_ms"] = round((end_time - start_time) * 1000, 2)
+
+        # Get TLS version
+        tls_version = ssl_sock.version()
+        result["tls_version"] = tls_version
+        result["tls_support"] = tls_version in ['TLSv1.3', 'TLSv1.2']
+
+        # Check H2 support
+        alpn = ssl_sock.selected_alpn_protocol()
+        result["h2_support"] = alpn == 'h2'
+
+        # Get certificate info
+        try:
+            cert = ssl_sock.getpeercert(binary_form=False)
+            if cert:
+                result["cert_valid"] = True
+                issuer = dict(x[0] for x in cert.get('issuer', []))
+                result["cert_issuer"] = issuer.get('organizationName', issuer.get('commonName', 'Unknown'))
+        except:
+            # Binary cert for self-signed
+            result["cert_valid"] = True
+
+        ssl_sock.close()
+        sock.close()
+
+    except socket.timeout:
+        result["error"] = "Timeout"
+    except socket.gaierror:
+        result["error"] = "DNS Error"
+    except ssl.SSLError as e:
+        result["error"] = f"SSL: {str(e)[:50]}"
+    except Exception as e:
+        result["error"] = str(e)[:50]
+
+    return result
+
+
+@app.post("/api/sni/scan")
+async def scan_sni_domains(domains: List[str], port: int = 443, username: str = Depends(get_current_user)):
+    """Scan multiple domains for Reality SNI suitability."""
+    import socket
+    import ssl
+    import time
+    import concurrent.futures
+
+    def test_domain(domain):
+        result = {
+            "domain": domain,
+            "tls13": False,
+            "h2": False,
+            "latency": None,
+            "status": "error"
+        }
+
+        try:
+            start = time.time()
+
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            context.set_alpn_protocols(['h2', 'http/1.1'])
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(3)
+            sock.connect((domain, port))
+            ssl_sock = context.wrap_socket(sock, server_hostname=domain)
+
+            result["latency"] = round((time.time() - start) * 1000, 1)
+            result["tls13"] = ssl_sock.version() == 'TLSv1.3'
+            result["h2"] = ssl_sock.selected_alpn_protocol() == 'h2'
+            result["status"] = "ok" if result["tls13"] and result["h2"] else "partial"
+
+            ssl_sock.close()
+            sock.close()
+
+        except:
+            result["status"] = "error"
+
+        return result
+
+    # Run scans in parallel
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(test_domain, d.strip()): d for d in domains if d.strip()}
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
+
+    # Sort by latency (valid first)
+    results.sort(key=lambda x: (x["status"] != "ok", x["latency"] or 9999))
+
+    return {"success": True, "results": results}
+
+
+@app.get("/api/sni/saved")
+async def get_saved_sni(username: str = Depends(get_current_user)):
+    """Get saved SNI domains from config."""
+    try:
+        config_path = "/etc/x-ui/sni_favorites.json"
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                data = json.load(f)
+                return {"success": True, "domains": data.get("domains", [])}
+        return {"success": True, "domains": []}
+    except Exception as e:
+        return {"success": False, "message": str(e), "domains": []}
+
+
+@app.post("/api/sni/save")
+async def save_sni_domain(domain: str, latency: Optional[float] = None, username: str = Depends(get_current_user)):
+    """Save a favorite SNI domain."""
+    try:
+        config_path = "/etc/x-ui/sni_favorites.json"
+        data = {"domains": []}
+
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                data = json.load(f)
+
+        # Add domain if not exists
+        domains = data.get("domains", [])
+        existing = [d for d in domains if d["domain"] == domain]
+        if not existing:
+            domains.append({
+                "domain": domain,
+                "latency": latency,
+                "added": datetime.now().isoformat()
+            })
+            data["domains"] = domains
+
+            with open(config_path, 'w') as f:
+                json.dump(data, f, indent=2)
+
+        return {"success": True, "message": f"{domain} сохранен"}
+
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@app.delete("/api/sni/saved/{domain}")
+async def delete_saved_sni(domain: str, username: str = Depends(get_current_user)):
+    """Delete a saved SNI domain."""
+    try:
+        config_path = "/etc/x-ui/sni_favorites.json"
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                data = json.load(f)
+
+            data["domains"] = [d for d in data.get("domains", []) if d["domain"] != domain]
+
+            with open(config_path, 'w') as f:
+                json.dump(data, f, indent=2)
+
+        return {"success": True, "message": f"{domain} удален"}
+
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@app.get("/api/sni/suggestions")
+async def get_sni_suggestions(username: str = Depends(get_current_user)):
+    """Get popular SNI domain suggestions for Reality."""
+    suggestions = [
+        # CDN/Cloud
+        "www.google.com",
+        "www.microsoft.com",
+        "www.apple.com",
+        "www.cloudflare.com",
+        "cdn.cloudflare.com",
+        "www.amazon.com",
+        "aws.amazon.com",
+        # Tech
+        "www.github.com",
+        "www.gitlab.com",
+        "www.npmjs.com",
+        "registry.npmjs.org",
+        "www.docker.com",
+        # Services
+        "www.paypal.com",
+        "www.spotify.com",
+        "www.netflix.com",
+        "www.twitch.tv",
+        "discord.com",
+        # Regional
+        "www.samsung.com",
+        "www.lg.com",
+        "www.sony.com",
+        "www.asus.com",
+        "www.lenovo.com"
+    ]
+    return {"success": True, "suggestions": suggestions}
+
+
 @app.post("/api/system/update-3xui")
 async def update_3xui(username: str = Depends(get_current_user)):
     """Update 3x-ui panel with database backup."""
