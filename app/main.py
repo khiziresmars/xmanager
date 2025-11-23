@@ -15,6 +15,9 @@ import logging
 from datetime import datetime
 import os
 import sys
+import json
+import sqlite3
+import subprocess
 
 # Добавляем путь для импорта локальных модулей
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -2562,23 +2565,34 @@ async def get_server_info(username: str = Depends(get_current_user)):
         if xui_installed:
             # Get x-ui version
             try:
+                # Try reading version from x-ui binary
                 result = subprocess.run(
-                    ["x-ui", "version"],
+                    ["/usr/local/x-ui/x-ui", "setting", "-show"],
                     capture_output=True, text=True, timeout=5
                 )
                 if result.returncode == 0:
-                    info["xui_version"] = result.stdout.strip()
+                    # Parse version from output
+                    import re
+                    match = re.search(r'版本|version[:\s]+(\d+\.\d+\.\d+)', result.stdout, re.IGNORECASE)
+                    if match:
+                        info["xui_version"] = match.group(1)
+                    else:
+                        # Try to get from x-ui status
+                        result = subprocess.run(
+                            ["systemctl", "status", "x-ui"],
+                            capture_output=True, text=True, timeout=5
+                        )
+                        # Default version if can't determine
+                        if "running" in result.stdout.lower():
+                            info["xui_version"] = "2.x"
             except:
-                # Try alternative method
-                try:
-                    result = subprocess.run(
-                        ["/usr/local/x-ui/x-ui", "version"],
-                        capture_output=True, text=True, timeout=5
-                    )
-                    if result.returncode == 0:
-                        info["xui_version"] = result.stdout.strip()
-                except:
-                    pass
+                # Check if version file exists
+                version_file = "/usr/local/x-ui/version"
+                if os.path.exists(version_file):
+                    with open(version_file) as f:
+                        info["xui_version"] = f.read().strip()
+                else:
+                    info["xui_version"] = "установлен"
 
             # Get Xray version
             try:

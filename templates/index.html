@@ -4118,12 +4118,25 @@ Subject: ${cert.subject || 'N/A'}
         async function discoverSNI() {
             const provider = document.getElementById('sni-provider').value;
             const count = parseInt(document.getElementById('sni-discover-count').value) || 20;
+            const btn = event.target;
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Поиск...';
 
             const tbody = document.getElementById('sni-results-body');
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 20px;">
-                <span style="color: var(--accent);">🔎 Сканирование ${provider} IP диапазонов...<br>
-                <small style="color: var(--text-secondary);">Это может занять до 30 секунд</small></span>
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 30px;">
+                <div style="display: inline-block; width: 30px; height: 30px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                <br><br>
+                <span style="color: var(--accent);">Сканирование ${provider.toUpperCase()} IP диапазонов...</span><br>
+                <small style="color: var(--text-secondary);">Проверяется ${count} IP адресов. Это может занять до 30 секунд.</small>
             </td></tr>`;
+
+            // Add spin animation if not exists
+            if (!document.getElementById('spin-style')) {
+                const style = document.createElement('style');
+                style.id = 'spin-style';
+                style.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+                document.head.appendChild(style);
+            }
 
             try {
                 const response = await fetch(API_URL + `api/sni/discover?provider=${provider}&count=${count}`, {
@@ -4131,6 +4144,9 @@ Subject: ${cert.subject || 'N/A'}
                     credentials: 'include'
                 });
                 const data = await response.json();
+
+                btn.disabled = false;
+                btn.innerHTML = '🚀 Найти';
 
                 if (data.results && data.results.length > 0) {
                     tbody.innerHTML = data.results.map(r => `
@@ -4150,8 +4166,10 @@ Subject: ${cert.subject || 'N/A'}
                     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--warning);">Домены не найдены. Попробуйте другой провайдер.</td></tr>';
                 }
             } catch (error) {
+                btn.disabled = false;
+                btn.innerHTML = '🚀 Найти';
                 console.error('Error:', error);
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--danger);">Ошибка сканирования</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--danger);">Ошибка сканирования: ' + error.message + '</td></tr>';
             }
         }
 
