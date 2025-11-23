@@ -487,28 +487,90 @@
             cursor: pointer;
         }
 
-        /* Responsive */
+        /* Responsive - Tablet */
+        @media (max-width: 1024px) {
+            .tabs {
+                flex-wrap: wrap;
+            }
+            .tab-btn {
+                flex: 1 1 auto;
+                min-width: 100px;
+                font-size: 12px;
+                padding: 8px 12px;
+            }
+        }
+
+        /* Responsive - Mobile */
         @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+                padding-bottom: 80px;
+            }
+
+            .header h1 {
+                font-size: 1.5rem;
+            }
+
             .form-row {
                 grid-template-columns: 1fr;
             }
 
             .stats-grid {
                 grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+            }
+
+            .stat-card {
+                padding: 15px;
+            }
+
+            .stat-value {
+                font-size: 1.5rem;
+            }
+
+            .tabs {
+                gap: 5px;
+                padding: 10px;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .tab-btn {
+                flex: 0 0 auto;
+                padding: 8px 12px;
+                font-size: 11px;
+                white-space: nowrap;
             }
 
             .btn-group {
                 flex-direction: column;
+                gap: 8px;
             }
 
             .btn {
                 width: 100%;
                 justify-content: center;
+                padding: 12px 16px;
+            }
+
+            .table-container {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            table {
+                font-size: 12px;
+                min-width: 600px;
+            }
+
+            th, td {
+                padding: 8px 6px;
             }
 
             .pagination {
                 flex-direction: column;
                 align-items: stretch;
+                gap: 10px;
             }
 
             .pagination-controls {
@@ -517,6 +579,49 @@
 
             .page-size-selector {
                 justify-content: center;
+            }
+
+            footer {
+                padding: 8px 15px !important;
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            footer button {
+                width: 100%;
+                font-size: 11px !important;
+            }
+
+            #version-info {
+                font-size: 11px;
+            }
+
+            /* Modal mobile optimization */
+            [id$="-modal"] > div {
+                margin: 10px;
+                padding: 20px;
+                max-height: 90vh;
+                overflow-y: auto;
+            }
+
+            .form-input, .form-select {
+                font-size: 16px; /* Prevents zoom on iOS */
+            }
+        }
+
+        /* Responsive - Small Mobile */
+        @media (max-width: 480px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 1.2rem;
+            }
+
+            .tab-btn {
+                font-size: 10px;
+                padding: 6px 10px;
             }
         }
     </style>
@@ -560,6 +665,8 @@
             <button class="tab-btn" onclick="showTab('monitoring')">📊 Мониторинг</button>
             <button class="tab-btn" onclick="showTab('api-tokens')">🔑 API Токены</button>
             <button class="tab-btn" onclick="showTab('ssl')">🔐 SSL</button>
+            <button class="tab-btn" onclick="showTab('xui-control')">⚙️ X-UI</button>
+            <button class="tab-btn" onclick="showTab('system')">🖥️ Система</button>
         </div>
 
         <!-- Tab: Users -->
@@ -851,10 +958,38 @@
                 Пользователи с истекшим сроком действия подписки
             </p>
 
-            <div class="btn-group" style="margin-top: 20px;">
+            <div class="btn-group" style="margin-top: 20px; flex-wrap: wrap;">
                 <button class="btn btn-primary" onclick="loadExpiredUsers()">🔄 Обновить список</button>
+                <button class="btn btn-success" onclick="showExtendExpiredModal()">✅ Продлить и включить</button>
                 <button class="btn btn-danger" onclick="deleteExpiredSelected()">🗑️ Удалить выбранных</button>
                 <button class="btn btn-warning" onclick="deleteAllExpired()">⚠️ Удалить всех истекших</button>
+            </div>
+
+            <!-- Extend Expired Modal -->
+            <div id="extend-expired-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+                <div style="background: var(--bg-secondary); padding: 30px; border-radius: 12px; max-width: 500px; width: 90%;">
+                    <h3 style="margin-top: 0;">Продлить и включить пользователей</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">Установите параметры для продления</p>
+
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label class="form-label">Срок действия (дней)</label>
+                        <input type="number" class="form-input" id="extend-expiry-days" value="30" min="1">
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label class="form-label">Сбросить трафик</label>
+                        <select class="form-input" id="extend-reset-traffic">
+                            <option value="no">Нет</option>
+                            <option value="yes">Да</option>
+                        </select>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="btn btn-success" onclick="extendExpiredUsers()">✅ Продлить выбранных</button>
+                        <button class="btn btn-warning" onclick="extendAllExpiredUsers()">⚡ Продлить всех</button>
+                        <button class="btn btn-secondary" onclick="closeExtendExpiredModal()">Отмена</button>
+                    </div>
+                </div>
             </div>
 
             <div class="table-container" style="margin-top: 20px;">
@@ -1041,6 +1176,105 @@
                 <div id="ssl-cert-details" style="font-family: monospace; font-size: 13px; color: var(--text-secondary);">
                     Загрузка информации...
                 </div>
+            </div>
+        </div>
+
+        <!-- Tab: X-UI Control -->
+        <div id="tab-xui-control" class="tab-content">
+            <h2>⚙️ Управление X-UI</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Управление службой x-ui, логи и диагностика
+            </p>
+
+            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 30px;">
+                <div class="stat-card">
+                    <div class="stat-label">Статус X-UI</div>
+                    <div class="stat-value" id="xui-service-status" style="font-size: 18px;">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Версия X-UI</div>
+                    <div class="stat-value" id="xui-version" style="font-size: 16px;">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Версия Xray</div>
+                    <div class="stat-value" id="xray-version" style="font-size: 16px;">-</div>
+                </div>
+            </div>
+
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">Управление службой</h3>
+                <div class="btn-group" style="flex-wrap: wrap;">
+                    <button class="btn btn-success" onclick="xuiAction('restart')">🔄 Перезапустить</button>
+                    <button class="btn btn-warning" onclick="xuiAction('stop')">⏹️ Остановить</button>
+                    <button class="btn btn-primary" onclick="xuiAction('start')">▶️ Запустить</button>
+                    <button class="btn btn-secondary" onclick="loadXuiStatus()">📊 Обновить статус</button>
+                </div>
+            </div>
+
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">Логи X-UI</h3>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="loadXuiLogs('info')">📄 Основные логи</button>
+                    <button class="btn btn-danger" onclick="loadXuiLogs('error')">❌ Ошибки</button>
+                    <button class="btn btn-secondary" onclick="clearXuiLogs()">🗑️ Очистить</button>
+                </div>
+                <pre id="xui-logs" style="background: var(--bg-primary); padding: 15px; border-radius: 8px; max-height: 300px; overflow-y: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all;">Нажмите кнопку для загрузки логов...</pre>
+            </div>
+
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                <h3 style="margin-top: 0;">Обновление данных</h3>
+                <div class="btn-group" style="flex-wrap: wrap;">
+                    <button class="btn btn-primary" onclick="updateDatFiles()">🌍 Обновить GeoIP/GeoSite</button>
+                    <button class="btn btn-warning" onclick="updateXray()">⬆️ Обновить Xray</button>
+                </div>
+                <p style="color: #888; font-size: 12px; margin-top: 15px; margin-bottom: 0;">
+                    GeoIP/GeoSite - базы данных для маршрутизации по странам (Россия, Иран и др.)
+                </p>
+            </div>
+        </div>
+
+        <!-- Tab: System Optimization -->
+        <div id="tab-system" class="tab-content">
+            <h2>🖥️ Оптимизация системы</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Проверка и установка оптимизаций сервера
+            </p>
+
+            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 30px;">
+                <div class="stat-card">
+                    <div class="stat-label">BBR</div>
+                    <div class="stat-value" id="bbr-status" style="font-size: 16px;">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">TCP Optimization</div>
+                    <div class="stat-value" id="tcp-status" style="font-size: 16px;">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Kernel</div>
+                    <div class="stat-value" id="kernel-version" style="font-size: 14px;">-</div>
+                </div>
+            </div>
+
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">Проверка оптимизаций</h3>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="checkSystemOptimization()">🔍 Проверить систему</button>
+                </div>
+                <div id="system-check-results" style="font-family: monospace; font-size: 13px; color: var(--text-secondary);">
+                    Нажмите "Проверить систему" для диагностики
+                </div>
+            </div>
+
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                <h3 style="margin-top: 0;">Установка оптимизаций</h3>
+                <div class="btn-group" style="flex-wrap: wrap;">
+                    <button class="btn btn-success" onclick="installBBR()">🚀 Установить BBR3</button>
+                    <button class="btn btn-primary" onclick="optimizeTCP()">⚡ Оптимизировать TCP</button>
+                    <button class="btn btn-warning" onclick="installAllOptimizations()">🔧 Установить всё</button>
+                </div>
+                <p style="color: #888; font-size: 12px; margin-top: 15px; margin-bottom: 0;">
+                    ⚠️ BBR3 требует перезагрузки сервера после установки
+                </p>
             </div>
         </div>
 
@@ -3242,6 +3476,327 @@ Subject: ${cert.subject || 'N/A'}
             } catch (error) {
                 console.error('Error restarting services:', error);
                 showToast('Ошибка перезапуска сервисов', 'error');
+            }
+        }
+
+        // ==================== EXPIRED USERS EXTENSION ====================
+
+        function showExtendExpiredModal() {
+            document.getElementById('extend-expired-modal').style.display = 'flex';
+        }
+
+        function closeExtendExpiredModal() {
+            document.getElementById('extend-expired-modal').style.display = 'none';
+        }
+
+        async function extendExpiredUsers() {
+            const checkboxes = document.querySelectorAll('#expired-table-body input[type="checkbox"]:checked');
+            if (checkboxes.length === 0) {
+                showToast('Выберите пользователей для продления', 'warning');
+                return;
+            }
+
+            const days = parseInt(document.getElementById('extend-expiry-days').value) || 30;
+            const resetTraffic = document.getElementById('extend-reset-traffic').value === 'yes';
+
+            const userIds = Array.from(checkboxes).map(cb => cb.value);
+            await processExtendUsers(userIds, days, resetTraffic);
+            closeExtendExpiredModal();
+        }
+
+        async function extendAllExpiredUsers() {
+            if (!confirm('Продлить ВСЕХ истекших пользователей?')) return;
+
+            const days = parseInt(document.getElementById('extend-expiry-days').value) || 30;
+            const resetTraffic = document.getElementById('extend-reset-traffic').value === 'yes';
+
+            // Get all expired user IDs
+            const rows = document.querySelectorAll('#expired-table-body tr');
+            const userIds = [];
+            rows.forEach(row => {
+                const checkbox = row.querySelector('input[type="checkbox"]');
+                if (checkbox) userIds.push(checkbox.value);
+            });
+
+            if (userIds.length === 0) {
+                showToast('Нет истекших пользователей', 'warning');
+                return;
+            }
+
+            await processExtendUsers(userIds, days, resetTraffic);
+            closeExtendExpiredModal();
+        }
+
+        async function processExtendUsers(userIds, days, resetTraffic) {
+            let extended = 0;
+            let errors = 0;
+
+            for (const id of userIds) {
+                try {
+                    // Extend expiry
+                    const expiryResponse = await fetch(API_URL + 'api/users/extend-expiry', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        credentials: 'include',
+                        body: JSON.stringify({user_ids: [id], days: days})
+                    });
+
+                    // Enable user
+                    await fetch(API_URL + `api/users/${id}/toggle`, {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        credentials: 'include',
+                        body: JSON.stringify({enable: true})
+                    });
+
+                    // Reset traffic if needed
+                    if (resetTraffic) {
+                        await fetch(API_URL + 'api/users/reset-traffic', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            credentials: 'include',
+                            body: JSON.stringify({user_ids: [id]})
+                        });
+                    }
+
+                    extended++;
+                } catch (error) {
+                    console.error('Error extending user:', error);
+                    errors++;
+                }
+            }
+
+            showToast(`✅ Продлено: ${extended}, ошибок: ${errors}`, extended > 0 ? 'success' : 'error');
+            loadExpiredUsers();
+        }
+
+        // ==================== X-UI CONTROL ====================
+
+        async function loadXuiStatus() {
+            try {
+                const [statusRes, xuiVerRes, xrayVerRes] = await Promise.all([
+                    fetch(API_URL + 'api/system/xui/status', {credentials: 'include'}),
+                    fetch(API_URL + 'api/system/xui/version', {credentials: 'include'}),
+                    fetch(API_URL + 'api/system/xray/version', {credentials: 'include'})
+                ]);
+
+                const status = await statusRes.json();
+                const xuiVer = await xuiVerRes.json();
+                const xrayVer = await xrayVerRes.json();
+
+                const statusElem = document.getElementById('xui-service-status');
+                if (status.active) {
+                    statusElem.textContent = '✅ Активен';
+                    statusElem.style.color = 'var(--success)';
+                } else {
+                    statusElem.textContent = '❌ Остановлен';
+                    statusElem.style.color = 'var(--danger)';
+                }
+
+                document.getElementById('xui-version').textContent = xuiVer.version || '-';
+                document.getElementById('xray-version').textContent = xrayVer.version || '-';
+
+            } catch (error) {
+                console.error('Error loading X-UI status:', error);
+            }
+        }
+
+        async function xuiAction(action) {
+            if (!confirm(`${action === 'restart' ? 'Перезапустить' : action === 'stop' ? 'Остановить' : 'Запустить'} x-ui?`)) return;
+
+            try {
+                const response = await fetch(API_URL + `api/system/xui/${action}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    showToast(`✅ X-UI: ${action}`, 'success');
+                    setTimeout(loadXuiStatus, 2000);
+                } else {
+                    showToast(`Ошибка: ${data.detail || 'Unknown'}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка выполнения команды', 'error');
+            }
+        }
+
+        async function loadXuiLogs(type) {
+            try {
+                const response = await fetch(API_URL + `api/system/logs?type=${type}&lines=100`, {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+                document.getElementById('xui-logs').textContent = data.logs || 'Логи пусты';
+            } catch (error) {
+                console.error('Error loading logs:', error);
+                document.getElementById('xui-logs').textContent = 'Ошибка загрузки логов';
+            }
+        }
+
+        function clearXuiLogs() {
+            document.getElementById('xui-logs').textContent = 'Логи очищены';
+        }
+
+        async function updateDatFiles() {
+            if (!confirm('Обновить GeoIP и GeoSite файлы?\n\nЭто загрузит последние версии баз данных маршрутизации.')) return;
+
+            showToast('⏳ Обновление dat файлов...', 'info');
+
+            try {
+                const response = await fetch(API_URL + 'api/system/update-dat', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Dat файлы обновлены', 'success');
+                } else {
+                    showToast('Ошибка: ' + (data.message || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка обновления dat файлов', 'error');
+            }
+        }
+
+        async function updateXray() {
+            if (!confirm('Обновить Xray до последней версии?')) return;
+
+            try {
+                const response = await fetch(API_URL + 'api/system/xray/update', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    showToast('✅ Xray обновлен', 'success');
+                    loadXuiStatus();
+                } else {
+                    showToast('Ошибка: ' + (data.detail || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка обновления Xray', 'error');
+            }
+        }
+
+        // ==================== SYSTEM OPTIMIZATION ====================
+
+        async function checkSystemOptimization() {
+            try {
+                const response = await fetch(API_URL + 'api/system/optimization/check', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                // Update status cards
+                const bbrStatus = document.getElementById('bbr-status');
+                if (data.bbr_enabled) {
+                    bbrStatus.textContent = '✅ ' + (data.bbr_version || 'Enabled');
+                    bbrStatus.style.color = 'var(--success)';
+                } else {
+                    bbrStatus.textContent = '❌ Не установлен';
+                    bbrStatus.style.color = 'var(--danger)';
+                }
+
+                const tcpStatus = document.getElementById('tcp-status');
+                if (data.tcp_optimized) {
+                    tcpStatus.textContent = '✅ Оптимизирован';
+                    tcpStatus.style.color = 'var(--success)';
+                } else {
+                    tcpStatus.textContent = '⚠️ Стандартный';
+                    tcpStatus.style.color = 'var(--warning)';
+                }
+
+                document.getElementById('kernel-version').textContent = data.kernel || '-';
+
+                // Show detailed results
+                let results = `Версия ядра: ${data.kernel || 'N/A'}\n`;
+                results += `BBR: ${data.bbr_enabled ? '✅ Включен' : '❌ Выключен'}\n`;
+                results += `Версия BBR: ${data.bbr_version || 'N/A'}\n`;
+                results += `TCP оптимизация: ${data.tcp_optimized ? '✅' : '❌'}\n\n`;
+                results += `Текущие настройки:\n${data.sysctl_values || 'N/A'}`;
+
+                document.getElementById('system-check-results').textContent = results;
+
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('system-check-results').textContent = 'Ошибка проверки системы';
+            }
+        }
+
+        async function installBBR() {
+            if (!confirm('⚠️ Установить BBR3?\n\nЭто может потребовать перезагрузки сервера.')) return;
+
+            showToast('⏳ Установка BBR3...', 'info');
+
+            try {
+                const response = await fetch(API_URL + 'api/system/optimization/install-bbr', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ BBR установлен. ' + (data.message || ''), 'success');
+                    checkSystemOptimization();
+                } else {
+                    showToast('Ошибка: ' + (data.message || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка установки BBR', 'error');
+            }
+        }
+
+        async function optimizeTCP() {
+            if (!confirm('Применить TCP оптимизации?')) return;
+
+            try {
+                const response = await fetch(API_URL + 'api/system/optimization/tcp', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ TCP оптимизирован', 'success');
+                    checkSystemOptimization();
+                } else {
+                    showToast('Ошибка: ' + (data.message || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка оптимизации TCP', 'error');
+            }
+        }
+
+        async function installAllOptimizations() {
+            if (!confirm('⚠️ Установить все оптимизации?\n\nBBR3 + TCP оптимизации. Может потребоваться перезагрузка.')) return;
+
+            showToast('⏳ Установка оптимизаций...', 'info');
+
+            try {
+                const response = await fetch(API_URL + 'api/system/optimization/install-all', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Все оптимизации установлены', 'success');
+                    checkSystemOptimization();
+                } else {
+                    showToast('Ошибка: ' + (data.message || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка установки', 'error');
             }
         }
 
