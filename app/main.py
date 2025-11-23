@@ -216,13 +216,12 @@ async def health_check():
         "server_id": SERVER_ID
     }
 
-@app.get("/api/server/info")
-async def get_server_info():
-    """Получение информации о сервере"""
+@app.get("/api/version")
+async def get_version():
+    """Получение версии приложения"""
     return {
-        "server_id": SERVER_ID,
-        "app_name": settings.APP_NAME,
-        "app_version": settings.APP_VERSION
+        "version": CURRENT_VERSION,
+        "name": "Агент Мастера ключей"
     }
 
 @app.get("/api/stats")
@@ -2530,6 +2529,7 @@ async def update_dat_files(username: str = Depends(get_current_user)):
 async def get_server_info(username: str = Depends(get_current_user)):
     """Get comprehensive server information."""
     import psutil
+    import subprocess
 
     info = {
         "xui_version": None,
