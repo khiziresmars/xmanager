@@ -2784,36 +2784,41 @@ async def get_server_info(username: str = Depends(get_current_user)):
 async def run_speedtest(username: str = Depends(get_current_user)):
     """Run internal speedtest."""
     try:
-        # Check if speedtest-cli is installed
-        result = subprocess.run(
-            ["which", "speedtest-cli"],
-            capture_output=True, text=True
-        )
-
-        if result.returncode != 0:
-            # Try to install
-            subprocess.run(
-                ["pip3", "install", "speedtest-cli"],
-                capture_output=True, timeout=60
+        # Try to import speedtest module
+        try:
+            import speedtest
+        except ImportError:
+            # Install speedtest-cli in venv
+            install_result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "speedtest-cli"],
+                capture_output=True, text=True, timeout=60
             )
+            if install_result.returncode != 0:
+                return {"success": False, "message": "Не удалось установить speedtest-cli. Установите вручную: pip install speedtest-cli"}
+            import speedtest
 
         # Run speedtest
-        result = subprocess.run(
-            ["speedtest-cli", "--json"],
-            capture_output=True, text=True, timeout=120
-        )
+        st = speedtest.Speedtest()
+        st.get_best_server()
 
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            return {
-                "success": True,
-                "download": round(data["download"] / 1_000_000, 2),  # Mbps
-                "upload": round(data["upload"] / 1_000_000, 2),  # Mbps
-                "ping": round(data["ping"], 2),
-                "server": data.get("server", {}).get("name", "Unknown")
-            }
-        else:
-            return {"success": False, "message": result.stderr or "Speedtest failed"}
+        # Download test
+        download = st.download() / 1_000_000  # Mbps
+
+        # Upload test
+        upload = st.upload() / 1_000_000  # Mbps
+
+        # Get results
+        results = st.results.dict()
+
+        return {
+            "success": True,
+            "download": round(download, 2),
+            "upload": round(upload, 2),
+            "ping": round(results.get("ping", 0), 2),
+            "server": results.get("server", {}).get("name", "Unknown"),
+            "server_location": results.get("server", {}).get("country", ""),
+            "client_ip": results.get("client", {}).get("ip", "")
+        }
 
     except Exception as e:
         logger.error(f"Error running speedtest: {e}")
