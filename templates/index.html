@@ -104,12 +104,125 @@
             color: var(--accent);
         }
 
-        /* Tabs */
-        .tabs {
+        /* Layout with Sidebar */
+        .app-layout {
             display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 260px;
+            flex-shrink: 0;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            padding: 15px;
+            height: fit-content;
+            position: sticky;
+            top: 20px;
+        }
+
+        .sidebar-category {
+            margin-bottom: 10px;
+        }
+
+        .sidebar-category-title {
+            padding: 10px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+
+        .sidebar-category-title:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .sidebar-category-items {
+            margin-top: 5px;
+        }
+
+        .sidebar-item {
+            display: block;
+            width: 100%;
+            padding: 10px 12px;
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            cursor: pointer;
+            border-radius: 6px;
+            font-size: 13px;
+            text-align: left;
+            transition: all 0.2s;
+            margin-bottom: 2px;
+        }
+
+        .sidebar-item:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .sidebar-item.active {
+            background: var(--accent);
+            color: white;
+        }
+
+        .main-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        /* Mobile sidebar */
+        .sidebar-toggle {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: white;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        @media (max-width: 900px) {
+            .app-layout {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                position: relative;
+                top: 0;
+                display: none;
+            }
+
+            .sidebar.mobile-open {
+                display: block;
+            }
+
+            .sidebar-toggle {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+        }
+
+        /* Legacy tabs - hidden but kept for compatibility */
+        .tabs {
+            display: none;
         }
 
         .tab-btn {
@@ -659,22 +772,60 @@
             </div>
         </div>
 
-        <!-- Tabs -->
-        <div class="tabs">
-            <button class="tab-btn active" onclick="showTab('users')">👥 Пользователи</button>
-            <button class="tab-btn" onclick="showTab('bulk-create')">➕ Массовое создание</button>
-            <button class="tab-btn" onclick="showTab('low-traffic')">📉 Низкий трафик</button>
-            <button class="tab-btn" onclick="showTab('unlimited')">♾️ Безлимитные</button>
-            <button class="tab-btn" onclick="showTab('expired')">⏰ Истекшие</button>
-            <button class="tab-btn" onclick="showTab('disabled')">🚫 Отключенные</button>
-            <button class="tab-btn" onclick="showTab('monitoring')">📊 Мониторинг</button>
-            <button class="tab-btn" onclick="showTab('api-tokens')">🔑 API</button>
-            <button class="tab-btn" onclick="showTab('inbounds-manage')">📡 Inbounds</button>
-            <button class="tab-btn" onclick="showTab('sni-scanner')">🔍 SNI</button>
-            <button class="tab-btn" onclick="showTab('ssl')">🔐 SSL</button>
-            <button class="tab-btn" onclick="showTab('xui-control')">⚙️ X-UI</button>
-            <button class="tab-btn" onclick="showTab('system')">🖥️ Система</button>
-        </div>
+        <!-- Mobile sidebar toggle -->
+        <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+
+        <div class="app-layout">
+            <!-- Sidebar Navigation -->
+            <nav class="sidebar" id="sidebar">
+                <!-- Users Category -->
+                <div class="sidebar-category">
+                    <div class="sidebar-category-title">👥 Пользователи</div>
+                    <div class="sidebar-category-items">
+                        <button class="sidebar-item active" onclick="showTab('users')">📋 Все пользователи</button>
+                        <button class="sidebar-item" onclick="showTab('bulk-create')">➕ Массовое создание</button>
+                        <button class="sidebar-item" onclick="showTab('low-traffic')">📉 Низкий трафик</button>
+                        <button class="sidebar-item" onclick="showTab('unlimited')">♾️ Безлимитные</button>
+                        <button class="sidebar-item" onclick="showTab('expired')">⏰ Истекшие</button>
+                        <button class="sidebar-item" onclick="showTab('disabled')">🚫 Отключенные</button>
+                    </div>
+                </div>
+
+                <!-- Monitoring Category -->
+                <div class="sidebar-category">
+                    <div class="sidebar-category-title">📊 Мониторинг</div>
+                    <div class="sidebar-category-items">
+                        <button class="sidebar-item" onclick="showTab('monitoring')">📈 Статистика</button>
+                        <button class="sidebar-item" onclick="showTab('api-tokens')">🔑 API токены</button>
+                    </div>
+                </div>
+
+                <!-- Settings Category -->
+                <div class="sidebar-category">
+                    <div class="sidebar-category-title">⚙️ Настройки</div>
+                    <div class="sidebar-category-items">
+                        <button class="sidebar-item" onclick="showTab('inbounds-manage')">📡 Inbounds</button>
+                        <button class="sidebar-item" onclick="showTab('sni-scanner')">🔍 SNI сканер</button>
+                        <button class="sidebar-item" onclick="showTab('ssl')">🔐 SSL сертификаты</button>
+                        <button class="sidebar-item" onclick="showTab('xui-control')">🎛️ X-UI управление</button>
+                    </div>
+                </div>
+
+                <!-- System Category -->
+                <div class="sidebar-category">
+                    <div class="sidebar-category-title">🖥️ Система</div>
+                    <div class="sidebar-category-items">
+                        <button class="sidebar-item" onclick="showTab('system')">🔧 Оптимизация</button>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Main Content Area -->
+            <div class="main-content">
+                <!-- Legacy tabs hidden -->
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="showTab('users')">👥 Пользователи</button>
+                </div>
 
         <!-- Tab: Users -->
         <div id="tab-users" class="tab-content active">
@@ -1491,6 +1642,40 @@
                     ⚠️ BBR3 требует перезагрузки сервера после установки
                 </p>
             </div>
+
+            <!-- Update Server Management -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-top: 20px;">
+                <h3 style="margin-top: 0;">🔄 Центр обновлений</h3>
+                <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
+                    Отдельный сервер для управления обновлениями агента (порт 8889)
+                </p>
+
+                <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 15px;">
+                    <div class="stat-card">
+                        <div class="stat-label">Статус</div>
+                        <div class="stat-value" id="update-server-status" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Установлен</div>
+                        <div class="stat-value" id="update-server-installed" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Порт</div>
+                        <div class="stat-value" id="update-server-port" style="font-size: 14px;">8889</div>
+                    </div>
+                </div>
+
+                <div class="btn-group" style="flex-wrap: wrap; margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="checkUpdateServer()">🔍 Проверить</button>
+                    <button class="btn btn-success" onclick="installUpdateServer()" id="btn-install-update-server">📦 Установить</button>
+                    <button class="btn btn-primary" onclick="controlUpdateServer('start')" id="btn-start-update-server">▶️ Запустить</button>
+                    <button class="btn btn-warning" onclick="controlUpdateServer('restart')" id="btn-restart-update-server">🔄 Перезапустить</button>
+                    <button class="btn btn-danger" onclick="controlUpdateServer('stop')" id="btn-stop-update-server">⏹️ Остановить</button>
+                </div>
+
+                <div id="update-server-logs" style="font-family: monospace; font-size: 12px; color: var(--text-secondary); max-height: 150px; overflow-y: auto; background: var(--bg-tertiary); padding: 10px; border-radius: 6px; display: none;">
+                </div>
+            </div>
         </div>
 
         <!-- Tab: Monitoring -->
@@ -1592,6 +1777,8 @@
                 </table>
             </div>
         </div>
+            </div><!-- Close main-content -->
+        </div><!-- Close app-layout -->
     </div>
 
     <!-- Footer with Version and Update Button -->
@@ -1647,9 +1834,17 @@
         function showTab(tabName) {
             document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.sidebar-item').forEach(item => item.classList.remove('active'));
 
             document.getElementById('tab-' + tabName).classList.add('active');
-            event.target.classList.add('active');
+            if (event && event.target) {
+                event.target.classList.add('active');
+            }
+
+            // Close mobile sidebar after selection
+            if (window.innerWidth <= 900) {
+                document.getElementById('sidebar').classList.remove('mobile-open');
+            }
 
             // Handle tab-specific actions
             if (tabName === 'api-tokens') {
@@ -1666,6 +1861,11 @@
                 stopMonitoring();
                 stopQueuePolling();
             }
+        }
+
+        // Toggle mobile sidebar
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('mobile-open');
         }
 
         // Toast notifications
@@ -4529,6 +4729,107 @@ Subject: ${cert.subject || 'N/A'}
             } catch (error) {
                 console.error('Error:', error);
                 showToast('Ошибка установки', 'error');
+            }
+        }
+
+        // ==================== UPDATE SERVER MANAGEMENT ====================
+
+        async function checkUpdateServer() {
+            try {
+                const response = await fetch(API_URL + 'api/system/update-server/status', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                // Update status display
+                const statusEl = document.getElementById('update-server-status');
+                const installedEl = document.getElementById('update-server-installed');
+
+                if (data.installed) {
+                    installedEl.textContent = '✅ Да';
+                    installedEl.style.color = 'var(--success)';
+
+                    if (data.running) {
+                        statusEl.textContent = '🟢 Работает';
+                        statusEl.style.color = 'var(--success)';
+                    } else {
+                        statusEl.textContent = '🔴 Остановлен';
+                        statusEl.style.color = 'var(--danger)';
+                    }
+
+                    // Update buttons
+                    document.getElementById('btn-install-update-server').style.display = 'none';
+                    document.getElementById('btn-start-update-server').style.display = data.running ? 'none' : 'inline-flex';
+                    document.getElementById('btn-stop-update-server').style.display = data.running ? 'inline-flex' : 'none';
+                    document.getElementById('btn-restart-update-server').style.display = data.running ? 'inline-flex' : 'none';
+                } else {
+                    installedEl.textContent = '❌ Нет';
+                    installedEl.style.color = 'var(--danger)';
+                    statusEl.textContent = '⚪ Не установлен';
+                    statusEl.style.color = 'var(--text-secondary)';
+
+                    // Show only install button
+                    document.getElementById('btn-install-update-server').style.display = 'inline-flex';
+                    document.getElementById('btn-start-update-server').style.display = 'none';
+                    document.getElementById('btn-stop-update-server').style.display = 'none';
+                    document.getElementById('btn-restart-update-server').style.display = 'none';
+                }
+
+            } catch (error) {
+                console.error('Error checking update server:', error);
+                showToast('Ошибка проверки сервера обновлений', 'error');
+            }
+        }
+
+        async function installUpdateServer() {
+            if (!confirm('Установить Центр обновлений?\n\nБудет создан отдельный сервис на порту 8889.')) return;
+
+            showToast('⏳ Установка сервера обновлений...', 'info');
+
+            try {
+                const response = await fetch(API_URL + 'api/system/update-server/install', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Сервер обновлений установлен', 'success');
+                    checkUpdateServer();
+                } else {
+                    showToast('Ошибка: ' + (data.message || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Ошибка установки', 'error');
+            }
+        }
+
+        async function controlUpdateServer(action) {
+            const actionNames = {
+                'start': 'Запуск',
+                'stop': 'Остановка',
+                'restart': 'Перезапуск'
+            };
+
+            showToast(`⏳ ${actionNames[action]} сервера обновлений...`, 'info');
+
+            try {
+                const response = await fetch(API_URL + `api/system/update-server/${action}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ ${actionNames[action]} выполнен`, 'success');
+                    checkUpdateServer();
+                } else {
+                    showToast('Ошибка: ' + (data.message || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showToast(`Ошибка: ${actionNames[action]}`, 'error');
             }
         }
 

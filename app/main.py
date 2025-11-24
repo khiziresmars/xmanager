@@ -2626,6 +2626,143 @@ async def install_all_optimizations(username: str = Depends(get_current_user)):
         return {"success": False, "message": str(e)}
 
 
+# ==================== UPDATE SERVER MANAGEMENT ====================
+
+@app.get("/api/system/update-server/status")
+async def get_update_server_status(username: str = Depends(get_current_user)):
+    """Check update server installation and running status."""
+    try:
+        service_file = "/etc/systemd/system/xui-update-server.service"
+        installed = os.path.exists(service_file)
+
+        running = False
+        if installed:
+            result = subprocess.run(
+                ["systemctl", "is-active", "xui-update-server"],
+                capture_output=True, text=True
+            )
+            running = result.stdout.strip() == "active"
+
+        return {
+            "installed": installed,
+            "running": running,
+            "port": 8889
+        }
+    except Exception as e:
+        logger.error(f"Error checking update server status: {e}")
+        return {"installed": False, "running": False, "error": str(e)}
+
+
+@app.post("/api/system/update-server/install")
+async def install_update_server(username: str = Depends(get_current_user)):
+    """Install the update server service."""
+    try:
+        # Source files from the project
+        project_dir = "/opt/xui-manager"
+        source_service = os.path.join(os.path.dirname(os.path.dirname(__file__)), "xui-update-server.service")
+
+        # If running from different location, use the installed path
+        if not os.path.exists(source_service):
+            source_service = f"{project_dir}/xui-update-server.service"
+
+        service_dest = "/etc/systemd/system/xui-update-server.service"
+
+        # Copy service file
+        if os.path.exists(source_service):
+            with open(source_service, 'r') as f:
+                service_content = f.read()
+            with open(service_dest, 'w') as f:
+                f.write(service_content)
+        else:
+            # Create service file if not exists
+            service_content = """[Unit]
+Description=XUI Manager Update Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/xui-manager
+Environment=PATH=/opt/xui-manager/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/xui-manager/venv/bin/python -m app.update_server
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+"""
+            with open(service_dest, 'w') as f:
+                f.write(service_content)
+
+        # Reload systemd and enable service
+        subprocess.run(["systemctl", "daemon-reload"], check=True)
+        subprocess.run(["systemctl", "enable", "xui-update-server"], check=True)
+        subprocess.run(["systemctl", "start", "xui-update-server"], check=True)
+
+        return {"success": True, "message": "Сервер обновлений установлен и запущен"}
+
+    except Exception as e:
+        logger.error(f"Error installing update server: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/system/update-server/start")
+async def start_update_server(username: str = Depends(get_current_user)):
+    """Start the update server service."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "start", "xui-update-server"],
+            capture_output=True, text=True
+        )
+
+        if result.returncode == 0:
+            return {"success": True, "message": "Сервер обновлений запущен"}
+        else:
+            return {"success": False, "message": result.stderr or "Ошибка запуска"}
+
+    except Exception as e:
+        logger.error(f"Error starting update server: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/system/update-server/stop")
+async def stop_update_server(username: str = Depends(get_current_user)):
+    """Stop the update server service."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "stop", "xui-update-server"],
+            capture_output=True, text=True
+        )
+
+        if result.returncode == 0:
+            return {"success": True, "message": "Сервер обновлений остановлен"}
+        else:
+            return {"success": False, "message": result.stderr or "Ошибка остановки"}
+
+    except Exception as e:
+        logger.error(f"Error stopping update server: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/system/update-server/restart")
+async def restart_update_server(username: str = Depends(get_current_user)):
+    """Restart the update server service."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "restart", "xui-update-server"],
+            capture_output=True, text=True
+        )
+
+        if result.returncode == 0:
+            return {"success": True, "message": "Сервер обновлений перезапущен"}
+        else:
+            return {"success": False, "message": result.stderr or "Ошибка перезапуска"}
+
+    except Exception as e:
+        logger.error(f"Error restarting update server: {e}")
+        return {"success": False, "message": str(e)}
+
+
 @app.post("/api/system/update-dat")
 async def update_dat_files(username: str = Depends(get_current_user)):
     """Update GeoIP and GeoSite dat files."""
