@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     DB_PATH: str = "/etc/x-ui/x-ui.db"  # Alias для совместимости
     XUI_CONFIG_PATH: str = "/usr/local/x-ui/bin/config.json"
 
+    # 3x-ui Panel API
+    XUI_PANEL_URL: str = os.getenv("XUI_PANEL_URL", "http://localhost:2053")
+    XUI_PANEL_USERNAME: str = os.getenv("XUI_PANEL_USERNAME", "admin")
+    XUI_PANEL_PASSWORD: str = os.getenv("XUI_PANEL_PASSWORD", "admin")
+
     # Аутентификация
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "admin"

@@ -12,12 +12,14 @@ from typing import Optional, Dict, List
 from fastapi import Cookie, HTTPException, Request, Response, Header
 from fastapi.responses import RedirectResponse
 import logging
+from config import settings
 
 logger = logging.getLogger(__name__)
 
-# Хардкод учетных данных
-ADMIN_USERNAME = "esmarsme"
-ADMIN_PASSWORD_HASH = hashlib.sha256("EsmarsMe13AMS1".encode()).hexdigest()
+# Учетные данные для доступа к агенту
+ADMIN_USERNAME = os.getenv("XUI_MANAGER_USERNAME", "esmarsme")
+ADMIN_PASSWORD = os.getenv("XUI_MANAGER_PASSWORD", "EsmarsMe13AMS1")
+ADMIN_PASSWORD_HASH = hashlib.sha256(ADMIN_PASSWORD.encode()).hexdigest()
 
 # Хранилище активных сессий (в продакшене лучше использовать Redis)
 active_sessions = {}

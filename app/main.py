@@ -31,6 +31,8 @@ from app.version import get_current_version, get_version_info, CURRENT_VERSION
 from app.update_manager import update_manager
 from app.background_tasks import background_tasks
 from app.ssl_manager import ssl_manager
+from app.xui_client import xui_client
+from app.preset_templates import list_templates as list_preset_templates, get_template, apply_template, get_template_params
 
 # Настройка логирования
 logging.basicConfig(
@@ -260,12 +262,248 @@ async def get_server_health():
 
 @app.get("/api/monitoring/online-users")
 async def get_online_users():
-    """Получение количества онлайн пользователей (последние 2 минуты активности)"""
+    """Получение списка онлайн пользователей через 3x-ui API"""
     try:
-        online_count = db.get_truly_online_users_count()
-        return {"online_users": online_count}
+        online_emails = await xui_client.get_online_clients()
+        return {
+            "online_users": len(online_emails),
+            "emails": online_emails
+        }
     except Exception as e:
         logger.error(f"Error getting online users: {e}")
+        # Fallback to database method
+        try:
+            online_count = db.get_truly_online_users_count()
+            return {"online_users": online_count, "emails": []}
+        except:
+            raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/monitoring/last-online")
+async def get_last_online(username: str = Depends(get_current_user)):
+    """Получение времени последнего подключения всех клиентов"""
+    try:
+        last_online = await xui_client.get_last_online()
+        return {"success": True, "data": last_online}
+    except Exception as e:
+        logger.error(f"Error getting last online: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/users/{email}/ips")
+async def get_user_ips(email: str, username: str = Depends(get_current_user)):
+    """Получение IP адресов пользователя"""
+    try:
+        ips = await xui_client.get_client_ips(email)
+        return {"success": True, "email": email, "ips": ips}
+    except Exception as e:
+        logger.error(f"Error getting user IPs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/users/{email}/clear-ips")
+async def clear_user_ips(email: str, username: str = Depends(get_current_user)):
+    """Очистка истории IP адресов пользователя"""
+    try:
+        success = await xui_client.clear_client_ips(email)
+        if success:
+            return {"success": True, "message": f"IP история очищена для {email}"}
+        return {"success": False, "message": "Не удалось очистить IP историю"}
+    except Exception as e:
+        logger.error(f"Error clearing user IPs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/inbounds/import")
+async def import_inbound(inbound_data: Dict[str, Any], username: str = Depends(get_current_user)):
+    """Импорт inbound из JSON конфигурации"""
+    try:
+        result = await xui_client.import_inbound(inbound_data)
+        if result and result.get("success"):
+            return {"success": True, "message": "Inbound импортирован", "data": result.get("obj")}
+        return {"success": False, "message": result.get("msg", "Ошибка импорта")}
+    except Exception as e:
+        logger.error(f"Error importing inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/inbounds/{inbound_id}/export")
+async def export_inbound(inbound_id: int, username: str = Depends(get_current_user)):
+    """Экспорт inbound как JSON шаблон"""
+    try:
+        inbound = await xui_client.get_inbound(inbound_id)
+        if inbound:
+            # Remove client-specific data for template
+            template = {
+                "port": inbound.get("port"),
+                "protocol": inbound.get("protocol"),
+                "settings": inbound.get("settings", "{}"),
+                "streamSettings": inbound.get("streamSettings", "{}"),
+                "sniffing": inbound.get("sniffing", "{}"),
+                "remark": inbound.get("remark", "") + "_template"
+            }
+            return {"success": True, "template": template}
+        return {"success": False, "message": "Inbound не найден"}
+    except Exception as e:
+        logger.error(f"Error exporting inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/inbounds/{inbound_id}/delete-depleted")
+async def delete_depleted_clients(inbound_id: int, username: str = Depends(get_current_user)):
+    """Удаление клиентов, исчерпавших лимит трафика"""
+    try:
+        result = await xui_client.delete_depleted_clients(inbound_id)
+        if result and result.get("success"):
+            return {"success": True, "message": "Исчерпавшие лимит клиенты удалены"}
+        return {"success": False, "message": result.get("msg", "Ошибка удаления")}
+    except Exception as e:
+        logger.error(f"Error deleting depleted clients: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/inbounds/{inbound_id}/reset-all-traffic")
+async def reset_inbound_all_traffic(inbound_id: int, username: str = Depends(get_current_user)):
+    """Сброс трафика всех клиентов в inbound"""
+    try:
+        success = await xui_client.reset_inbound_client_traffics(inbound_id)
+        if success:
+            return {"success": True, "message": "Трафик всех клиентов сброшен"}
+        return {"success": False, "message": "Ошибка сброса трафика"}
+    except Exception as e:
+        logger.error(f"Error resetting inbound traffic: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/system/reset-all-traffic")
+async def reset_all_system_traffic(username: str = Depends(get_current_user)):
+    """Сброс трафика всех клиентов в системе"""
+    try:
+        success = await xui_client.reset_all_traffics()
+        if success:
+            return {"success": True, "message": "Весь трафик в системе сброшен"}
+        return {"success": False, "message": "Ошибка сброса трафика"}
+    except Exception as e:
+        logger.error(f"Error resetting all traffic: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/server/xray-config")
+async def get_xray_config(username: str = Depends(get_current_user)):
+    """Получение полной конфигурации Xray"""
+    try:
+        config = await xui_client.get_config_json()
+        if config:
+            return {"success": True, "config": config}
+        return {"success": False, "message": "Не удалось получить конфигурацию"}
+    except Exception as e:
+        logger.error(f"Error getting Xray config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/server/logs")
+async def get_server_logs(
+    count: int = Query(100, ge=1, le=1000),
+    level: str = "",
+    username: str = Depends(get_current_user)
+):
+    """Получение логов сервера"""
+    try:
+        logs = await xui_client.get_logs(count, level)
+        if logs is not None:
+            return {"success": True, "logs": logs}
+        return {"success": False, "message": "Не удалось получить логи"}
+    except Exception as e:
+        logger.error(f"Error getting server logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/server/xray-logs")
+async def get_xray_logs(
+    count: int = Query(100, ge=1, le=1000),
+    username: str = Depends(get_current_user)
+):
+    """Получение логов Xray"""
+    try:
+        logs = await xui_client.get_xray_logs(count)
+        if logs is not None:
+            return {"success": True, "logs": logs}
+        return {"success": False, "message": "Не удалось получить логи Xray"}
+    except Exception as e:
+        logger.error(f"Error getting Xray logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/server/cpu-history/{bucket}")
+async def get_cpu_history(
+    bucket: str = "1m",
+    username: str = Depends(get_current_user)
+):
+    """Получение истории использования CPU"""
+    try:
+        if bucket not in ["2s", "30s", "1m", "2m", "3m", "5m"]:
+            raise HTTPException(status_code=400, detail="Invalid bucket. Use: 2s, 30s, 1m, 2m, 3m, 5m")
+
+        history = await xui_client.get_cpu_history(bucket)
+        if history is not None:
+            return {"success": True, "bucket": bucket, "data": history}
+        return {"success": False, "message": "Не удалось получить историю CPU"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting CPU history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/server/generate-uuid")
+async def generate_uuid(username: str = Depends(get_current_user)):
+    """Генерация нового UUID"""
+    try:
+        uuid = await xui_client.get_new_uuid()
+        if uuid:
+            return {"success": True, "uuid": uuid}
+        return {"success": False, "message": "Не удалось сгенерировать UUID"}
+    except Exception as e:
+        logger.error(f"Error generating UUID: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/server/generate-x25519")
+async def generate_x25519(username: str = Depends(get_current_user)):
+    """Генерация X25519 ключей для Reality"""
+    try:
+        cert = await xui_client.get_new_x25519_cert()
+        if cert:
+            return {"success": True, "keys": cert}
+        return {"success": False, "message": "Не удалось сгенерировать ключи"}
+    except Exception as e:
+        logger.error(f"Error generating X25519: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/server/update-geo")
+async def update_geo_files(username: str = Depends(get_current_user)):
+    """Обновление GeoIP и GeoSite файлов"""
+    try:
+        success = await xui_client.update_geo_files()
+        if success:
+            return {"success": True, "message": "Geo файлы обновлены"}
+        return {"success": False, "message": "Ошибка обновления geo файлов"}
+    except Exception as e:
+        logger.error(f"Error updating geo files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/server/panel-status")
+async def get_panel_status(username: str = Depends(get_current_user)):
+    """Получение статуса 3x-ui панели"""
+    try:
+        status = await xui_client.get_server_status()
+        if status:
+            return {"success": True, "status": status}
+        return {"success": False, "message": "Не удалось получить статус панели"}
+    except Exception as e:
+        logger.error(f"Error getting panel status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ ====================
@@ -1606,6 +1844,105 @@ async def save_template(template: UserTemplate):
     except Exception as e:
         logger.error(f"Error saving template: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== PRESET INBOUND TEMPLATES ====================
+
+@app.get("/api/preset-templates")
+async def get_preset_templates(username: str = Depends(get_current_user)):
+    """Получение списка готовых шаблонов inbound"""
+    try:
+        templates = list_preset_templates()
+        return {"success": True, "templates": templates}
+    except Exception as e:
+        logger.error(f"Error getting preset templates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/preset-templates/{template_id}")
+async def get_preset_template(template_id: str, username: str = Depends(get_current_user)):
+    """Получение конкретного шаблона с параметрами"""
+    try:
+        template = get_template(template_id)
+        if not template:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+
+        params = get_template_params(template_id)
+        return {
+            "success": True,
+            "template": {
+                "id": template_id,
+                "name": template.get("name"),
+                "description": template.get("description"),
+                "protocol": template.get("protocol"),
+                "port": template.get("port")
+            },
+            "params": params
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting preset template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/preset-templates/{template_id}/apply")
+async def apply_preset_template(
+    template_id: str,
+    params: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """Применение шаблона и создание inbound"""
+    try:
+        # Generate inbound config from template
+        config = apply_template(template_id, params)
+        if not config:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+
+        # Import inbound via 3x-ui API
+        result = await xui_client.import_inbound(config)
+        if result and result.get("success"):
+            return {
+                "success": True,
+                "message": f"Inbound '{config.get('remark')}' создан",
+                "inbound": result.get("obj")
+            }
+
+        return {
+            "success": False,
+            "message": result.get("msg", "Ошибка создания inbound")
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error applying preset template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/preset-templates/{template_id}/preview")
+async def preview_preset_template(
+    template_id: str,
+    domain: str = "",
+    port: int = 0,
+    username: str = Depends(get_current_user)
+):
+    """Предпросмотр конфигурации шаблона"""
+    try:
+        params = {"domain": domain or "example.com"}
+        if port:
+            params["port"] = port
+
+        config = apply_template(template_id, params)
+        if not config:
+            raise HTTPException(status_code=404, detail="Шаблон не найден")
+
+        return {"success": True, "config": config}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error previewing template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # ==================== SUBSCRIPTION SYNC ====================
 
