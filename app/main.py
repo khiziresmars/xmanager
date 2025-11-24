@@ -3276,12 +3276,17 @@ async def save_sni_domain(domain: str, latency: Optional[float] = None, username
         data = {"domains": []}
 
         if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                data = json.load(f)
+            try:
+                with open(config_path, 'r') as f:
+                    content = f.read().strip()
+                    if content:
+                        data = json.loads(content)
+            except (json.JSONDecodeError, ValueError):
+                data = {"domains": []}
 
         # Add domain if not exists
         domains = data.get("domains", [])
-        existing = [d for d in domains if d["domain"] == domain]
+        existing = [d for d in domains if d.get("domain") == domain]
         if not existing:
             domains.append({
                 "domain": domain,
@@ -3353,7 +3358,27 @@ async def discover_sni_domains(
         ]
     }
 
-    ranges = cdn_ranges.get(provider, cdn_ranges["cloudflare"])
+    # Handle local network scan
+    if provider == "local":
+        # Get server's public IP and scan its /24 network
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            # Get /24 prefix
+            ip_parts = local_ip.split('.')
+            local_prefix = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}."
+            ranges = [local_prefix]
+        except:
+            ranges = ["192.168.1."]
+    elif provider == "all":
+        # Scan all providers
+        ranges = []
+        for provider_ranges in cdn_ranges.values():
+            ranges.extend(provider_ranges)
+    else:
+        ranges = cdn_ranges.get(provider, cdn_ranges["cloudflare"])
 
     def scan_ip(ip):
         """Scan single IP for domain and TLS support."""
