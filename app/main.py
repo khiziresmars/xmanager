@@ -2784,36 +2784,41 @@ async def get_server_info(username: str = Depends(get_current_user)):
 async def run_speedtest(username: str = Depends(get_current_user)):
     """Run internal speedtest."""
     try:
-        # Check if speedtest-cli is installed
-        result = subprocess.run(
-            ["which", "speedtest-cli"],
-            capture_output=True, text=True
-        )
-
-        if result.returncode != 0:
-            # Try to install
-            subprocess.run(
-                ["pip3", "install", "speedtest-cli"],
-                capture_output=True, timeout=60
+        # Try to import speedtest module
+        try:
+            import speedtest
+        except ImportError:
+            # Install speedtest-cli in venv
+            install_result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "speedtest-cli"],
+                capture_output=True, text=True, timeout=60
             )
+            if install_result.returncode != 0:
+                return {"success": False, "message": "Не удалось установить speedtest-cli. Установите вручную: pip install speedtest-cli"}
+            import speedtest
 
         # Run speedtest
-        result = subprocess.run(
-            ["speedtest-cli", "--json"],
-            capture_output=True, text=True, timeout=120
-        )
+        st = speedtest.Speedtest()
+        st.get_best_server()
 
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            return {
-                "success": True,
-                "download": round(data["download"] / 1_000_000, 2),  # Mbps
-                "upload": round(data["upload"] / 1_000_000, 2),  # Mbps
-                "ping": round(data["ping"], 2),
-                "server": data.get("server", {}).get("name", "Unknown")
-            }
-        else:
-            return {"success": False, "message": result.stderr or "Speedtest failed"}
+        # Download test
+        download = st.download() / 1_000_000  # Mbps
+
+        # Upload test
+        upload = st.upload() / 1_000_000  # Mbps
+
+        # Get results
+        results = st.results.dict()
+
+        return {
+            "success": True,
+            "download": round(download, 2),
+            "upload": round(upload, 2),
+            "ping": round(results.get("ping", 0), 2),
+            "server": results.get("server", {}).get("name", "Unknown"),
+            "server_location": results.get("server", {}).get("country", ""),
+            "client_ip": results.get("client", {}).get("ip", "")
+        }
 
     except Exception as e:
         logger.error(f"Error running speedtest: {e}")
@@ -3276,12 +3281,17 @@ async def save_sni_domain(domain: str, latency: Optional[float] = None, username
         data = {"domains": []}
 
         if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                data = json.load(f)
+            try:
+                with open(config_path, 'r') as f:
+                    content = f.read().strip()
+                    if content:
+                        data = json.loads(content)
+            except (json.JSONDecodeError, ValueError):
+                data = {"domains": []}
 
         # Add domain if not exists
         domains = data.get("domains", [])
-        existing = [d for d in domains if d["domain"] == domain]
+        existing = [d for d in domains if d.get("domain") == domain]
         if not existing:
             domains.append({
                 "domain": domain,
@@ -3353,7 +3363,27 @@ async def discover_sni_domains(
         ]
     }
 
-    ranges = cdn_ranges.get(provider, cdn_ranges["cloudflare"])
+    # Handle local network scan
+    if provider == "local":
+        # Get server's public IP and scan its /24 network
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            # Get /24 prefix
+            ip_parts = local_ip.split('.')
+            local_prefix = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}."
+            ranges = [local_prefix]
+        except:
+            ranges = ["192.168.1."]
+    elif provider == "all":
+        # Scan all providers
+        ranges = []
+        for provider_ranges in cdn_ranges.values():
+            ranges.extend(provider_ranges)
+    else:
+        ranges = cdn_ranges.get(provider, cdn_ranges["cloudflare"])
 
     def scan_ip(ip):
         """Scan single IP for domain and TLS support."""
