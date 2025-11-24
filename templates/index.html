@@ -3705,9 +3705,22 @@ Subject: ${cert.subject || 'N/A'}
         async function processExtendUsers(userIds, days, resetTraffic) {
             let extended = 0;
             let errors = 0;
+            const total = userIds.length;
+
+            // Show progress
+            const tbody = document.getElementById('expired-table-body');
+            const progressHtml = `<tr><td colspan="6" style="text-align: center; padding: 20px;">
+                <div style="display: inline-block; width: 30px; height: 30px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                <br><br>
+                <span id="extend-progress" style="color: var(--accent);">Продление: 0/${total}</span>
+            </td></tr>`;
+            tbody.innerHTML = progressHtml;
 
             for (const id of userIds) {
                 try {
+                    // Update progress
+                    document.getElementById('extend-progress').textContent = `Продление: ${extended + 1}/${total}`;
+
                     // Extend expiry
                     const expiryResponse = await fetch(API_URL + 'api/users/extend-expiry', {
                         method: 'POST',
@@ -4527,6 +4540,8 @@ Subject: ${cert.subject || 'N/A'}
             loadVersion();  // Load version info
             loadInboundsTable();  // Load inbounds table
             loadXuiStatus();  // Load X-UI status
+            loadExpiredUsers();  // Load expired users
+            loadDisabledUsers();  // Load disabled users
 
             // Refresh stats every 30 seconds
             setInterval(loadStats, 30000);

@@ -1879,6 +1879,68 @@ async def get_releases(
         logger.error(f"Error getting releases: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/system/install-update-server")
+async def install_update_server(username: str = Depends(get_current_user)):
+    """Install the backup update server as a systemd service."""
+    try:
+        # Copy service file
+        service_src = "/opt/xui-manager/xui-update-server.service"
+        service_dst = "/etc/systemd/system/xui-update-server.service"
+
+        if not os.path.exists(service_src):
+            return {"success": False, "message": "Service file not found"}
+
+        # Copy service file
+        import shutil
+        shutil.copy(service_src, service_dst)
+
+        # Reload systemd and enable/start service
+        subprocess.run(["systemctl", "daemon-reload"], capture_output=True)
+        subprocess.run(["systemctl", "enable", "xui-update-server"], capture_output=True)
+        result = subprocess.run(["systemctl", "start", "xui-update-server"], capture_output=True, text=True)
+
+        if result.returncode == 0:
+            return {
+                "success": True,
+                "message": "Update server installed and started",
+                "port": 8889,
+                "note": "Access via http://server:8889 with basic auth"
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Failed to start update server",
+                "error": result.stderr
+            }
+    except Exception as e:
+        logger.error(f"Error installing update server: {e}")
+        return {"success": False, "message": str(e)}
+
+@app.get("/api/system/update-server-status")
+async def get_update_server_status(username: str = Depends(get_current_user)):
+    """Check if update server is installed and running."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "xui-update-server"],
+            capture_output=True, text=True
+        )
+        is_running = result.stdout.strip() == "active"
+
+        enabled = subprocess.run(
+            ["systemctl", "is-enabled", "xui-update-server"],
+            capture_output=True, text=True
+        )
+        is_enabled = enabled.stdout.strip() == "enabled"
+
+        return {
+            "installed": os.path.exists("/etc/systemd/system/xui-update-server.service"),
+            "enabled": is_enabled,
+            "running": is_running,
+            "port": 8889
+        }
+    except Exception as e:
+        return {"installed": False, "running": False, "error": str(e)}
+
 @app.get("/api/system/backups")
 async def list_backups(username: str = Depends(get_current_user)):
     """
