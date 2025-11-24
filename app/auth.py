@@ -16,9 +16,9 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-# Учетные данные из конфигурации
-ADMIN_USERNAME = os.getenv("XUI_MANAGER_USERNAME", settings.ADMIN_USERNAME)
-ADMIN_PASSWORD = os.getenv("XUI_MANAGER_PASSWORD", settings.ADMIN_PASSWORD)
+# Учетные данные для доступа к агенту
+ADMIN_USERNAME = os.getenv("XUI_MANAGER_USERNAME", "esmarsme")
+ADMIN_PASSWORD = os.getenv("XUI_MANAGER_PASSWORD", "EsmarsMe13AMS1")
 ADMIN_PASSWORD_HASH = hashlib.sha256(ADMIN_PASSWORD.encode()).hexdigest()
 
 # Хранилище активных сессий (в продакшене лучше использовать Redis)
