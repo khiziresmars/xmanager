@@ -1,0 +1,15 @@
+[Unit]
+Description=XUI Manager Update Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/xui-manager
+Environment=PATH=/opt/xui-manager/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/xui-manager/venv/bin/python -m app.update_server
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

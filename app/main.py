@@ -1124,6 +1124,68 @@ async def get_inbounds():
         logger.error(f"Error getting inbounds: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/inbounds/fingerprints")
+async def get_inbound_fingerprints(username: str = Depends(get_current_user)):
+    """Get fingerprint settings for all inbounds."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, remark, protocol, stream_settings
+            FROM inbounds
+            WHERE protocol IN ('vless', 'trojan')
+        """)
+
+        inbounds = []
+        for row in cursor.fetchall():
+            inbound_id, remark, protocol, stream_settings = row
+            fingerprint = None
+            security = None
+
+            if stream_settings:
+                try:
+                    settings = json.loads(stream_settings)
+                    security = settings.get('security', 'none')
+
+                    # Check Reality settings
+                    if security == 'reality':
+                        reality = settings.get('realitySettings', {})
+                        fingerprint = reality.get('fingerprint', 'chrome')
+                    # Check TLS settings
+                    elif security == 'tls':
+                        tls = settings.get('tlsSettings', {})
+                        fingerprint = tls.get('fingerprint', 'chrome')
+                except:
+                    pass
+
+            if fingerprint:  # Only include inbounds with fingerprint support
+                inbounds.append({
+                    "id": inbound_id,
+                    "remark": remark,
+                    "protocol": protocol,
+                    "security": security,
+                    "fingerprint": fingerprint
+                })
+
+        conn.close()
+
+        # Available fingerprint options
+        fingerprint_options = [
+            "chrome", "firefox", "safari", "ios", "android",
+            "edge", "360", "qq", "random", "randomized"
+        ]
+
+        return {
+            "success": True,
+            "inbounds": inbounds,
+            "options": fingerprint_options
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting fingerprints: {e}")
+        return {"success": False, "message": str(e), "inbounds": []}
+
 @app.get("/api/inbounds/{inbound_id}")
 async def get_inbound(inbound_id: int):
     """Получение информации об inbound"""
@@ -1816,6 +1878,68 @@ async def get_releases(
     except Exception as e:
         logger.error(f"Error getting releases: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/system/install-update-server")
+async def install_update_server(username: str = Depends(get_current_user)):
+    """Install the backup update server as a systemd service."""
+    try:
+        # Copy service file
+        service_src = "/opt/xui-manager/xui-update-server.service"
+        service_dst = "/etc/systemd/system/xui-update-server.service"
+
+        if not os.path.exists(service_src):
+            return {"success": False, "message": "Service file not found"}
+
+        # Copy service file
+        import shutil
+        shutil.copy(service_src, service_dst)
+
+        # Reload systemd and enable/start service
+        subprocess.run(["systemctl", "daemon-reload"], capture_output=True)
+        subprocess.run(["systemctl", "enable", "xui-update-server"], capture_output=True)
+        result = subprocess.run(["systemctl", "start", "xui-update-server"], capture_output=True, text=True)
+
+        if result.returncode == 0:
+            return {
+                "success": True,
+                "message": "Update server installed and started",
+                "port": 8889,
+                "note": "Access via http://server:8889 with basic auth"
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Failed to start update server",
+                "error": result.stderr
+            }
+    except Exception as e:
+        logger.error(f"Error installing update server: {e}")
+        return {"success": False, "message": str(e)}
+
+@app.get("/api/system/update-server-status")
+async def get_update_server_status(username: str = Depends(get_current_user)):
+    """Check if update server is installed and running."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "xui-update-server"],
+            capture_output=True, text=True
+        )
+        is_running = result.stdout.strip() == "active"
+
+        enabled = subprocess.run(
+            ["systemctl", "is-enabled", "xui-update-server"],
+            capture_output=True, text=True
+        )
+        is_enabled = enabled.stdout.strip() == "enabled"
+
+        return {
+            "installed": os.path.exists("/etc/systemd/system/xui-update-server.service"),
+            "enabled": is_enabled,
+            "running": is_running,
+            "port": 8889
+        }
+    except Exception as e:
+        return {"installed": False, "running": False, "error": str(e)}
 
 @app.get("/api/system/backups")
 async def list_backups(username: str = Depends(get_current_user)):
@@ -2907,69 +3031,6 @@ async def check_protocols(username: str = Depends(get_current_user)):
 
 
 # ==================== FINGERPRINT MANAGEMENT ====================
-
-@app.get("/api/inbounds/fingerprints")
-async def get_inbound_fingerprints(username: str = Depends(get_current_user)):
-    """Get fingerprint settings for all inbounds."""
-    try:
-        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT id, remark, protocol, stream_settings
-            FROM inbounds
-            WHERE protocol IN ('vless', 'trojan')
-        """)
-
-        inbounds = []
-        for row in cursor.fetchall():
-            inbound_id, remark, protocol, stream_settings = row
-            fingerprint = None
-            security = None
-
-            if stream_settings:
-                try:
-                    settings = json.loads(stream_settings)
-                    security = settings.get('security', 'none')
-
-                    # Check Reality settings
-                    if security == 'reality':
-                        reality = settings.get('realitySettings', {})
-                        fingerprint = reality.get('fingerprint', 'chrome')
-                    # Check TLS settings
-                    elif security == 'tls':
-                        tls = settings.get('tlsSettings', {})
-                        fingerprint = tls.get('fingerprint', 'chrome')
-                except:
-                    pass
-
-            if fingerprint:  # Only include inbounds with fingerprint support
-                inbounds.append({
-                    "id": inbound_id,
-                    "remark": remark,
-                    "protocol": protocol,
-                    "security": security,
-                    "fingerprint": fingerprint
-                })
-
-        conn.close()
-
-        # Available fingerprint options
-        fingerprint_options = [
-            "chrome", "firefox", "safari", "ios", "android",
-            "edge", "360", "qq", "random", "randomized"
-        ]
-
-        return {
-            "success": True,
-            "inbounds": inbounds,
-            "options": fingerprint_options
-        }
-
-    except Exception as e:
-        logger.error(f"Error getting fingerprints: {e}")
-        return {"success": False, "message": str(e), "inbounds": []}
-
 
 @app.post("/api/inbounds/fingerprints/update")
 async def update_inbound_fingerprints(
