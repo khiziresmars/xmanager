@@ -33,6 +33,7 @@ from app.background_tasks import background_tasks
 from app.ssl_manager import ssl_manager
 from app.xui_client import xui_client
 from app.preset_templates import list_templates as list_preset_templates, get_template, apply_template, get_template_params
+from app.diagnostics import diagnostics
 
 # Настройка логирования
 logging.basicConfig(
@@ -4118,6 +4119,151 @@ async def install_xray_version(version: str, username: str = Depends(get_current
         logger.error(f"Error installing Xray: {e}")
         subprocess.run(['systemctl', 'start', 'x-ui'], capture_output=True)
         return {"success": False, "message": str(e)}
+
+
+# ==================== DIAGNOSTICS & AUTO-REPAIR ====================
+
+@app.get("/api/diagnostics/full")
+async def run_full_diagnostics(username: str = Depends(get_current_user)):
+    """Запуск полной диагностики конфигурации"""
+    try:
+        result = diagnostics.diagnose_all()
+        return {"success": True, "diagnostics": result}
+    except Exception as e:
+        logger.error(f"Error running diagnostics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/diagnostics/inbound/{inbound_id}")
+async def diagnose_inbound(inbound_id: int, username: str = Depends(get_current_user)):
+    """Диагностика конкретного inbound"""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(diagnostics.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM inbounds WHERE id = ?", (inbound_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Inbound not found")
+
+        inbound_dict = {
+            "id": row[0],
+            "protocol": row[2],
+            "settings": row[4],
+            "stream_settings": row[5],
+            "remark": row[7]
+        }
+
+        conn.close()
+
+        result = diagnostics.check_inbound_protocol(inbound_dict)
+        result["id"] = inbound_id
+        result["remark"] = inbound_dict["remark"]
+
+        return {"success": True, "diagnostics": result}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error diagnosing inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/diagnostics/fingerprints")
+async def check_all_fingerprints(username: str = Depends(get_current_user)):
+    """Проверка всех fingerprints"""
+    try:
+        result = diagnostics.check_fingerprints()
+        return {"success": True, "result": result}
+    except Exception as e:
+        logger.error(f"Error checking fingerprints: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/diagnostics/fingerprint/{inbound_id}/update")
+async def update_inbound_fingerprint(
+    inbound_id: int,
+    fingerprint: str = "randomized",
+    dry_run: bool = False,
+    username: str = Depends(get_current_user)
+):
+    """Обновить fingerprint для inbound"""
+    try:
+        result = diagnostics.update_fingerprint(inbound_id, fingerprint, dry_run)
+        return result
+    except Exception as e:
+        logger.error(f"Error updating fingerprint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/diagnostics/shadowsocks/{inbound_id}/fix")
+async def fix_shadowsocks_inbound(
+    inbound_id: int,
+    dry_run: bool = False,
+    username: str = Depends(get_current_user)
+):
+    """Исправить Shadowsocks inbound с неправильными полями"""
+    try:
+        result = diagnostics.fix_shadowsocks_clients(inbound_id, dry_run)
+        return result
+    except Exception as e:
+        logger.error(f"Error fixing shadowsocks: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/diagnostics/auto-fix")
+async def auto_fix_issues(
+    fix_shadowsocks: bool = True,
+    update_fingerprints: bool = True,
+    backup: bool = True,
+    restart: bool = False,
+    username: str = Depends(get_current_user)
+):
+    """Автоматическое исправление всех проблем"""
+    try:
+        result = diagnostics.auto_fix(
+            fix_shadowsocks=fix_shadowsocks,
+            update_fingerprints=update_fingerprints,
+            backup=backup
+        )
+
+        if result["success"] and restart and len(result.get("fixes", [])) > 0:
+            # Restart x-ui if fixes were applied
+            restart_success = diagnostics.restart_xui()
+            result["restarted"] = restart_success
+            if not restart_success:
+                result["warning"] = "Fixes applied but restart failed"
+
+        return result
+    except Exception as e:
+        logger.error(f"Error in auto-fix: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/diagnostics/config/validate")
+async def validate_xray_config(username: str = Depends(get_current_user)):
+    """Валидация config.json"""
+    try:
+        result = diagnostics.validate_config_json()
+        return {"success": True, "validation": result}
+    except Exception as e:
+        logger.error(f"Error validating config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/diagnostics/backup")
+async def create_diagnostic_backup(username: str = Depends(get_current_user)):
+    """Создать резервную копию базы и конфига"""
+    try:
+        backups = diagnostics.create_backup()
+        if backups:
+            return {"success": True, "backups": backups}
+        return {"success": False, "message": "Failed to create backup"}
+    except Exception as e:
+        logger.error(f"Error creating backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==================== ЗАПУСК ПРИЛОЖЕНИЯ ====================
