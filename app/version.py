@@ -8,8 +8,8 @@ from datetime import datetime
 import re
 
 # Current application version (Semantic Versioning: MAJOR.MINOR.PATCH)
-CURRENT_VERSION = "2.3.6"
-VERSION_NAME = "Массовые Операции Pro"
+CURRENT_VERSION = "2.4.0"
+VERSION_NAME = "UI Refactoring"
 GITHUB_REPO = "khiziresmars/xmanager"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
