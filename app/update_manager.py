@@ -23,8 +23,20 @@ from app.version import (
     GITHUB_REPO,
     parse_changelog
 )
+from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _get_github_headers() -> Dict:
+    """Get headers for GitHub API requests, including auth token if configured"""
+    headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "XUI-Manager"
+    }
+    if settings.GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
+    return headers
 
 # Update check configuration
 UPDATE_CHECK_INTERVAL = 24 * 60 * 60  # 24 hours in seconds
@@ -156,7 +168,8 @@ class UpdateManager:
             logger.info(f"Checking for updates from {GITHUB_API_URL}")
 
             timeout = aiohttp.ClientTimeout(total=10)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            headers = _get_github_headers()
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
                 async with session.get(GITHUB_API_URL) as response:
                     if response.status != 200:
                         raise Exception(f"GitHub API returned status {response.status}")
@@ -418,7 +431,8 @@ class UpdateManager:
             logger.info(f"Downloading from {tarball_url}")
 
             timeout = aiohttp.ClientTimeout(total=300)  # 5 minutes
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            headers = _get_github_headers()
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
                 async with session.get(tarball_url) as response:
                     if response.status != 200:
                         raise Exception(f"HTTP {response.status}")
@@ -748,7 +762,8 @@ class UpdateManager:
             url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/v{version}"
 
             timeout = aiohttp.ClientTimeout(total=10)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            headers = _get_github_headers()
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
                 async with session.get(url) as response:
                     if response.status == 404:
                         return {"error": f"Version {version} not found"}
@@ -775,7 +790,8 @@ class UpdateManager:
             url = f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page={limit}"
 
             timeout = aiohttp.ClientTimeout(total=10)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            headers = _get_github_headers()
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
                 async with session.get(url) as response:
                     if response.status != 200:
                         return {"error": f"GitHub API returned {response.status}"}
