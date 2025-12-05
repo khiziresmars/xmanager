@@ -27,7 +27,7 @@ from models import *
 from config import settings, SERVER_ID
 from auth import SessionManager, TokenManager, authenticate_user, get_current_user, optional_user, ADMIN_USERNAME
 from app.queue import queue_manager, QueueStatus
-from app.version import get_current_version, get_version_info, CURRENT_VERSION
+from app.version import get_current_version, get_version_info, CURRENT_VERSION, VERSION_NAME
 from app.update_manager import update_manager
 from app.background_tasks import background_tasks
 from app.ssl_manager import ssl_manager
@@ -241,7 +241,7 @@ async def get_version():
     """Получение версии приложения"""
     return {
         "version": CURRENT_VERSION,
-        "name": "Агент Мастера ключей"
+        "name": VERSION_NAME
     }
 
 @app.get("/api/stats")
