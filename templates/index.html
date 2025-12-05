@@ -940,6 +940,16 @@
                         <button class="sidebar-item" onclick="showTab('sni-scanner')">🔍 SNI сканер</button>
                         <button class="sidebar-item" onclick="showTab('ssl')">🔐 SSL сертификаты</button>
                         <button class="sidebar-item" onclick="showTab('xui-control')">🎛️ X-UI управление</button>
+                        <button class="sidebar-item" onclick="showTab('panel-manage')">🔐 Панель 3x-ui</button>
+                        <button class="sidebar-item" onclick="showTab('nginx-manage')">🌐 Nginx</button>
+                    </div>
+                </div>
+
+                <!-- Camouflage Category -->
+                <div class="sidebar-category">
+                    <div class="sidebar-category-title">🎭 Камуфляж</div>
+                    <div class="sidebar-category-items">
+                        <button class="sidebar-item" onclick="showTab('camouflage')">🌐 Fake сайты</button>
                     </div>
                 </div>
 
@@ -1673,6 +1683,33 @@
                     <button class="btn btn-secondary" onclick="loadXuiStatus()">📊 Обновить</button>
                     <button class="btn btn-primary" onclick="openPanel()" id="panel-link-btn">🔗 Панель</button>
                 </div>
+
+                <!-- Panel Credentials Display -->
+                <div id="panel-credentials-box" style="margin-top: 15px; padding: 15px; background: var(--bg-tertiary); border-radius: 8px; border: 1px solid var(--border); display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span style="font-weight: 600; color: var(--text-primary);">🔐 Данные для входа в панель</span>
+                        <button class="btn btn-secondary" onclick="toggleCredentialsVisibility()" style="padding: 4px 8px; font-size: 12px;" id="toggle-creds-btn">👁️ Показать</button>
+                    </div>
+                    <div id="panel-creds-content" style="display: none;">
+                        <div style="display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; font-size: 13px;">
+                            <span style="color: var(--text-secondary);">Логин:</span>
+                            <code id="panel-username" style="background: var(--bg-primary); padding: 4px 8px; border-radius: 4px;">-</code>
+                            <button class="btn" onclick="copyToClipboard(document.getElementById('panel-username').textContent)" style="padding: 4px 8px; font-size: 11px;">📋</button>
+
+                            <span style="color: var(--text-secondary);">Пароль:</span>
+                            <code id="panel-password" style="background: var(--bg-primary); padding: 4px 8px; border-radius: 4px;">-</code>
+                            <button class="btn" onclick="copyToClipboard(document.getElementById('panel-password').textContent)" style="padding: 4px 8px; font-size: 11px;">📋</button>
+
+                            <span style="color: var(--text-secondary);">Порт:</span>
+                            <code id="panel-port" style="background: var(--bg-primary); padding: 4px 8px; border-radius: 4px;">-</code>
+                            <span></span>
+                        </div>
+                        <div style="margin-top: 12px; display: flex; gap: 10px;">
+                            <button class="btn btn-warning" onclick="showResetCredentialsModal()" style="font-size: 12px;">🔄 Сбросить пароль</button>
+                            <button class="btn btn-secondary" onclick="loadPanelCredentials()" style="font-size: 12px;">🔃 Обновить</button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
@@ -1909,6 +1946,257 @@
                 </table>
             </div>
         </div>
+
+        <!-- Tab: Panel Management -->
+        <div id="tab-panel-manage" class="tab-content">
+            <h2>🔐 Управление панелью 3x-ui</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Управление учётными данными, настройками и резервными копиями панели 3x-ui
+            </p>
+
+            <!-- Panel Status -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">📊 Статус панели</h3>
+                <div id="panel-status-info" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-top: 15px;">
+                    <div class="stat-card">
+                        <div class="stat-label">Статус</div>
+                        <div class="stat-value" id="pm-status" style="font-size: 16px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Версия</div>
+                        <div class="stat-value" id="pm-version" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Xray</div>
+                        <div class="stat-value" id="pm-xray" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Пользователей</div>
+                        <div class="stat-value" id="pm-users" style="font-size: 16px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Inbounds</div>
+                        <div class="stat-value" id="pm-inbounds" style="font-size: 16px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Размер БД</div>
+                        <div class="stat-value" id="pm-dbsize" style="font-size: 14px;">-</div>
+                    </div>
+                </div>
+                <button class="btn btn-secondary" onclick="loadPanelStatus()" style="margin-top: 15px;">🔃 Обновить статус</button>
+            </div>
+
+            <!-- Credentials Management -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">🔑 Учётные данные</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+                    <div class="form-group">
+                        <label class="form-label">Новый логин</label>
+                        <input type="text" class="form-input" id="new-panel-username" placeholder="admin" value="admin">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Новый пароль</label>
+                        <input type="text" class="form-input" id="new-panel-password" placeholder="Новый пароль">
+                        <button class="btn btn-secondary" onclick="generateRandomPassword()" style="margin-top: 5px; font-size: 11px;">🎲 Сгенерировать</button>
+                    </div>
+                </div>
+                <div class="btn-group" style="margin-top: 15px;">
+                    <button class="btn btn-warning" onclick="resetPanelCredentials()">🔄 Сбросить пароль</button>
+                </div>
+            </div>
+
+            <!-- Database Backup/Restore -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">💾 Резервное копирование</h3>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-success" onclick="createPanelBackup()">📦 Создать бэкап</button>
+                    <button class="btn btn-secondary" onclick="loadPanelBackups()">📋 Список бэкапов</button>
+                </div>
+                <div id="panel-backups-list" style="display: none; margin-top: 15px;">
+                    <table style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Файл</th>
+                                <th>Размер</th>
+                                <th>Дата</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backups-tbody">
+                            <tr><td colspan="4">Нет резервных копий</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Panel Reinstall -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">🔧 Переустановка панели</h3>
+                <p style="color: #888; font-size: 12px; margin-bottom: 15px;">
+                    Переустановка панели с сохранением базы данных пользователей
+                </p>
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label class="form-label">Выберите форк</label>
+                    <select id="panel-fork-select" class="form-input" style="max-width: 300px;">
+                        <option value="mhsanaei">MHSanaei (рекомендуется)</option>
+                        <option value="alireza">Alireza0</option>
+                        <option value="franzkafka">FranzKafkaYu</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                        <input type="checkbox" id="preserve-db" checked> Сохранить базу данных
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                        <input type="checkbox" id="preserve-config" checked> Сохранить настройки
+                    </label>
+                </div>
+                <button class="btn btn-danger" onclick="reinstallPanel()">⚠️ Переустановить панель</button>
+            </div>
+        </div>
+
+        <!-- Tab: Nginx Management -->
+        <div id="tab-nginx-manage" class="tab-content">
+            <h2>🌐 Управление Nginx</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Просмотр конфигурации nginx, проверка настроек и требований для inbounds
+            </p>
+
+            <!-- Nginx Status -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">📊 Статус Nginx</h3>
+                <div id="nginx-status-info" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-top: 15px;">
+                    <div class="stat-card">
+                        <div class="stat-label">Статус</div>
+                        <div class="stat-value" id="nginx-running" style="font-size: 16px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Конфигурация</div>
+                        <div class="stat-value" id="nginx-valid" style="font-size: 16px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">SSL</div>
+                        <div class="stat-value" id="nginx-ssl" style="font-size: 16px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">XUI Manager</div>
+                        <div class="stat-value" id="nginx-xui-manager" style="font-size: 14px;">-</div>
+                    </div>
+                </div>
+                <div id="nginx-domains" style="margin-top: 15px; font-size: 13px; color: var(--text-secondary);"></div>
+                <div class="btn-group" style="margin-top: 15px;">
+                    <button class="btn btn-secondary" onclick="loadNginxStatus()">🔃 Обновить</button>
+                    <button class="btn btn-primary" onclick="testNginxConfig()">🧪 Проверить конфиг</button>
+                    <button class="btn btn-warning" onclick="reloadNginx()">🔄 Перезагрузить Nginx</button>
+                </div>
+            </div>
+
+            <!-- Nginx Warnings/Errors -->
+            <div id="nginx-issues" style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px; display: none;">
+                <h3 style="margin-top: 0;">⚠️ Проблемы</h3>
+                <div id="nginx-errors" style="color: var(--danger); margin-bottom: 10px;"></div>
+                <div id="nginx-warnings" style="color: var(--warning);"></div>
+            </div>
+
+            <!-- Inbound Requirements -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">📡 Требования Inbounds к Nginx</h3>
+                <p style="color: #888; font-size: 12px; margin-bottom: 15px;">
+                    Анализ inbounds, которым требуется конфигурация nginx (WebSocket, gRPC, HTTP Upgrade)
+                </p>
+                <button class="btn btn-primary" onclick="analyzeInboundRequirements()">🔍 Анализировать</button>
+                <div id="inbound-requirements" style="margin-top: 15px; display: none;">
+                    <table style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Inbound</th>
+                                <th>Тип</th>
+                                <th>Порт</th>
+                                <th>Требует Nginx</th>
+                                <th>Причина</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inbound-req-tbody"></tbody>
+                    </table>
+                </div>
+                <div id="suggested-nginx-config" style="margin-top: 15px; display: none;">
+                    <h4>Предлагаемая конфигурация:</h4>
+                    <pre id="suggested-config-content" style="background: var(--bg-primary); padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px;"></pre>
+                    <button class="btn btn-secondary" onclick="copySuggestedConfig()">📋 Копировать</button>
+                </div>
+            </div>
+
+            <!-- Nginx Config Viewer -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                <h3 style="margin-top: 0;">📄 Конфигурация Nginx</h3>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-secondary" onclick="loadNginxConfig()">📄 Показать конфиг</button>
+                </div>
+                <pre id="nginx-config-content" style="background: var(--bg-primary); padding: 15px; border-radius: 8px; max-height: 400px; overflow: auto; font-size: 12px; display: none;"></pre>
+            </div>
+        </div>
+
+        <!-- Tab: Camouflage -->
+        <div id="tab-camouflage" class="tab-content">
+            <h2>🎭 Камуфляж - Fake сайты</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Установка фейковых сайтов для маскировки VPN-инфраструктуры
+            </p>
+
+            <!-- Current Site Status -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">📊 Текущий статус</h3>
+                <div id="camouflage-status" style="margin-top: 15px;">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                        <span style="color: var(--text-secondary);">Установлен:</span>
+                        <span id="camo-installed" style="font-weight: 600;">-</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="color: var(--text-secondary);">Шаблон:</span>
+                        <span id="camo-template-name">-</span>
+                    </div>
+                </div>
+                <div class="btn-group" style="margin-top: 15px;">
+                    <button class="btn btn-secondary" onclick="loadCamouflageStatus()">🔃 Обновить</button>
+                    <button class="btn btn-danger" onclick="removeCamouflage()">🗑️ Удалить fake сайт</button>
+                </div>
+            </div>
+
+            <!-- Template Gallery -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">🎨 Галерея шаблонов</h3>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="loadCamouflageTemplates()">📋 Загрузить шаблоны</button>
+                    <button class="btn btn-success" onclick="installRandomTemplate()">🎲 Случайный шаблон</button>
+                </div>
+
+                <div id="templates-filter" style="margin-bottom: 15px; display: none;">
+                    <label class="form-label">Фильтр по категории:</label>
+                    <select id="template-category-filter" class="form-input" style="max-width: 200px;" onchange="filterTemplates()">
+                        <option value="">Все категории</option>
+                    </select>
+                </div>
+
+                <div id="templates-gallery" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px;"></div>
+            </div>
+
+            <!-- Custom HTML -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                <h3 style="margin-top: 0;">✏️ Собственный HTML</h3>
+                <p style="color: #888; font-size: 12px; margin-bottom: 15px;">
+                    Вставьте свой HTML код для создания кастомного fake сайта
+                </p>
+                <div class="form-group">
+                    <textarea id="custom-html-input" class="form-input" style="min-height: 200px; font-family: monospace;" placeholder="<!DOCTYPE html>
+<html>
+<head><title>My Site</title></head>
+<body>...</body>
+</html>"></textarea>
+                </div>
+                <button class="btn btn-primary" onclick="installCustomHtml()">📥 Установить HTML</button>
+            </div>
+        </div>
+
             </div><!-- Close main-content -->
         </div><!-- Close app-layout -->
     </div>
@@ -4978,10 +5266,568 @@ Subject: ${cert.subject || 'N/A'}
             }
         }
 
+        // ==================== PANEL MANAGEMENT ====================
+
+        // Load panel credentials
+        async function loadPanelCredentials() {
+            try {
+                const response = await fetch('/api/panel/credentials');
+                const data = await response.json();
+
+                if (data.success && data.credentials) {
+                    document.getElementById('panel-credentials-box').style.display = 'block';
+                    document.getElementById('panel-username').textContent = data.credentials.username || '-';
+                    document.getElementById('panel-password').textContent = data.credentials.password || '-';
+                    document.getElementById('panel-port').textContent = data.credentials.web_port || '-';
+                }
+            } catch (error) {
+                console.error('Error loading credentials:', error);
+            }
+        }
+
+        // Toggle credentials visibility
+        let credsVisible = false;
+        function toggleCredentialsVisibility() {
+            credsVisible = !credsVisible;
+            const content = document.getElementById('panel-creds-content');
+            const btn = document.getElementById('toggle-creds-btn');
+
+            if (credsVisible) {
+                content.style.display = 'block';
+                btn.textContent = '🙈 Скрыть';
+            } else {
+                content.style.display = 'none';
+                btn.textContent = '👁️ Показать';
+            }
+        }
+
+        // Show reset credentials modal
+        function showResetCredentialsModal() {
+            showTab('panel-manage');
+        }
+
+        // Load panel status
+        async function loadPanelStatus() {
+            try {
+                const response = await fetch('/api/panel/status');
+                const data = await response.json();
+
+                if (data.success && data.status) {
+                    const s = data.status;
+                    document.getElementById('pm-status').textContent = s.running ? '🟢 Работает' : '🔴 Остановлен';
+                    document.getElementById('pm-status').style.color = s.running ? 'var(--success)' : 'var(--danger)';
+                    document.getElementById('pm-version').textContent = s.version || '-';
+                    document.getElementById('pm-xray').textContent = s.xray_version || '-';
+                    document.getElementById('pm-users').textContent = s.users_count || '0';
+                    document.getElementById('pm-inbounds').textContent = s.inbounds_count || '0';
+                    document.getElementById('pm-dbsize').textContent = s.database_size || '-';
+                }
+            } catch (error) {
+                console.error('Error loading panel status:', error);
+                showToast('Ошибка загрузки статуса панели', 'error');
+            }
+        }
+
+        // Generate random password
+        function generateRandomPassword() {
+            const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%&*';
+            let password = '';
+            for (let i = 0; i < 16; i++) {
+                password += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            document.getElementById('new-panel-password').value = password;
+        }
+
+        // Reset panel credentials
+        async function resetPanelCredentials() {
+            const username = document.getElementById('new-panel-username').value || 'admin';
+            const password = document.getElementById('new-panel-password').value;
+
+            if (!password) {
+                showToast('Введите новый пароль', 'error');
+                return;
+            }
+
+            if (!confirm(`Сбросить учётные данные панели?\n\nНовый логин: ${username}\nНовый пароль: ${password}`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/panel/reset-credentials', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Учётные данные сброшены. Перезапустите панель.', 'success');
+                    loadPanelCredentials();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error resetting credentials:', error);
+                showToast('Ошибка сброса учётных данных', 'error');
+            }
+        }
+
+        // Create panel backup
+        async function createPanelBackup() {
+            try {
+                const response = await fetch('/api/panel/backup', { method: 'POST' });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Бэкап создан: ' + data.backup_path, 'success');
+                    loadPanelBackups();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error creating backup:', error);
+                showToast('Ошибка создания бэкапа', 'error');
+            }
+        }
+
+        // Load panel backups
+        async function loadPanelBackups() {
+            try {
+                const response = await fetch('/api/panel/backups');
+                const data = await response.json();
+
+                document.getElementById('panel-backups-list').style.display = 'block';
+                const tbody = document.getElementById('backups-tbody');
+
+                if (data.success && data.backups && data.backups.length > 0) {
+                    tbody.innerHTML = data.backups.map(b => `
+                        <tr>
+                            <td>${b.filename}</td>
+                            <td>${b.size || '-'}</td>
+                            <td>${b.created || '-'}</td>
+                            <td>
+                                <button class="btn btn-warning" onclick="restoreBackup('${b.path}')" style="font-size: 11px; padding: 4px 8px;">🔄 Восстановить</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4">Нет резервных копий</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error loading backups:', error);
+            }
+        }
+
+        // Restore backup
+        async function restoreBackup(backupPath) {
+            if (!confirm('Восстановить базу данных из этого бэкапа?\n\nТекущие данные будут перезаписаны!')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/panel/restore?backup_path=' + encodeURIComponent(backupPath), {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ База данных восстановлена. Перезапустите панель.', 'success');
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error restoring backup:', error);
+                showToast('Ошибка восстановления', 'error');
+            }
+        }
+
+        // Reinstall panel
+        async function reinstallPanel() {
+            const fork = document.getElementById('panel-fork-select').value;
+            const preserveDb = document.getElementById('preserve-db').checked;
+            const preserveConfig = document.getElementById('preserve-config').checked;
+
+            const forkNames = {
+                'mhsanaei': 'MHSanaei',
+                'alireza': 'Alireza0',
+                'franzkafka': 'FranzKafkaYu'
+            };
+
+            if (!confirm(`⚠️ ВНИМАНИЕ: Переустановка панели!\n\nФорк: ${forkNames[fork] || fork}\nСохранить БД: ${preserveDb ? 'Да' : 'Нет'}\nСохранить настройки: ${preserveConfig ? 'Да' : 'Нет'}\n\nЭто может занять несколько минут. Продолжить?`)) {
+                return;
+            }
+
+            showToast('Переустановка начата...', 'info');
+
+            try {
+                const response = await fetch('/api/panel/reinstall', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        fork: fork,
+                        preserve_database: preserveDb,
+                        preserve_config: preserveConfig
+                    })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Панель переустановлена!', 'success');
+                    loadPanelStatus();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error reinstalling panel:', error);
+                showToast('Ошибка переустановки', 'error');
+            }
+        }
+
+        // ==================== NGINX MANAGEMENT ====================
+
+        // Load nginx status
+        async function loadNginxStatus() {
+            try {
+                const response = await fetch('/api/nginx/status');
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('nginx-running').textContent = data.running ? '🟢 Работает' : '🔴 Остановлен';
+                    document.getElementById('nginx-running').style.color = data.running ? 'var(--success)' : 'var(--danger)';
+
+                    document.getElementById('nginx-valid').textContent = data.config_valid ? '✅ OK' : '❌ Ошибка';
+                    document.getElementById('nginx-valid').style.color = data.config_valid ? 'var(--success)' : 'var(--danger)';
+
+                    document.getElementById('nginx-ssl').textContent = data.ssl_enabled ? '🔒 Включён' : '🔓 Выключен';
+                    document.getElementById('nginx-xui-manager').textContent = data.has_xui_manager ? '✅' : '❌';
+
+                    if (data.domains && data.domains.length > 0) {
+                        document.getElementById('nginx-domains').innerHTML = '<strong>Домены:</strong> ' + data.domains.join(', ');
+                    }
+
+                    // Show issues if any
+                    const issuesDiv = document.getElementById('nginx-issues');
+                    if ((data.errors && data.errors.length > 0) || (data.warnings && data.warnings.length > 0)) {
+                        issuesDiv.style.display = 'block';
+                        document.getElementById('nginx-errors').innerHTML = data.errors ? data.errors.map(e => '❌ ' + e).join('<br>') : '';
+                        document.getElementById('nginx-warnings').innerHTML = data.warnings ? data.warnings.map(w => '⚠️ ' + w).join('<br>') : '';
+                    } else {
+                        issuesDiv.style.display = 'none';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading nginx status:', error);
+                showToast('Ошибка загрузки статуса nginx', 'error');
+            }
+        }
+
+        // Test nginx config
+        async function testNginxConfig() {
+            try {
+                const response = await fetch('/api/nginx/test', { method: 'POST' });
+                const data = await response.json();
+
+                if (data.valid) {
+                    showToast('✅ Конфигурация nginx валидна', 'success');
+                } else {
+                    showToast('❌ Ошибка конфигурации: ' + data.output, 'error');
+                }
+            } catch (error) {
+                console.error('Error testing nginx config:', error);
+                showToast('Ошибка тестирования', 'error');
+            }
+        }
+
+        // Reload nginx
+        async function reloadNginx() {
+            if (!confirm('Перезагрузить nginx?')) return;
+
+            try {
+                const response = await fetch('/api/nginx/reload', { method: 'POST' });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Nginx перезагружен', 'success');
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error reloading nginx:', error);
+                showToast('Ошибка перезагрузки nginx', 'error');
+            }
+        }
+
+        // Load nginx config
+        async function loadNginxConfig() {
+            try {
+                const response = await fetch('/api/nginx/config');
+                const data = await response.json();
+
+                const pre = document.getElementById('nginx-config-content');
+                pre.style.display = 'block';
+
+                if (data.success && data.configs) {
+                    let content = '';
+                    for (const [file, config] of Object.entries(data.configs)) {
+                        content += `# === ${file} ===\n${config}\n\n`;
+                    }
+                    pre.textContent = content;
+                } else {
+                    pre.textContent = 'Ошибка загрузки конфигурации';
+                }
+            } catch (error) {
+                console.error('Error loading nginx config:', error);
+            }
+        }
+
+        // Analyze inbound requirements
+        async function analyzeInboundRequirements() {
+            try {
+                const response = await fetch('/api/nginx/inbound-requirements');
+                const data = await response.json();
+
+                const reqDiv = document.getElementById('inbound-requirements');
+                const tbody = document.getElementById('inbound-req-tbody');
+                const suggestedDiv = document.getElementById('suggested-nginx-config');
+
+                if (data.success && data.requirements) {
+                    reqDiv.style.display = 'block';
+
+                    tbody.innerHTML = data.requirements.map(r => `
+                        <tr>
+                            <td>${r.remark || 'Inbound ' + r.inbound_id}</td>
+                            <td>${r.network}</td>
+                            <td>${r.port}</td>
+                            <td style="color: ${r.needs_nginx ? 'var(--warning)' : 'var(--success)'}">
+                                ${r.needs_nginx ? '⚠️ Да' : '✅ Нет'}
+                            </td>
+                            <td style="font-size: 11px;">${r.reason || '-'}</td>
+                        </tr>
+                    `).join('');
+
+                    if (data.suggested_config && data.needs_nginx_count > 0) {
+                        suggestedDiv.style.display = 'block';
+                        document.getElementById('suggested-config-content').textContent = data.suggested_config;
+                    } else {
+                        suggestedDiv.style.display = 'none';
+                    }
+
+                    showToast(`Найдено ${data.needs_nginx_count} inbound(s), требующих nginx`, 'info');
+                }
+            } catch (error) {
+                console.error('Error analyzing requirements:', error);
+                showToast('Ошибка анализа', 'error');
+            }
+        }
+
+        // Copy suggested nginx config
+        function copySuggestedConfig() {
+            const config = document.getElementById('suggested-config-content').textContent;
+            copyToClipboard(config);
+        }
+
+        // ==================== CAMOUFLAGE MANAGEMENT ====================
+
+        let allTemplates = [];
+
+        // Load camouflage status
+        async function loadCamouflageStatus() {
+            try {
+                const response = await fetch('/api/camouflage/current');
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('camo-installed').textContent = data.installed ? '✅ Да' : '❌ Нет';
+                    document.getElementById('camo-installed').style.color = data.installed ? 'var(--success)' : 'var(--text-secondary)';
+                    document.getElementById('camo-template-name').textContent = data.template_name || '-';
+                }
+            } catch (error) {
+                console.error('Error loading camouflage status:', error);
+            }
+        }
+
+        // Load camouflage templates
+        async function loadCamouflageTemplates() {
+            try {
+                const response = await fetch('/api/camouflage/templates');
+                const data = await response.json();
+
+                if (data.success && data.templates) {
+                    allTemplates = data.templates;
+                    renderTemplates(data.templates);
+
+                    // Load categories
+                    const catResponse = await fetch('/api/camouflage/categories');
+                    const catData = await catResponse.json();
+
+                    if (catData.success) {
+                        const select = document.getElementById('template-category-filter');
+                        catData.categories.forEach(cat => {
+                            const option = document.createElement('option');
+                            option.value = cat.id;
+                            option.textContent = cat.name;
+                            select.appendChild(option);
+                        });
+                        document.getElementById('templates-filter').style.display = 'block';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading templates:', error);
+                showToast('Ошибка загрузки шаблонов', 'error');
+            }
+        }
+
+        // Render templates
+        function renderTemplates(templates) {
+            const gallery = document.getElementById('templates-gallery');
+            gallery.innerHTML = templates.map(t => `
+                <div style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; border: 1px solid var(--border);">
+                    <h4 style="margin-top: 0; margin-bottom: 10px;">${t.name}</h4>
+                    <p style="color: var(--text-secondary); font-size: 12px; margin-bottom: 10px;">${t.description || '-'}</p>
+                    <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 10px;">
+                        <span style="background: var(--accent); color: white; padding: 2px 6px; border-radius: 4px;">${t.category}</span>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="installTemplate('${t.id}')" style="font-size: 12px; padding: 6px 12px;">📥 Установить</button>
+                        <button class="btn btn-secondary" onclick="previewTemplate('${t.id}')" style="font-size: 12px; padding: 6px 12px;">👁️ Предпросмотр</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Filter templates
+        function filterTemplates() {
+            const category = document.getElementById('template-category-filter').value;
+            if (!category) {
+                renderTemplates(allTemplates);
+            } else {
+                renderTemplates(allTemplates.filter(t => t.category === category));
+            }
+        }
+
+        // Install template
+        async function installTemplate(templateId) {
+            if (!confirm('Установить этот шаблон?\n\nТекущий index.html будет заменён.')) return;
+
+            try {
+                const response = await fetch('/api/camouflage/install', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ template_id: templateId, backup: true })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Шаблон установлен!', 'success');
+                    loadCamouflageStatus();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error installing template:', error);
+                showToast('Ошибка установки', 'error');
+            }
+        }
+
+        // Preview template
+        async function previewTemplate(templateId) {
+            try {
+                const response = await fetch('/api/camouflage/preview/' + templateId);
+                const data = await response.json();
+
+                if (data.success && data.html) {
+                    const win = window.open('', '_blank');
+                    win.document.write(data.html);
+                    win.document.close();
+                } else {
+                    showToast('Ошибка предпросмотра', 'error');
+                }
+            } catch (error) {
+                console.error('Error previewing:', error);
+            }
+        }
+
+        // Install random template
+        async function installRandomTemplate() {
+            if (!confirm('Установить случайный шаблон?')) return;
+
+            try {
+                const response = await fetch('/api/camouflage/install-random', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Случайный шаблон установлен: ' + (data.template_name || ''), 'success');
+                    loadCamouflageStatus();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error installing random template:', error);
+                showToast('Ошибка установки', 'error');
+            }
+        }
+
+        // Install custom HTML
+        async function installCustomHtml() {
+            const html = document.getElementById('custom-html-input').value;
+
+            if (!html || html.trim().length < 50) {
+                showToast('Введите HTML код (минимум 50 символов)', 'error');
+                return;
+            }
+
+            if (!confirm('Установить этот HTML как fake сайт?')) return;
+
+            try {
+                const response = await fetch('/api/camouflage/install-custom', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ html_content: html, backup: true })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Кастомный HTML установлен!', 'success');
+                    loadCamouflageStatus();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error installing custom HTML:', error);
+                showToast('Ошибка установки', 'error');
+            }
+        }
+
+        // Remove camouflage
+        async function removeCamouflage() {
+            if (!confirm('Удалить fake сайт и восстановить оригинал?')) return;
+
+            try {
+                const response = await fetch('/api/camouflage/remove', { method: 'DELETE' });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Fake сайт удалён', 'success');
+                    loadCamouflageStatus();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error removing camouflage:', error);
+                showToast('Ошибка удаления', 'error');
+            }
+        }
+
         // ==================== INITIALIZATION ====================
 
         // Initialize
         window.onload = function() {
+            // Load panel credentials on X-UI control tab
+            loadPanelCredentials();
             loadStats();
             loadInbounds();
             loadUsers();

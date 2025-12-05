@@ -33,6 +33,9 @@ from app.background_tasks import background_tasks
 from app.ssl_manager import ssl_manager
 from app.xui_client import xui_client
 from app.preset_templates import list_templates as list_preset_templates, get_template, apply_template, get_template_params
+from app.panel_manager import get_panel_manager
+from app.nginx_manager import get_nginx_manager
+from app.camouflage import get_camouflage_manager
 
 # Настройка логирования
 logging.basicConfig(
@@ -4389,6 +4392,392 @@ async def update_inbound_sniffing(inbound_id: int, request: Dict[str, Any], user
         return result
     except Exception as e:
         logger.error(f"Error updating sniffing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== PANEL MANAGEMENT ====================
+
+class ResetCredentialsRequest(BaseModel):
+    """Request to reset panel credentials"""
+    username: str = "admin"
+    password: str = "admin"
+
+class UpdatePanelPortRequest(BaseModel):
+    """Request to update panel port"""
+    port: int
+
+class UpdatePanelPathRequest(BaseModel):
+    """Request to update panel base path"""
+    path: str
+
+class ReinstallPanelRequest(BaseModel):
+    """Request to reinstall panel"""
+    fork: str = "mhsanaei"
+    preserve_database: bool = True
+    preserve_config: bool = True
+
+@app.get("/api/panel/credentials")
+async def get_panel_credentials(username: str = Depends(get_current_user)):
+    """Get current panel login credentials"""
+    try:
+        manager = get_panel_manager()
+        creds = manager.get_credentials()
+        if creds:
+            return {
+                "success": True,
+                "credentials": {
+                    "username": creds.username,
+                    "password": creds.password,
+                    "web_port": creds.web_port,
+                    "web_base_path": creds.web_base_path
+                }
+            }
+        return {"success": False, "error": "Could not retrieve credentials"}
+    except Exception as e:
+        logger.error(f"Error getting panel credentials: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/panel/reset-credentials")
+async def reset_panel_credentials(request: ResetCredentialsRequest, username: str = Depends(get_current_user)):
+    """Reset panel login credentials"""
+    try:
+        manager = get_panel_manager()
+        result = manager.reset_credentials(request.username, request.password)
+        return result
+    except Exception as e:
+        logger.error(f"Error resetting credentials: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/panel/status")
+async def get_panel_status(username: str = Depends(get_current_user)):
+    """Get comprehensive panel status"""
+    try:
+        manager = get_panel_manager()
+        status = manager.get_panel_status()
+        return {
+            "success": True,
+            "status": {
+                "running": status.running,
+                "version": status.version,
+                "xray_version": status.xray_version,
+                "uptime": status.uptime,
+                "web_port": status.web_port,
+                "web_base_path": status.web_base_path,
+                "users_count": status.users_count,
+                "inbounds_count": status.inbounds_count,
+                "database_size": status.database_size,
+                "log_level": status.log_level
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting panel status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/panel/backup")
+async def backup_panel_database(username: str = Depends(get_current_user)):
+    """Backup panel database"""
+    try:
+        manager = get_panel_manager()
+        result = manager.backup_database()
+        return result
+    except Exception as e:
+        logger.error(f"Error backing up database: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/panel/backups")
+async def list_panel_backups(username: str = Depends(get_current_user)):
+    """List available database backups"""
+    try:
+        manager = get_panel_manager()
+        backups = manager.list_backups()
+        return {"success": True, "backups": backups}
+    except Exception as e:
+        logger.error(f"Error listing backups: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/panel/restore")
+async def restore_panel_database(backup_path: str = Query(...), username: str = Depends(get_current_user)):
+    """Restore panel database from backup"""
+    try:
+        manager = get_panel_manager()
+        result = manager.restore_database(backup_path)
+        return result
+    except Exception as e:
+        logger.error(f"Error restoring database: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/panel/forks")
+async def get_available_forks(username: str = Depends(get_current_user)):
+    """Get list of available panel forks for installation"""
+    try:
+        manager = get_panel_manager()
+        forks = manager.get_available_forks()
+        return {"success": True, "forks": forks}
+    except Exception as e:
+        logger.error(f"Error getting forks: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/panel/reinstall")
+async def reinstall_panel(request: ReinstallPanelRequest, username: str = Depends(get_current_user)):
+    """Reinstall panel with selected fork (preserves database optionally)"""
+    try:
+        manager = get_panel_manager()
+        result = await manager.reinstall_panel(
+            fork=request.fork,
+            preserve_database=request.preserve_database,
+            preserve_config=request.preserve_config
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error reinstalling panel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/panel/port")
+async def update_panel_port(request: UpdatePanelPortRequest, username: str = Depends(get_current_user)):
+    """Update panel web port"""
+    try:
+        manager = get_panel_manager()
+        result = manager.update_panel_port(request.port)
+        return result
+    except Exception as e:
+        logger.error(f"Error updating port: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/panel/path")
+async def update_panel_base_path(request: UpdatePanelPathRequest, username: str = Depends(get_current_user)):
+    """Update panel base path"""
+    try:
+        manager = get_panel_manager()
+        result = manager.update_panel_path(request.path)
+        return result
+    except Exception as e:
+        logger.error(f"Error updating path: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/panel/settings")
+async def get_panel_settings(username: str = Depends(get_current_user)):
+    """Get all panel settings"""
+    try:
+        manager = get_panel_manager()
+        settings_data = manager.get_panel_settings()
+        return {"success": True, "settings": settings_data}
+    except Exception as e:
+        logger.error(f"Error getting settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== NGINX MANAGEMENT ====================
+
+@app.get("/api/nginx/status")
+async def get_nginx_status(username: str = Depends(get_current_user)):
+    """Get comprehensive nginx status"""
+    try:
+        manager = get_nginx_manager()
+        status = manager.get_status()
+        return {"success": True, **status}
+    except Exception as e:
+        logger.error(f"Error getting nginx status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/nginx/config")
+async def get_nginx_config(config_file: Optional[str] = None, username: str = Depends(get_current_user)):
+    """Get nginx configuration content"""
+    try:
+        manager = get_nginx_manager()
+        result = manager.get_config_content(config_file)
+        return result
+    except Exception as e:
+        logger.error(f"Error getting nginx config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/nginx/test")
+async def test_nginx_config(username: str = Depends(get_current_user)):
+    """Test nginx configuration"""
+    try:
+        manager = get_nginx_manager()
+        valid, output = manager.test_config()
+        return {"success": True, "valid": valid, "output": output}
+    except Exception as e:
+        logger.error(f"Error testing nginx config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/nginx/reload")
+async def reload_nginx(username: str = Depends(get_current_user)):
+    """Reload nginx configuration"""
+    try:
+        manager = get_nginx_manager()
+        success, message = manager.reload_nginx()
+        return {"success": success, "message": message}
+    except Exception as e:
+        logger.error(f"Error reloading nginx: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/nginx/analyze")
+async def analyze_nginx_config(username: str = Depends(get_current_user)):
+    """Analyze nginx configuration for XUI requirements"""
+    try:
+        manager = get_nginx_manager()
+        analysis = manager.analyze_config()
+        return {
+            "success": True,
+            "valid": analysis.valid,
+            "errors": analysis.errors,
+            "warnings": analysis.warnings,
+            "has_xui_manager": analysis.has_xui_manager,
+            "has_xui_panel": analysis.has_xui_panel,
+            "ssl_enabled": analysis.ssl_enabled,
+            "domains": analysis.domains,
+            "locations": list(analysis.inbound_locations.keys())
+        }
+    except Exception as e:
+        logger.error(f"Error analyzing nginx config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/nginx/inbound-requirements")
+async def get_inbound_nginx_requirements(username: str = Depends(get_current_user)):
+    """Analyze which inbounds need nginx configuration"""
+    try:
+        # Get inbounds from database
+        inbounds = db.get_all_inbounds()
+
+        manager = get_nginx_manager()
+        requirements = manager.get_inbound_nginx_requirements(inbounds)
+
+        # Filter to only those needing nginx
+        needs_nginx = [r for r in requirements if r.get("needs_nginx")]
+        warnings = [r for r in requirements if r.get("warning")]
+
+        return {
+            "success": True,
+            "total_inbounds": len(inbounds),
+            "needs_nginx_count": len(needs_nginx),
+            "requirements": requirements,
+            "suggested_config": manager.generate_inbound_config(needs_nginx) if needs_nginx else None,
+            "warnings": warnings
+        }
+    except Exception as e:
+        logger.error(f"Error getting inbound requirements: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== CAMOUFLAGE / FAKE SITES ====================
+
+class InstallTemplateRequest(BaseModel):
+    """Request to install a fake site template"""
+    template_id: str
+    backup: bool = True
+
+class InstallRandomTemplateRequest(BaseModel):
+    """Request to install a random fake site"""
+    category: Optional[str] = None
+
+class InstallCustomSiteRequest(BaseModel):
+    """Request to install custom HTML content"""
+    html_content: str
+    backup: bool = True
+
+@app.get("/api/camouflage/templates")
+async def list_camouflage_templates(username: str = Depends(get_current_user)):
+    """List all available fake site templates"""
+    try:
+        manager = get_camouflage_manager()
+        templates = manager.list_templates()
+        return {"success": True, "templates": templates}
+    except Exception as e:
+        logger.error(f"Error listing templates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/camouflage/templates/{template_id}")
+async def get_camouflage_template(template_id: str, username: str = Depends(get_current_user)):
+    """Get details of a specific template"""
+    try:
+        manager = get_camouflage_manager()
+        template = manager.get_template(template_id)
+        if template:
+            return {"success": True, "template": template}
+        return {"success": False, "error": "Template not found"}
+    except Exception as e:
+        logger.error(f"Error getting template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/camouflage/preview/{template_id}")
+async def preview_camouflage_template(template_id: str, username: str = Depends(get_current_user)):
+    """Preview a template's HTML content"""
+    try:
+        manager = get_camouflage_manager()
+        result = manager.preview_template(template_id)
+        return result
+    except Exception as e:
+        logger.error(f"Error previewing template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/camouflage/install")
+async def install_camouflage_template(request: InstallTemplateRequest, username: str = Depends(get_current_user)):
+    """Install a fake site template"""
+    try:
+        manager = get_camouflage_manager()
+        result = manager.install_template(request.template_id, request.backup)
+        return result
+    except Exception as e:
+        logger.error(f"Error installing template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/camouflage/install-random")
+async def install_random_camouflage(request: InstallRandomTemplateRequest, username: str = Depends(get_current_user)):
+    """Install a random fake site template"""
+    try:
+        manager = get_camouflage_manager()
+        result = manager.install_random(request.category)
+        return result
+    except Exception as e:
+        logger.error(f"Error installing random template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/camouflage/install-custom")
+async def install_custom_site(request: InstallCustomSiteRequest, username: str = Depends(get_current_user)):
+    """Install custom HTML as fake site"""
+    try:
+        manager = get_camouflage_manager()
+        result = manager.install_custom(request.html_content, request.backup)
+        return result
+    except Exception as e:
+        logger.error(f"Error installing custom site: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/camouflage/current")
+async def get_current_camouflage(username: str = Depends(get_current_user)):
+    """Get currently installed fake site info"""
+    try:
+        manager = get_camouflage_manager()
+        result = manager.get_current_site()
+        return result
+    except Exception as e:
+        logger.error(f"Error getting current site: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/camouflage/remove")
+async def remove_camouflage(username: str = Depends(get_current_user)):
+    """Remove fake site and restore original"""
+    try:
+        manager = get_camouflage_manager()
+        result = manager.remove_site()
+        return result
+    except Exception as e:
+        logger.error(f"Error removing site: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/camouflage/categories")
+async def get_camouflage_categories(username: str = Depends(get_current_user)):
+    """Get available template categories"""
+    try:
+        from app.camouflage import FakeSiteCategory
+        categories = [
+            {"id": cat.value, "name": cat.name.replace("_", " ").title()}
+            for cat in FakeSiteCategory
+        ]
+        return {"success": True, "categories": categories}
+    except Exception as e:
+        logger.error(f"Error getting categories: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
