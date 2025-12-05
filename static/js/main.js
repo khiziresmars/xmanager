@@ -4606,8 +4606,27 @@ async function bulkDeleteUsers() {
 
 // ==================== QUICK OPERATIONS (NO SELECTION NEEDED) ====================
 
+// Ensure bulk users data is loaded
+async function ensureBulkUsersLoaded() {
+    if (bulkUsersData.length === 0) {
+        showToast('Загрузка пользователей...', 'info');
+        try {
+            const response = await fetch(API_URL + 'api/users', { credentials: 'include' });
+            if (!response.ok) throw new Error('Failed to load');
+            const data = await response.json();
+            bulkUsersData = data.users || data;
+        } catch (e) {
+            showToast('Ошибка загрузки', 'error');
+            return false;
+        }
+    }
+    return true;
+}
+
 // Quick extend all expired users
 async function quickExtendAllExpired() {
+    if (!await ensureBulkUsersLoaded()) return;
+
     const days = parseInt(document.getElementById('quick-extend-days')?.value || 30);
     if (days < 1 || days > 365) { showToast('Введите дни от 1 до 365', 'warning'); return; }
 
@@ -4636,6 +4655,7 @@ async function quickExtendAllExpired() {
 
 // Quick enable all disabled users
 async function quickEnableAllDisabled() {
+    if (!await ensureBulkUsersLoaded()) return;
     const disabledIds = bulkUsersData.filter(u => !u.enable).map(u => u.id.toString());
 
     if (disabledIds.length === 0) { showToast('Нет отключенных пользователей', 'info'); return; }
@@ -4658,6 +4678,7 @@ async function quickEnableAllDisabled() {
 
 // Quick delete all disabled users
 async function quickDeleteAllDisabled() {
+    if (!await ensureBulkUsersLoaded()) return;
     const disabledIds = bulkUsersData.filter(u => !u.enable).map(u => u.id.toString());
 
     if (disabledIds.length === 0) { showToast('Нет отключенных пользователей', 'info'); return; }
@@ -4681,6 +4702,7 @@ async function quickDeleteAllDisabled() {
 
 // Quick reset traffic for expired users
 async function quickResetTrafficExpired() {
+    if (!await ensureBulkUsersLoaded()) return;
     const expiredIds = bulkUsersData
         .filter(u => u.expiryTime && u.expiryTime < Date.now() && u.expiryTime !== 0)
         .map(u => u.id.toString());
@@ -4705,6 +4727,7 @@ async function quickResetTrafficExpired() {
 
 // Quick reset traffic for all users
 async function quickResetTrafficAll() {
+    if (!await ensureBulkUsersLoaded()) return;
     if (bulkUsersData.length === 0) { showToast('Нет пользователей', 'info'); return; }
     if (!confirm(`Сбросить трафик у ВСЕХ ${bulkUsersData.length} пользователей?`)) return;
     if (!confirm('Вы уверены? Это затронет ВСЕХ пользователей!')) return;
