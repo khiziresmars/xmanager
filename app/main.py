@@ -36,6 +36,7 @@ from app.preset_templates import list_templates as list_preset_templates, get_te
 from app.panel_manager import get_panel_manager
 from app.nginx_manager import get_nginx_manager
 from app.camouflage import get_camouflage_manager
+from app.xray_generator import get_xray_generator
 
 # Настройка логирования
 logging.basicConfig(
@@ -4778,6 +4779,208 @@ async def get_camouflage_categories(username: str = Depends(get_current_user)):
         return {"success": True, "categories": categories}
     except Exception as e:
         logger.error(f"Error getting categories: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== XRAY CONFIG GENERATOR ====================
+
+class GenerateRealityRequest(BaseModel):
+    """Request to generate VLESS Reality config"""
+    port: Optional[int] = None
+    tag: Optional[str] = "vless-reality"
+    dest: Optional[str] = None
+    sni: Optional[str] = None
+
+class GenerateInboundRequest(BaseModel):
+    """Request to generate inbound config"""
+    template_type: str  # vless_reality, vless_ws, vless_grpc, trojan_ws, vmess_ws, shadowsocks, etc.
+    port: Optional[int] = None
+    path: Optional[str] = None
+    service_name: Optional[str] = None
+    cipher: Optional[str] = "2022-blake3-aes-128-gcm"
+
+@app.get("/api/generator/uuid")
+async def generate_uuid(username: str = Depends(get_current_user)):
+    """Generate a new UUID"""
+    try:
+        gen = get_xray_generator()
+        return {"success": True, "uuid": gen.generate_uuid()}
+    except Exception as e:
+        logger.error(f"Error generating UUID: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/x25519")
+async def generate_x25519_keys(username: str = Depends(get_current_user)):
+    """Generate X25519 key pair for Reality"""
+    try:
+        gen = get_xray_generator()
+        keys = gen.generate_x25519_keys()
+        return {
+            "success": True,
+            "keys": {
+                "privateKey": keys.private_key,
+                "publicKey": keys.public_key
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error generating X25519 keys: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/short-id")
+async def generate_short_id(count: int = 1, length: int = 8, username: str = Depends(get_current_user)):
+    """Generate short ID(s) for Reality"""
+    try:
+        gen = get_xray_generator()
+        if count == 1:
+            return {"success": True, "shortId": gen.generate_short_id(length)}
+        else:
+            return {"success": True, "shortIds": gen.generate_short_ids(count)}
+    except Exception as e:
+        logger.error(f"Error generating short ID: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/password")
+async def generate_password_api(
+    length: int = 16,
+    special: bool = True,
+    username: str = Depends(get_current_user)
+):
+    """Generate random password"""
+    try:
+        gen = get_xray_generator()
+        return {"success": True, "password": gen.generate_password(length, special)}
+    except Exception as e:
+        logger.error(f"Error generating password: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/credentials")
+async def generate_credentials(username: str = Depends(get_current_user)):
+    """Generate complete panel credentials set"""
+    try:
+        gen = get_xray_generator()
+        creds = gen.generate_credentials()
+        return {"success": True, "credentials": creds}
+    except Exception as e:
+        logger.error(f"Error generating credentials: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/available-port")
+async def find_available_port(
+    start: int = 30000,
+    end: int = 60000,
+    username: str = Depends(get_current_user)
+):
+    """Find an available port in range"""
+    try:
+        gen = get_xray_generator()
+        port = gen.find_available_port(start, end)
+        return {"success": True, "port": port}
+    except Exception as e:
+        logger.error(f"Error finding port: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/sni-targets")
+async def get_sni_targets(username: str = Depends(get_current_user)):
+    """Get list of recommended SNI targets for Reality"""
+    try:
+        gen = get_xray_generator()
+        return {
+            "success": True,
+            "targets": gen.REALITY_SNI_TARGETS,
+            "recommended": gen.get_random_sni()
+        }
+    except Exception as e:
+        logger.error(f"Error getting SNI targets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/fingerprints")
+async def get_fingerprints(username: str = Depends(get_current_user)):
+    """Get list of available fingerprints"""
+    try:
+        gen = get_xray_generator()
+        return {
+            "success": True,
+            "fingerprints": gen.FINGERPRINTS,
+            "recommended": gen.get_random_fingerprint()
+        }
+    except Exception as e:
+        logger.error(f"Error getting fingerprints: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/generator/vless-reality")
+async def generate_vless_reality(request: GenerateRealityRequest, username: str = Depends(get_current_user)):
+    """Generate complete VLESS+Reality inbound configuration"""
+    try:
+        gen = get_xray_generator()
+        config = gen.generate_vless_reality_config(
+            port=request.port,
+            tag=request.tag,
+            dest=request.dest,
+            sni=request.sni
+        )
+        return {"success": True, "config": config}
+    except Exception as e:
+        logger.error(f"Error generating VLESS Reality config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/generator/inbound")
+async def generate_inbound(request: GenerateInboundRequest, username: str = Depends(get_current_user)):
+    """Generate inbound configuration by template type"""
+    try:
+        gen = get_xray_generator()
+
+        generators = {
+            "vless_reality": lambda: gen.generate_vless_reality_config(request.port),
+            "vless_ws": lambda: gen.generate_vless_ws_config(request.port, path=request.path),
+            "vless_grpc": lambda: gen.generate_vless_grpc_config(request.port, service_name=request.service_name),
+            "trojan_ws": lambda: gen.generate_trojan_ws_config(request.port, path=request.path),
+            "vmess_ws": lambda: gen.generate_vmess_ws_config(request.port, path=request.path),
+            "shadowsocks": lambda: gen.generate_shadowsocks_config(request.port, cipher=request.cipher),
+            "vless_httpupgrade": lambda: gen.generate_vless_httpupgrade_config(request.port, path=request.path),
+            "vless_splithttp": lambda: gen.generate_vless_splithttp_config(request.port, path=request.path),
+        }
+
+        if request.template_type not in generators:
+            return {"success": False, "error": f"Unknown template type: {request.template_type}"}
+
+        config = generators[request.template_type]()
+        return {"success": True, "config": config}
+    except Exception as e:
+        logger.error(f"Error generating inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/inbound-types")
+async def get_inbound_types(username: str = Depends(get_current_user)):
+    """Get available inbound generation types"""
+    return {
+        "success": True,
+        "types": [
+            {"id": "vless_reality", "name": "VLESS + Reality", "requires_nginx": False},
+            {"id": "vless_ws", "name": "VLESS + WebSocket", "requires_nginx": True},
+            {"id": "vless_grpc", "name": "VLESS + gRPC", "requires_nginx": True},
+            {"id": "vless_httpupgrade", "name": "VLESS + HTTPUpgrade", "requires_nginx": True},
+            {"id": "vless_splithttp", "name": "VLESS + SplitHTTP", "requires_nginx": True},
+            {"id": "trojan_ws", "name": "Trojan + WebSocket", "requires_nginx": True},
+            {"id": "vmess_ws", "name": "VMess + WebSocket", "requires_nginx": True},
+            {"id": "shadowsocks", "name": "ShadowSocks 2022", "requires_nginx": False},
+        ]
+    }
+
+@app.get("/api/generator/ss-password")
+async def generate_ss_password(
+    cipher: str = "2022-blake3-aes-128-gcm",
+    username: str = Depends(get_current_user)
+):
+    """Generate ShadowSocks password for specific cipher"""
+    try:
+        gen = get_xray_generator()
+        return {
+            "success": True,
+            "password": gen.generate_ss_password(cipher),
+            "cipher": cipher
+        }
+    except Exception as e:
+        logger.error(f"Error generating SS password: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

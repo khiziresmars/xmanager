@@ -257,6 +257,287 @@ PRESET_TEMPLATES = {
             "destOverride": ["http", "tls"]
         }
     },
+
+    # ============================================
+    # CDN-FRIENDLY TEMPLATES (for Nginx reverse proxy)
+    # ============================================
+
+    "vless_ws_cdn": {
+        "name": "VLESS + WS (CDN/Nginx)",
+        "description": "WebSocket for Cloudflare CDN or Nginx reverse proxy",
+        "description_ru": "WebSocket для CDN Cloudflare или Nginx reverse proxy",
+        "protocol": "vless",
+        "port": "{{PORT}}",
+        "requires_nginx": True,
+        "settings": {
+            "clients": [],
+            "decryption": "none"
+        },
+        "streamSettings": {
+            "network": "ws",
+            "security": "none",
+            "wsSettings": {
+                "path": "{{WS_PATH}}",
+                "headers": {"Host": "{{HOST}}"}
+            }
+        },
+        "sniffing": {
+            "enabled": True,
+            "destOverride": ["http", "tls", "quic", "fakedns"]
+        },
+        "nginx_location": """    location {{WS_PATH}} {
+        proxy_pass http://127.0.0.1:{{PORT}};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }"""
+    },
+
+    "vmess_ws_cdn": {
+        "name": "VMess + WS (CDN/Nginx)",
+        "description": "VMess WebSocket for CDN or Nginx reverse proxy",
+        "description_ru": "VMess WebSocket для CDN или Nginx reverse proxy",
+        "protocol": "vmess",
+        "port": "{{PORT}}",
+        "requires_nginx": True,
+        "settings": {
+            "clients": []
+        },
+        "streamSettings": {
+            "network": "ws",
+            "security": "none",
+            "wsSettings": {
+                "path": "{{WS_PATH}}",
+                "headers": {}
+            }
+        },
+        "sniffing": {
+            "enabled": True,
+            "destOverride": ["http", "tls", "quic", "fakedns"]
+        },
+        "nginx_location": """    location {{WS_PATH}} {
+        proxy_pass http://127.0.0.1:{{PORT}};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }"""
+    },
+
+    "trojan_ws_cdn": {
+        "name": "Trojan + WS (CDN/Nginx)",
+        "description": "Trojan WebSocket for CDN or Nginx reverse proxy",
+        "description_ru": "Trojan WebSocket для CDN или Nginx reverse proxy",
+        "protocol": "trojan",
+        "port": "{{PORT}}",
+        "requires_nginx": True,
+        "settings": {
+            "clients": []
+        },
+        "streamSettings": {
+            "network": "ws",
+            "security": "none",
+            "wsSettings": {
+                "path": "{{WS_PATH}}",
+                "headers": {}
+            }
+        },
+        "sniffing": {
+            "enabled": True,
+            "destOverride": ["http", "tls", "quic", "fakedns"]
+        },
+        "nginx_location": """    location {{WS_PATH}} {
+        proxy_pass http://127.0.0.1:{{PORT}};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }"""
+    },
+
+    "vless_grpc_cdn": {
+        "name": "VLESS + gRPC (CDN/Nginx)",
+        "description": "gRPC for Cloudflare CDN or Nginx",
+        "description_ru": "gRPC для CDN Cloudflare или Nginx",
+        "protocol": "vless",
+        "port": "{{PORT}}",
+        "requires_nginx": True,
+        "settings": {
+            "clients": [],
+            "decryption": "none"
+        },
+        "streamSettings": {
+            "network": "grpc",
+            "security": "none",
+            "grpcSettings": {
+                "serviceName": "{{GRPC_SERVICE}}",
+                "multiMode": True
+            }
+        },
+        "sniffing": {
+            "enabled": True,
+            "destOverride": ["http", "tls", "quic", "fakedns"]
+        },
+        "nginx_location": """    location /{{GRPC_SERVICE}} {
+        grpc_pass grpc://127.0.0.1:{{PORT}};
+        grpc_set_header Host $host;
+        grpc_set_header X-Real-IP $remote_addr;
+        grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        grpc_read_timeout 86400s;
+        grpc_send_timeout 86400s;
+    }"""
+    },
+
+    "vless_httpupgrade_cdn": {
+        "name": "VLESS + HTTPUpgrade (CDN/Nginx)",
+        "description": "HTTPUpgrade for CDN or Nginx reverse proxy",
+        "description_ru": "HTTPUpgrade для CDN или Nginx reverse proxy",
+        "protocol": "vless",
+        "port": "{{PORT}}",
+        "requires_nginx": True,
+        "settings": {
+            "clients": [],
+            "decryption": "none"
+        },
+        "streamSettings": {
+            "network": "httpupgrade",
+            "security": "none",
+            "httpupgradeSettings": {
+                "path": "{{WS_PATH}}",
+                "host": ""
+            }
+        },
+        "sniffing": {
+            "enabled": True,
+            "destOverride": ["http", "tls", "quic", "fakedns"]
+        },
+        "nginx_location": """    location {{WS_PATH}} {
+        proxy_pass http://127.0.0.1:{{PORT}};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;
+    }"""
+    },
+
+    "vless_splithttp_cdn": {
+        "name": "VLESS + SplitHTTP/XHTTP (CDN/Nginx)",
+        "description": "SplitHTTP (XHTTP) for CDN or Nginx",
+        "description_ru": "SplitHTTP (XHTTP) для CDN или Nginx",
+        "protocol": "vless",
+        "port": "{{PORT}}",
+        "requires_nginx": True,
+        "settings": {
+            "clients": [],
+            "decryption": "none"
+        },
+        "streamSettings": {
+            "network": "splithttp",
+            "security": "none",
+            "splithttpSettings": {
+                "path": "{{WS_PATH}}",
+                "host": "",
+                "maxUploadSize": 1000000,
+                "maxConcurrentUploads": 10
+            }
+        },
+        "sniffing": {
+            "enabled": True,
+            "destOverride": ["http", "tls", "quic", "fakedns"]
+        },
+        "nginx_location": """    location {{WS_PATH}} {
+        proxy_pass http://127.0.0.1:{{PORT}};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;
+        client_max_body_size 0;
+    }"""
+    },
+
+    # ============================================
+    # SHADOWSOCKS 2022 TEMPLATES
+    # ============================================
+
+    "ss_2022_aes128": {
+        "name": "ShadowSocks 2022 (AES-128)",
+        "description": "Modern ShadowSocks with AES-128-GCM",
+        "description_ru": "Современный ShadowSocks с AES-128-GCM",
+        "protocol": "shadowsocks",
+        "port": "{{PORT}}",
+        "settings": {
+            "method": "2022-blake3-aes-128-gcm",
+            "password": "{{SS_PASSWORD}}",
+            "network": "tcp,udp"
+        },
+        "streamSettings": {
+            "network": "tcp",
+            "security": "none"
+        },
+        "sniffing": {
+            "enabled": True,
+            "destOverride": ["http", "tls", "quic"]
+        }
+    },
+
+    "ss_2022_aes256": {
+        "name": "ShadowSocks 2022 (AES-256)",
+        "description": "Modern ShadowSocks with AES-256-GCM",
+        "description_ru": "Современный ShadowSocks с AES-256-GCM",
+        "protocol": "shadowsocks",
+        "port": "{{PORT}}",
+        "settings": {
+            "method": "2022-blake3-aes-256-gcm",
+            "password": "{{SS_PASSWORD}}",
+            "network": "tcp,udp"
+        },
+        "streamSettings": {
+            "network": "tcp",
+            "security": "none"
+        },
+        "sniffing": {
+            "enabled": True,
+            "destOverride": ["http", "tls", "quic"]
+        }
+    },
+
+    "ss_2022_chacha": {
+        "name": "ShadowSocks 2022 (ChaCha20)",
+        "description": "Modern ShadowSocks with ChaCha20-Poly1305",
+        "description_ru": "Современный ShadowSocks с ChaCha20-Poly1305",
+        "protocol": "shadowsocks",
+        "port": "{{PORT}}",
+        "settings": {
+            "method": "2022-blake3-chacha20-poly1305",
+            "password": "{{SS_PASSWORD}}",
+            "network": "tcp,udp"
+        },
+        "streamSettings": {
+            "network": "tcp",
+            "security": "none"
+        },
+        "sniffing": {
+            "enabled": True,
+            "destOverride": ["http", "tls", "quic"]
+        }
+    },
 }
 
 # ============================================

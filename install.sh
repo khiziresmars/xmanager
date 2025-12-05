@@ -66,27 +66,187 @@ get_xui_version() {
     fi
 }
 
-# Функция установки 3x-ui
-install_3xui() {
-    print_info "Установка 3x-ui (MHSanaei fork)..."
+# Генерация случайных учётных данных (как в x-ui-pro)
+gen_random_str() {
+    local length=$((RANDOM % 7 + 6))  # 6-12 символов
+    LC_CTYPE=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c $length
+}
 
-    # Проверяем наличие curl
+# Поиск свободного порта
+find_free_port() {
+    local start=${1:-30000}
+    local end=${2:-60000}
+    local port
+    for i in {1..100}; do
+        port=$((RANDOM % (end - start) + start))
+        if ! nc -z 127.0.0.1 "$port" &>/dev/null 2>&1; then
+            echo "$port"
+            return 0
+        fi
+    done
+    echo "$start"
+}
+
+# Функция установки 3x-ui с выбором форка
+install_3xui() {
+    local fork=${1:-"mhsanaei"}
+    local auto_config=${2:-"yes"}
+
+    print_info "Установка 3x-ui..."
+
+    # Проверяем наличие curl и nc
     if ! command -v curl &> /dev/null; then
         apt update -qq && apt install -y curl
     fi
+    if ! command -v nc &> /dev/null; then
+        apt install -y netcat-openbsd 2>/dev/null || apt install -y netcat 2>/dev/null || true
+    fi
 
-    # Загружаем и выполняем скрипт установки
-    bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
+    # Выбор форка
+    local install_url=""
+    case "$fork" in
+        "mhsanaei"|"0")
+            print_info "Форк: MHSanaei (рекомендуется)"
+            install_url="https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh"
+            ;;
+        "alireza"|"1")
+            print_info "Форк: Alireza0"
+            install_url="https://raw.githubusercontent.com/alireza0/x-ui/master/install.sh"
+            ;;
+        "franzkafka"|"2")
+            print_info "Форк: FranzKafkaYu"
+            install_url="https://raw.githubusercontent.com/FranzKafkaYu/x-ui/master/install.sh"
+            ;;
+        *)
+            print_info "Форк: MHSanaei (по умолчанию)"
+            install_url="https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh"
+            ;;
+    esac
+
+    # Генерируем учётные данные заранее
+    local gen_user=$(gen_random_str)
+    local gen_pass=$(gen_random_str)
+    local gen_port=$(find_free_port 30000 60000)
+    local gen_path="/$(gen_random_str)"
+
+    print_info "Сгенерированы учётные данные:"
+    print_info "  Пользователь: $gen_user"
+    print_info "  Пароль: $gen_pass"
+    print_info "  Порт: $gen_port"
+    print_info "  Путь: $gen_path"
+
+    # Сохраняем данные для последующего использования
+    XUI_GEN_USER="$gen_user"
+    XUI_GEN_PASS="$gen_pass"
+    XUI_GEN_PORT="$gen_port"
+    XUI_GEN_PATH="$gen_path"
+
+    # Запуск установки
+    # Используем expect для автоматизации ввода, если доступен
+    if command -v expect &> /dev/null && [ "$auto_config" = "yes" ]; then
+        print_info "Автоматическая установка с предустановленными данными..."
+
+        # Создаём expect скрипт для автоматизации
+        cat > /tmp/install_xui.exp << EXPECT_EOF
+#!/usr/bin/expect -f
+set timeout 300
+spawn bash -c "curl -Ls $install_url | bash"
+expect {
+    -re "username.*:" {
+        send "$gen_user\r"
+        exp_continue
+    }
+    -re "password.*:" {
+        send "$gen_pass\r"
+        exp_continue
+    }
+    -re "port.*:" {
+        send "$gen_port\r"
+        exp_continue
+    }
+    -re "path.*:" {
+        send "$gen_path\r"
+        exp_continue
+    }
+    -re "y/n|Y/N|yes/no" {
+        send "y\r"
+        exp_continue
+    }
+    eof
+}
+EXPECT_EOF
+        chmod +x /tmp/install_xui.exp
+        /tmp/install_xui.exp
+        rm -f /tmp/install_xui.exp
+    else
+        # Обычная установка
+        print_info "Запуск интерактивной установки..."
+        print_warning "Используйте сгенерированные данные выше для настройки"
+        bash <(curl -Ls "$install_url")
+    fi
+
+    # Ждём завершения установки
+    sleep 3
 
     # Проверяем успешность установки
-    sleep 3
     if systemctl is-active --quiet x-ui; then
         print_success "3x-ui успешно установлен и запущен"
+
+        # Пытаемся настроить учётные данные через SQLite если они не были применены
+        if [ -f "$XUI_DB" ] && [ "$auto_config" = "yes" ]; then
+            configure_3xui_credentials "$gen_user" "$gen_pass" "$gen_port" "$gen_path"
+        fi
+
         return 0
     else
         print_error "Ошибка установки 3x-ui"
         return 1
     fi
+}
+
+# Настройка учётных данных 3x-ui через SQLite
+configure_3xui_credentials() {
+    local username=${1:-"admin"}
+    local password=${2:-"admin"}
+    local port=${3:-"2053"}
+    local path=${4:-"/"}
+
+    if [ ! -f "$XUI_DB" ]; then
+        print_warning "База данных 3x-ui не найдена"
+        return 1
+    fi
+
+    print_info "Настройка учётных данных в базе данных..."
+
+    # Генерируем bcrypt хеш пароля (если bcrypt доступен)
+    local password_hash=""
+    if command -v python3 &> /dev/null; then
+        password_hash=$(python3 -c "
+import bcrypt
+password = '$password'.encode('utf-8')
+salt = bcrypt.gensalt(rounds=10)
+hash = bcrypt.hashpw(password, salt)
+print(hash.decode('utf-8'))
+" 2>/dev/null) || true
+    fi
+
+    # Обновляем настройки
+    sqlite3 "$XUI_DB" "UPDATE settings SET value='$username' WHERE key='webUserName';" 2>/dev/null || true
+
+    if [ -n "$password_hash" ]; then
+        sqlite3 "$XUI_DB" "UPDATE settings SET value='$password_hash' WHERE key='webPassword';" 2>/dev/null || true
+    else
+        sqlite3 "$XUI_DB" "UPDATE settings SET value='$password' WHERE key='webPassword';" 2>/dev/null || true
+    fi
+
+    sqlite3 "$XUI_DB" "UPDATE settings SET value='$port' WHERE key='webPort';" 2>/dev/null || true
+    sqlite3 "$XUI_DB" "UPDATE settings SET value='$path' WHERE key='webBasePath';" 2>/dev/null || true
+
+    # Перезапускаем сервис для применения изменений
+    systemctl restart x-ui 2>/dev/null || true
+    sleep 2
+
+    print_success "Учётные данные настроены"
 }
 
 # Функция настройки 3x-ui после установки
