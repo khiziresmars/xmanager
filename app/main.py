@@ -4637,7 +4637,7 @@ async def get_inbound_nginx_requirements(username: str = Depends(get_current_use
     """Analyze which inbounds need nginx configuration"""
     try:
         # Get inbounds from database
-        inbounds = db.get_all_inbounds()
+        inbounds = db.get_inbounds()
 
         manager = get_nginx_manager()
         requirements = manager.get_inbound_nginx_requirements(inbounds)
