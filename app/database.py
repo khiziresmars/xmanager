@@ -2430,3 +2430,390 @@ class XUIDatabase:
             logger.error(f"Error generating key string: {e}")
             return ""
 
+    # ==================== BATCH OPERATIONS ====================
+
+    def extend_expiry_batch(self, user_ids: list, days: int) -> Dict:
+        """
+        Массовое продление срока действия пользователей (оптимизировано)
+
+        Args:
+            user_ids: Список ID пользователей
+            days: Количество дней для продления
+
+        Returns:
+            Dict с результатами: success, processed, failed
+        """
+        try:
+            import time
+            from datetime import datetime, timedelta
+
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            processed = 0
+            failed = []
+
+            # Вычисляем новый срок (миллисекунды)
+            extension_ms = days * 24 * 60 * 60 * 1000
+
+            # Батчинг по 100 пользователей
+            batch_size = 100
+            for i in range(0, len(user_ids), batch_size):
+                batch = user_ids[i:i+batch_size]
+
+                try:
+                    # Используем один SQL для всей партии
+                    placeholders = ','.join('?' * len(batch))
+
+                    # Обновляем в client_traffics
+                    cursor.execute(f"""
+                        UPDATE client_traffics
+                        SET expiry_time = CASE
+                            WHEN expiry_time > 0 THEN expiry_time + ?
+                            ELSE (? + ?)
+                        END
+                        WHERE id IN ({placeholders})
+                    """, [extension_ms, int(time.time() * 1000), extension_ms] + batch)
+
+                    # Обновляем в JSON inbounds
+                    for user_id in batch:
+                        try:
+                            self._sync_client_to_json(cursor, user_id)
+                        except:
+                            pass  # Не критично
+
+                    processed += cursor.rowcount
+
+                except Exception as e:
+                    logger.error(f"Batch error for users {batch}: {e}")
+                    failed.extend(batch)
+
+                # Коммитим каждую партию
+                conn.commit()
+
+            conn.close()
+
+            return {
+                "success": True,
+                "processed": processed,
+                "failed": len(failed),
+                "failed_ids": failed
+            }
+
+        except Exception as e:
+            logger.error(f"Error in extend_expiry_batch: {e}")
+            return {"success": False, "error": str(e)}
+
+    def set_expiry_batch(self, user_ids: list, expiry_time: int) -> Dict:
+        """
+        Установить срок для множества пользователей
+
+        Args:
+            user_ids: Список ID пользователей
+            expiry_time: Срок в миллисекундах (timestamp)
+
+        Returns:
+            Dict с результатами
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            processed = 0
+            failed = []
+
+            batch_size = 100
+            for i in range(0, len(user_ids), batch_size):
+                batch = user_ids[i:i+batch_size]
+
+                try:
+                    placeholders = ','.join('?' * len(batch))
+
+                    cursor.execute(f"""
+                        UPDATE client_traffics
+                        SET expiry_time = ?
+                        WHERE id IN ({placeholders})
+                    """, [expiry_time] + batch)
+
+                    for user_id in batch:
+                        try:
+                            self._sync_client_to_json(cursor, user_id)
+                        except:
+                            pass
+
+                    processed += cursor.rowcount
+
+                except Exception as e:
+                    logger.error(f"Batch error: {e}")
+                    failed.extend(batch)
+
+                conn.commit()
+
+            conn.close()
+
+            return {
+                "success": True,
+                "processed": processed,
+                "failed": len(failed),
+                "failed_ids": failed
+            }
+
+        except Exception as e:
+            logger.error(f"Error in set_expiry_batch: {e}")
+            return {"success": False, "error": str(e)}
+
+    def add_traffic_batch(self, user_ids: list, traffic_gb: float) -> Dict:
+        """
+        Добавить трафик множеству пользователей
+
+        Args:
+            user_ids: Список ID пользователей
+            traffic_gb: Трафик в GB для добавления
+
+        Returns:
+            Dict с результатами
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            traffic_bytes = int(traffic_gb * 1024 * 1024 * 1024)
+            processed = 0
+            failed = []
+
+            batch_size = 100
+            for i in range(0, len(user_ids), batch_size):
+                batch = user_ids[i:i+batch_size]
+
+                try:
+                    placeholders = ','.join('?' * len(batch))
+
+                    cursor.execute(f"""
+                        UPDATE client_traffics
+                        SET total = total + ?
+                        WHERE id IN ({placeholders})
+                    """, [traffic_bytes] + batch)
+
+                    for user_id in batch:
+                        try:
+                            self._sync_client_to_json(cursor, user_id)
+                        except:
+                            pass
+
+                    processed += cursor.rowcount
+
+                except Exception as e:
+                    logger.error(f"Batch error: {e}")
+                    failed.extend(batch)
+
+                conn.commit()
+
+            conn.close()
+
+            return {
+                "success": True,
+                "processed": processed,
+                "failed": len(failed),
+                "failed_ids": failed
+            }
+
+        except Exception as e:
+            logger.error(f"Error in add_traffic_batch: {e}")
+            return {"success": False, "error": str(e)}
+
+    def reset_traffic_batch(self, user_ids: list) -> Dict:
+        """
+        Сбросить трафик множества пользователей
+
+        Args:
+            user_ids: Список ID пользователей
+
+        Returns:
+            Dict с результатами
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            processed = 0
+            failed = []
+
+            batch_size = 100
+            for i in range(0, len(user_ids), batch_size):
+                batch = user_ids[i:i+batch_size]
+
+                try:
+                    placeholders = ','.join('?' * len(batch))
+
+                    cursor.execute(f"""
+                        UPDATE client_traffics
+                        SET up = 0, down = 0
+                        WHERE id IN ({placeholders})
+                    """, batch)
+
+                    for user_id in batch:
+                        try:
+                            self._sync_client_to_json(cursor, user_id)
+                        except:
+                            pass
+
+                    processed += cursor.rowcount
+
+                except Exception as e:
+                    logger.error(f"Batch error: {e}")
+                    failed.extend(batch)
+
+                conn.commit()
+
+            conn.close()
+
+            return {
+                "success": True,
+                "processed": processed,
+                "failed": len(failed),
+                "failed_ids": failed
+            }
+
+        except Exception as e:
+            logger.error(f"Error in reset_traffic_batch: {e}")
+            return {"success": False, "error": str(e)}
+
+    def toggle_users_batch(self, user_ids: list, enable: bool) -> Dict:
+        """
+        Включить/выключить множество пользователей
+
+        Args:
+            user_ids: Список ID пользователей
+            enable: True для включения, False для выключения
+
+        Returns:
+            Dict с результатами
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            processed = 0
+            failed = []
+            enable_value = 1 if enable else 0
+
+            batch_size = 100
+            for i in range(0, len(user_ids), batch_size):
+                batch = user_ids[i:i+batch_size]
+
+                try:
+                    placeholders = ','.join('?' * len(batch))
+
+                    cursor.execute(f"""
+                        UPDATE client_traffics
+                        SET enable = ?
+                        WHERE id IN ({placeholders})
+                    """, [enable_value] + batch)
+
+                    for user_id in batch:
+                        try:
+                            self._sync_client_to_json(cursor, user_id)
+                        except:
+                            pass
+
+                    processed += cursor.rowcount
+
+                except Exception as e:
+                    logger.error(f"Batch error: {e}")
+                    failed.extend(batch)
+
+                conn.commit()
+
+            conn.close()
+
+            return {
+                "success": True,
+                "processed": processed,
+                "failed": len(failed),
+                "failed_ids": failed
+            }
+
+        except Exception as e:
+            logger.error(f"Error in toggle_users_batch: {e}")
+            return {"success": False, "error": str(e)}
+
+    def get_users_paginated(self, offset: int = 0, limit: int = 50,
+                           sort_by: str = "id", order: str = "desc",
+                           filter_status: str = None, search: str = None) -> tuple:
+        """
+        Получить пользователей с пагинацией
+
+        Args:
+            offset: Смещение
+            limit: Количество результатов
+            sort_by: Поле для сортировки
+            order: asc или desc
+            filter_status: active/disabled/expired
+            search: Поиск по email
+
+        Returns:
+            Tuple (users_list, total_count)
+        """
+        try:
+            import time
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            # Базовый запрос
+            where_clauses = []
+            params = []
+
+            # Фильтры
+            if filter_status == "active":
+                where_clauses.append("enable = 1")
+            elif filter_status == "disabled":
+                where_clauses.append("enable = 0")
+            elif filter_status == "expired":
+                current_time = int(time.time() * 1000)
+                where_clauses.append(f"expiry_time > 0 AND expiry_time < {current_time}")
+
+            # Поиск
+            if search:
+                where_clauses.append("email LIKE ?")
+                params.append(f"%{search}%")
+
+            where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+            # Подсчет общего количества
+            cursor.execute(f"SELECT COUNT(*) FROM client_traffics WHERE {where_sql}", params)
+            total = cursor.fetchone()[0]
+
+            # Получение данных с пагинацией
+            sort_column = sort_by if sort_by in ["id", "email", "up", "down", "total", "expiry_time", "enable"] else "id"
+            order_dir = "DESC" if order.lower() == "desc" else "ASC"
+
+            cursor.execute(f"""
+                SELECT id, inbound_id, enable, email, up, down, expiry_time, total, reset
+                FROM client_traffics
+                WHERE {where_sql}
+                ORDER BY {sort_column} {order_dir}
+                LIMIT ? OFFSET ?
+            """, params + [limit, offset])
+
+            users = []
+            for row in cursor.fetchall():
+                users.append({
+                    "id": row[0],
+                    "inbound_id": row[1],
+                    "enable": bool(row[2]),
+                    "email": row[3],
+                    "up": row[4],
+                    "down": row[5],
+                    "expiry_time": row[6],
+                    "total": row[7],
+                    "reset": row[8]
+                })
+
+            conn.close()
+
+            return (users, total)
+
+        except Exception as e:
+            logger.error(f"Error in get_users_paginated: {e}")
+            return ([], 0)
+

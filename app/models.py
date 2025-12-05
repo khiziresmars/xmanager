@@ -78,6 +78,25 @@ class ExtendExpiryRequest(BaseModel):
     user_ids: List[str] = Field(..., description="Список ID пользователей")
     days: int = Field(..., ge=1, le=365, description="Количество дней для продления")
 
+class SetExpiryBatchRequest(BaseModel):
+    """Установить срок для множества пользователей"""
+    user_ids: List[str] = Field(..., description="Список ID пользователей")
+    expiry_time: int = Field(..., description="Срок в миллисекундах (timestamp)")
+
+class AddTrafficBatchRequest(BaseModel):
+    """Добавить трафик множеству пользователей"""
+    user_ids: List[str] = Field(..., description="Список ID пользователей")
+    traffic_gb: float = Field(..., ge=0.1, le=10000, description="Трафик в GB")
+
+class ResetTrafficBatchRequest(BaseModel):
+    """Сбросить трафик множества пользователей"""
+    user_ids: List[str] = Field(..., description="Список ID пользователей")
+
+class ToggleUsersBatchRequest(BaseModel):
+    """Включить/выключить множество пользователей"""
+    user_ids: List[str] = Field(..., description="Список ID пользователей")
+    enable: bool = Field(..., description="True для включения, False для выключения")
+
 # ==================== INBOUND MODELS ====================
 
 class InboundCreate(BaseModel):
