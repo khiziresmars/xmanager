@@ -4120,6 +4120,278 @@ async def install_xray_version(version: str, username: str = Depends(get_current
         return {"success": False, "message": str(e)}
 
 
+# ==================== REGION MANAGEMENT ====================
+
+@app.get("/api/regions")
+async def get_regions(username: str = Depends(get_current_user)):
+    """Get list of all available regions with their configurations."""
+    try:
+        from app.region_manager import get_region_manager
+        region_manager = get_region_manager()
+        regions = region_manager.list_regions()
+        return {"success": True, "regions": regions, "default_region": settings.DEFAULT_REGION}
+    except ImportError:
+        return {"success": True, "regions": ["RU", "CN", "IR", "UAE", "TR", "GLOBAL"], "default_region": "GLOBAL"}
+    except Exception as e:
+        logger.error(f"Error getting regions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/regions/detect")
+async def detect_server_region(username: str = Depends(get_current_user)):
+    """Detect server location and recommended region settings."""
+    try:
+        from app.region_manager import get_region_manager
+        region_manager = get_region_manager()
+        location = await region_manager.detect_server_location()
+        return {"success": True, "location": location.__dict__ if hasattr(location, '__dict__') else location}
+    except ImportError:
+        try:
+            result = subprocess.run(['curl', '-s', '--max-time', '5', 'https://ipinfo.io/country'],
+                                   capture_output=True, text=True)
+            country = result.stdout.strip() if result.returncode == 0 else "UNKNOWN"
+            return {"success": True, "location": {"country": country}}
+        except:
+            return {"success": True, "location": {"country": "UNKNOWN"}}
+    except Exception as e:
+        logger.error(f"Error detecting region: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/regions/{region}/routing")
+async def get_region_routing(region: str, username: str = Depends(get_current_user)):
+    """Get routing rules for a specific region."""
+    try:
+        from app.preset_templates import get_regional_routing
+        routing = get_regional_routing(region.upper())
+        return {"success": True, "region": region.upper(), "routing": routing}
+    except Exception as e:
+        logger.error(f"Error getting routing for {region}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/regions/{region}/domains")
+async def get_region_reality_domains(region: str, username: str = Depends(get_current_user)):
+    """Get recommended Reality domains for a region."""
+    try:
+        from app.preset_templates import get_regional_reality_domains
+        domains = get_regional_reality_domains(region.upper())
+        return {"success": True, "region": region.upper(), "domains": domains}
+    except Exception as e:
+        logger.error(f"Error getting domains for {region}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== SITE CHECKER ====================
+
+@app.get("/api/sites/whitelist")
+async def get_sites_whitelist(
+    region: Optional[str] = Query(None, description="Filter by blocked region"),
+    username: str = Depends(get_current_user)
+):
+    """Get site whitelist for checking accessibility."""
+    try:
+        from app.site_checker import get_site_checker
+        site_checker = get_site_checker()
+        if region:
+            sites = [s for s in site_checker.whitelist if region.upper() in s.get("blocked_in", [])]
+        else:
+            sites = site_checker.whitelist
+        return {"success": True, "count": len(sites), "sites": sites}
+    except ImportError:
+        return {"success": False, "message": "Site checker module not available"}
+    except Exception as e:
+        logger.error(f"Error getting whitelist: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sites/check")
+async def check_sites_accessibility(request: Dict[str, Any], username: str = Depends(get_current_user)):
+    """Check accessibility of sites. Body: {"urls": [...], "timeout": 10}"""
+    try:
+        from app.site_checker import get_site_checker
+        site_checker = get_site_checker()
+        urls = request.get("urls", [])
+        timeout = request.get("timeout", 10)
+        if not urls:
+            raise HTTPException(status_code=400, detail="urls list is required")
+        results = await site_checker.check_sites(urls, timeout=timeout)
+        return {"success": True, "results": results}
+    except ImportError:
+        return {"success": False, "message": "Site checker module not available"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking sites: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sites/check/{region}")
+async def check_region_blocked_sites(region: str, username: str = Depends(get_current_user)):
+    """Check accessibility of sites blocked in a specific region."""
+    try:
+        from app.site_checker import get_site_checker
+        site_checker = get_site_checker()
+        results = await site_checker.check_region_blocked_sites(region.upper())
+        return {"success": True, "region": region.upper(), **results}
+    except ImportError:
+        return {"success": False, "message": "Site checker module not available"}
+    except Exception as e:
+        logger.error(f"Error checking sites for region {region}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== SERVER HEALTH MONITORING ====================
+
+@app.get("/api/health/server")
+async def get_server_health(username: str = Depends(get_current_user)):
+    """Get comprehensive server health status with all checks."""
+    try:
+        from app.server_monitor import get_monitor
+        monitor = get_monitor()
+        health_state = await monitor.run_all_checks()
+        return {
+            "success": True,
+            "overall_status": health_state.overall_status.value,
+            "consecutive_failures": health_state.consecutive_failures,
+            "last_check": health_state.last_check.isoformat() if health_state.last_check else None,
+            "checks": {
+                name: {
+                    "status": check.status.value,
+                    "message": check.message,
+                    "details": check.details,
+                    "last_check": check.last_check.isoformat() if check.last_check else None
+                }
+                for name, check in health_state.checks.items()
+            }
+        }
+    except ImportError:
+        import psutil
+        return {
+            "success": True, "overall_status": "healthy",
+            "checks": {"system": {"status": "healthy", "details": {
+                "cpu_percent": psutil.cpu_percent(),
+                "memory_percent": psutil.virtual_memory().percent,
+                "disk_percent": psutil.disk_usage('/').percent
+            }}}
+        }
+    except Exception as e:
+        logger.error(f"Error getting server health: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/health/xui-panel")
+async def check_xui_panel_health(username: str = Depends(get_current_user)):
+    """Check 3x-ui panel API health."""
+    try:
+        result = await xui_client.health_check()
+        return result
+    except Exception as e:
+        logger.error(f"Error checking XUI panel health: {e}")
+        return {"success": False, "status": "unhealthy", "error": str(e)}
+
+
+# ==================== TELEGRAM NOTIFICATIONS ====================
+
+@app.get("/api/telegram/status")
+async def get_telegram_status(username: str = Depends(get_current_user)):
+    """Get Telegram bot configuration status."""
+    try:
+        from app.telegram_bot import get_notifier
+        notifier = get_notifier()
+        return {
+            "success": True, "configured": notifier.is_configured(),
+            "enabled": settings.TELEGRAM_ENABLED,
+            "admin_ids_count": len(settings.TELEGRAM_ADMIN_IDS) if settings.TELEGRAM_ADMIN_IDS else 0,
+            "alert_cooldown": settings.TELEGRAM_ALERT_COOLDOWN
+        }
+    except ImportError:
+        return {"success": True, "configured": False, "enabled": False, "message": "Telegram module not available"}
+    except Exception as e:
+        logger.error(f"Error getting telegram status: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/telegram/test")
+async def send_telegram_test(username: str = Depends(get_current_user)):
+    """Send a test message to configured Telegram admins."""
+    try:
+        from app.telegram_bot import get_notifier, AlertType
+        notifier = get_notifier()
+        if not notifier.is_configured():
+            return {"success": False, "message": "Telegram bot not configured"}
+        await notifier.send_alert(
+            AlertType.CUSTOM,
+            f"🧪 Тестовое сообщение от XUI-Manager\nСервер: {settings.HOST}:{settings.PORT}\nВерсия: {CURRENT_VERSION}",
+            force=True
+        )
+        return {"success": True, "message": "Test message sent"}
+    except ImportError:
+        return {"success": False, "message": "Telegram module not available"}
+    except Exception as e:
+        logger.error(f"Error sending test message: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ==================== ADVANCED INBOUND MANAGEMENT ====================
+
+@app.put("/api/inbounds/{inbound_id}/reality")
+async def update_inbound_reality(inbound_id: int, request: Dict[str, Any], username: str = Depends(get_current_user)):
+    """Update Reality settings for an inbound."""
+    try:
+        result = await xui_client.update_reality_settings(
+            inbound_id=inbound_id, dest=request.get("dest"),
+            server_names=request.get("server_names"), private_key=request.get("private_key"),
+            short_ids=request.get("short_ids"), fingerprint=request.get("fingerprint", "chrome")
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error updating reality settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/inbounds/{inbound_id}/clone")
+async def clone_inbound(inbound_id: int, request: Dict[str, Any], username: str = Depends(get_current_user)):
+    """Clone an inbound with new port and remark."""
+    try:
+        new_port = request.get("new_port")
+        new_remark = request.get("new_remark")
+        if not new_port:
+            raise HTTPException(status_code=400, detail="new_port is required")
+        result = await xui_client.clone_inbound(source_id=inbound_id, new_port=new_port, new_remark=new_remark)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cloning inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/inbounds/{inbound_id}/port")
+async def update_inbound_port(inbound_id: int, new_port: int = Query(...), username: str = Depends(get_current_user)):
+    """Change inbound port."""
+    try:
+        result = await xui_client.update_inbound_port(inbound_id, new_port)
+        return result
+    except Exception as e:
+        logger.error(f"Error updating port: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/inbounds/{inbound_id}/sniffing")
+async def update_inbound_sniffing(inbound_id: int, request: Dict[str, Any], username: str = Depends(get_current_user)):
+    """Update inbound sniffing settings."""
+    try:
+        result = await xui_client.update_inbound_sniffing(
+            inbound_id=inbound_id, enabled=request.get("enabled", True),
+            dest_override=request.get("dest_override", ["http", "tls", "quic", "fakedns"])
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error updating sniffing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== ЗАПУСК ПРИЛОЖЕНИЯ ====================
 
 if __name__ == "__main__":

@@ -52,16 +52,50 @@
             position: relative;
         }
 
-        .header h1 {
-            font-size: 28px;
-            font-weight: 600;
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 10px;
         }
 
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 0;
+        }
+
+        .mobile-menu-btn {
+            display: none;
+            width: 44px;
+            height: 44px;
+            border-radius: 8px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            font-size: 22px;
+            cursor: pointer;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            flex-shrink: 0;
+        }
+
+        .mobile-menu-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        .mobile-menu-btn:active {
+            transform: scale(0.95);
+        }
+
         .logout-btn {
-            position: absolute;
-            top: 20px;
-            right: 20px;
             padding: 8px 16px;
             background: var(--danger);
             color: white;
@@ -70,6 +104,7 @@
             cursor: pointer;
             font-size: 14px;
             transition: background 0.3s;
+            white-space: nowrap;
         }
 
         .logout-btn:hover {
@@ -179,22 +214,28 @@
             min-width: 0;
         }
 
-        /* Mobile sidebar */
-        .sidebar-toggle {
+        /* Mobile sidebar overlay */
+        .sidebar-overlay {
             display: none;
             position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            background: var(--accent);
-            color: white;
-            border: none;
-            font-size: 20px;
-            cursor: pointer;
-            z-index: 1000;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 998;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .sidebar-overlay.active {
+            display: block;
+            opacity: 1;
+        }
+
+        /* Legacy toggle button - hidden now */
+        .sidebar-toggle {
+            display: none;
         }
 
         @media (max-width: 900px) {
@@ -202,21 +243,104 @@
                 flex-direction: column;
             }
 
+            /* Mobile menu button in header */
+            .mobile-menu-btn {
+                display: flex;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .header-top {
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            /* Slide-in sidebar from left */
             .sidebar {
-                width: 100%;
-                position: relative;
+                position: fixed;
                 top: 0;
-                display: none;
+                left: -280px;
+                width: 280px;
+                height: 100vh;
+                z-index: 999;
+                border-radius: 0;
+                overflow-y: auto;
+                transition: left 0.3s ease;
+                padding: 20px 15px;
+                padding-top: 70px;
             }
 
             .sidebar.mobile-open {
-                display: block;
+                left: 0;
             }
 
-            .sidebar-toggle {
+            /* Close button inside mobile sidebar */
+            .mobile-sidebar-close {
+                position: absolute;
+                top: 15px;
+                right: 15px;
+                width: 40px;
+                height: 40px;
+                border-radius: 8px;
+                background: var(--bg-tertiary);
+                color: var(--text-primary);
+                border: 1px solid var(--border);
+                font-size: 20px;
+                cursor: pointer;
                 display: flex;
                 align-items: center;
                 justify-content: center;
+            }
+
+            .mobile-sidebar-close:hover {
+                background: var(--danger);
+                color: white;
+                border-color: var(--danger);
+            }
+
+            /* Stats grid on mobile */
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+            }
+
+            .stat-card {
+                padding: 12px;
+            }
+
+            .stat-value {
+                font-size: 18px;
+            }
+
+            .stat-label {
+                font-size: 10px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header h1 {
+                font-size: 16px;
+            }
+
+            .logout-btn {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+
+            .logout-btn span {
+                display: none;
+            }
+
+            .mobile-menu-btn {
+                width: 40px;
+                height: 40px;
+                font-size: 18px;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr 1fr;
             }
         }
 
@@ -747,10 +871,18 @@
 <body>
     <div class="container">
         <!-- Header -->
+        <!-- Mobile sidebar overlay -->
+        <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
         <div class="header">
-            <button class="logout-btn" onclick="logout()">🚪 Выход</button>
-            <h1>🔑 Агент Мастера ключей</h1>
-            <p style="color: var(--text-secondary)">Управление пользователями 3x-ui</p>
+            <div class="header-top">
+                <div class="header-left">
+                    <button class="mobile-menu-btn" onclick="toggleSidebar()" aria-label="Меню">☰</button>
+                    <h1>🔑 Агент Мастера ключей</h1>
+                </div>
+                <button class="logout-btn" onclick="logout()">🚪 <span>Выход</span></button>
+            </div>
+            <p style="color: var(--text-secondary); margin-bottom: 15px;">Управление пользователями 3x-ui</p>
 
             <div class="stats-grid" id="stats">
                 <div class="stat-card">
@@ -772,12 +904,12 @@
             </div>
         </div>
 
-        <!-- Mobile sidebar toggle -->
-        <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
-
         <div class="app-layout">
             <!-- Sidebar Navigation -->
             <nav class="sidebar" id="sidebar">
+                <!-- Close button for mobile -->
+                <button class="mobile-sidebar-close" onclick="closeSidebar()" aria-label="Закрыть меню">✕</button>
+
                 <!-- Users Category -->
                 <div class="sidebar-category">
                     <div class="sidebar-category-title">👥 Пользователи</div>
@@ -1843,7 +1975,7 @@
 
             // Close mobile sidebar after selection
             if (window.innerWidth <= 900) {
-                document.getElementById('sidebar').classList.remove('mobile-open');
+                closeSidebar();
             }
 
             // Handle tab-specific actions
@@ -1865,7 +1997,20 @@
 
         // Toggle mobile sidebar
         function toggleSidebar() {
-            document.getElementById('sidebar').classList.toggle('mobile-open');
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            sidebar.classList.toggle('mobile-open');
+            overlay.classList.toggle('active');
+            document.body.style.overflow = sidebar.classList.contains('mobile-open') ? 'hidden' : '';
+        }
+
+        // Close mobile sidebar
+        function closeSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            sidebar.classList.remove('mobile-open');
+            overlay.classList.remove('active');
+            document.body.style.overflow = '';
         }
 
         // Toast notifications
