@@ -4428,9 +4428,9 @@ async def get_panel_credentials(username: str = Depends(get_current_user)):
                 "success": True,
                 "credentials": {
                     "username": creds.username,
-                    "password": creds.password,
-                    "web_port": creds.web_port,
-                    "web_base_path": creds.web_base_path
+                    "panel_url": creds.panel_url,
+                    "port": creds.port,
+                    "base_path": creds.base_path
                 }
             }
         return {"success": False, "error": "Could not retrieve credentials"}
@@ -4458,16 +4458,14 @@ async def get_panel_status(username: str = Depends(get_current_user)):
         return {
             "success": True,
             "status": {
+                "installed": status.installed,
                 "running": status.running,
                 "version": status.version,
                 "xray_version": status.xray_version,
                 "uptime": status.uptime,
-                "web_port": status.web_port,
-                "web_base_path": status.web_base_path,
                 "users_count": status.users_count,
                 "inbounds_count": status.inbounds_count,
-                "database_size": status.database_size,
-                "log_level": status.log_level
+                "database_size": f"{status.database_size_mb:.2f} MB"
             }
         }
     except Exception as e:
