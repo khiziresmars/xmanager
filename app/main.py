@@ -4421,6 +4421,13 @@ class ReinstallPanelRequest(BaseModel):
 async def get_panel_credentials(username: str = Depends(get_current_user)):
     """Get current panel login credentials"""
     try:
+        # Use panel_management to get actual password from config.json
+        from app.panel_management import PanelManager as OldPanelManager
+        result = OldPanelManager.get_credentials()
+        if result.get("success"):
+            return result
+
+        # Fallback to new panel_manager if config.json not available
         manager = get_panel_manager()
         creds = manager.get_credentials()
         if creds:
@@ -4428,9 +4435,8 @@ async def get_panel_credentials(username: str = Depends(get_current_user)):
                 "success": True,
                 "credentials": {
                     "username": creds.username,
-                    "panel_url": creds.panel_url,
-                    "port": creds.port,
-                    "base_path": creds.base_path
+                    "password": "***hidden***",  # Password hash not shown
+                    "web_port": creds.port
                 }
             }
         return {"success": False, "error": "Could not retrieve credentials"}
