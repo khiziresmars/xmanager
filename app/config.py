@@ -114,6 +114,13 @@ class Settings(BaseSettings):
     UPDATE_SERVER_USERNAME: str = "admin"
     UPDATE_SERVER_PASSWORD: str = "admin"
 
+    # ============================================
+    # GITHUB (for updates from private repos)
+    # ============================================
+    # Set your GitHub Personal Access Token in .env file
+    # Format: GITHUB_TOKEN=github_pat_xxxxxxxxxxxx
+    GITHUB_TOKEN: str = ""
+
     class Config:
         env_file = "/opt/xui-manager/.env"
         env_file_encoding = 'utf-8'
