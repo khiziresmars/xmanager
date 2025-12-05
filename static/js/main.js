@@ -4604,6 +4604,127 @@ async function bulkDeleteUsers() {
     setTimeout(() => { showBulkProgress(false); bulkSelectedIds.clear(); loadBulkUsers(); loadUsers(); }, 2000);
 }
 
+// ==================== QUICK OPERATIONS (NO SELECTION NEEDED) ====================
+
+// Quick extend all expired users
+async function quickExtendAllExpired() {
+    const days = parseInt(document.getElementById('quick-extend-days')?.value || 30);
+    if (days < 1 || days > 365) { showToast('Введите дни от 1 до 365', 'warning'); return; }
+
+    // Get expired user IDs
+    const expiredIds = bulkUsersData
+        .filter(u => u.expiryTime && u.expiryTime < Date.now() && u.expiryTime !== 0)
+        .map(u => u.id.toString());
+
+    if (expiredIds.length === 0) { showToast('Нет истекших пользователей', 'info'); return; }
+    if (!confirm(`Продлить ${expiredIds.length} истекших пользователей на ${days} дней?`)) return;
+
+    showBulkProgress(true, 'Продление истекших...');
+    try {
+        const response = await fetch(API_URL + 'api/users/batch/extend-expiry', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ user_ids: expiredIds, days: days })
+        });
+        const result = await response.json();
+        if (result.success) {
+            updateBulkProgress(100, `Готово! Продлено: ${result.processed}`);
+            showToast(`Продлено ${result.processed} пользователей`, 'success');
+            setTimeout(() => { showBulkProgress(false); loadBulkUsers(); loadUsers(); loadExpiredUsers(); }, 2000);
+        } else throw new Error(result.detail || 'Error');
+    } catch (e) { showToast('Ошибка: ' + e.message, 'error'); showBulkProgress(false); }
+}
+
+// Quick enable all disabled users
+async function quickEnableAllDisabled() {
+    const disabledIds = bulkUsersData.filter(u => !u.enable).map(u => u.id.toString());
+
+    if (disabledIds.length === 0) { showToast('Нет отключенных пользователей', 'info'); return; }
+    if (!confirm(`Включить ${disabledIds.length} отключенных пользователей?`)) return;
+
+    showBulkProgress(true, 'Включение отключенных...');
+    try {
+        const response = await fetch(API_URL + 'api/users/batch/toggle', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ user_ids: disabledIds, enable: true })
+        });
+        const result = await response.json();
+        if (result.success) {
+            updateBulkProgress(100, `Готово! Включено: ${result.processed}`);
+            showToast(`Включено ${result.processed} пользователей`, 'success');
+            setTimeout(() => { showBulkProgress(false); loadBulkUsers(); loadUsers(); loadDisabledUsers(); }, 2000);
+        } else throw new Error(result.detail || 'Error');
+    } catch (e) { showToast('Ошибка: ' + e.message, 'error'); showBulkProgress(false); }
+}
+
+// Quick delete all disabled users
+async function quickDeleteAllDisabled() {
+    const disabledIds = bulkUsersData.filter(u => !u.enable).map(u => u.id.toString());
+
+    if (disabledIds.length === 0) { showToast('Нет отключенных пользователей', 'info'); return; }
+    if (!confirm(`УДАЛИТЬ ${disabledIds.length} отключенных пользователей? Это необратимо!`)) return;
+    if (!confirm('Вы уверены? Данные будут удалены безвозвратно!')) return;
+
+    showBulkProgress(true, 'Удаление отключенных...');
+    let deleted = 0, failed = 0;
+    const total = disabledIds.length;
+    for (const userId of disabledIds) {
+        try {
+            const r = await fetch(API_URL + 'api/users/' + userId, { method: 'DELETE', credentials: 'include' });
+            if (r.ok) deleted++; else failed++;
+            updateBulkProgress(Math.round(((deleted + failed) / total) * 100), `Удалено: ${deleted}/${total}`);
+        } catch { failed++; }
+    }
+    updateBulkProgress(100, `Готово! Удалено: ${deleted}, Ошибок: ${failed}`);
+    showToast(`Удалено ${deleted} пользователей`, deleted > 0 ? 'success' : 'error');
+    setTimeout(() => { showBulkProgress(false); loadBulkUsers(); loadUsers(); loadDisabledUsers(); }, 2000);
+}
+
+// Quick reset traffic for expired users
+async function quickResetTrafficExpired() {
+    const expiredIds = bulkUsersData
+        .filter(u => u.expiryTime && u.expiryTime < Date.now() && u.expiryTime !== 0)
+        .map(u => u.id.toString());
+
+    if (expiredIds.length === 0) { showToast('Нет истекших пользователей', 'info'); return; }
+    if (!confirm(`Сбросить трафик у ${expiredIds.length} истекших пользователей?`)) return;
+
+    showBulkProgress(true, 'Сброс трафика...');
+    try {
+        const response = await fetch(API_URL + 'api/users/batch/reset-traffic', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ user_ids: expiredIds, new_limit_gb: 0 })
+        });
+        const result = await response.json();
+        if (result.success) {
+            updateBulkProgress(100, `Готово! Сброшено: ${result.processed}`);
+            showToast(`Сброшен трафик у ${result.processed} пользователей`, 'success');
+            setTimeout(() => { showBulkProgress(false); loadBulkUsers(); loadUsers(); }, 2000);
+        } else throw new Error(result.detail || 'Error');
+    } catch (e) { showToast('Ошибка: ' + e.message, 'error'); showBulkProgress(false); }
+}
+
+// Quick reset traffic for all users
+async function quickResetTrafficAll() {
+    if (bulkUsersData.length === 0) { showToast('Нет пользователей', 'info'); return; }
+    if (!confirm(`Сбросить трафик у ВСЕХ ${bulkUsersData.length} пользователей?`)) return;
+    if (!confirm('Вы уверены? Это затронет ВСЕХ пользователей!')) return;
+
+    const allIds = bulkUsersData.map(u => u.id.toString());
+    showBulkProgress(true, 'Сброс трафика у всех...');
+    try {
+        const response = await fetch(API_URL + 'api/users/batch/reset-traffic', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ user_ids: allIds, new_limit_gb: 0 })
+        });
+        const result = await response.json();
+        if (result.success) {
+            updateBulkProgress(100, `Готово! Сброшено: ${result.processed}`);
+            showToast(`Сброшен трафик у ${result.processed} пользователей`, 'success');
+            setTimeout(() => { showBulkProgress(false); loadBulkUsers(); loadUsers(); }, 2000);
+        } else throw new Error(result.detail || 'Error');
+    } catch (e) { showToast('Ошибка: ' + e.message, 'error'); showBulkProgress(false); }
+}
+
 // ==================== SESSION MANAGEMENT ====================
 
 // Auto-refresh session every 20 minutes to prevent expiration
