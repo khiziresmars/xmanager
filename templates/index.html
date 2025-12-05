@@ -52,16 +52,50 @@
             position: relative;
         }
 
-        .header h1 {
-            font-size: 28px;
-            font-weight: 600;
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 10px;
         }
 
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 0;
+        }
+
+        .mobile-menu-btn {
+            display: none;
+            width: 44px;
+            height: 44px;
+            border-radius: 8px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            font-size: 22px;
+            cursor: pointer;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            flex-shrink: 0;
+        }
+
+        .mobile-menu-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        .mobile-menu-btn:active {
+            transform: scale(0.95);
+        }
+
         .logout-btn {
-            position: absolute;
-            top: 20px;
-            right: 20px;
             padding: 8px 16px;
             background: var(--danger);
             color: white;
@@ -70,6 +104,7 @@
             cursor: pointer;
             font-size: 14px;
             transition: background 0.3s;
+            white-space: nowrap;
         }
 
         .logout-btn:hover {
@@ -179,22 +214,28 @@
             min-width: 0;
         }
 
-        /* Mobile sidebar */
-        .sidebar-toggle {
+        /* Mobile sidebar overlay */
+        .sidebar-overlay {
             display: none;
             position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            background: var(--accent);
-            color: white;
-            border: none;
-            font-size: 20px;
-            cursor: pointer;
-            z-index: 1000;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 998;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .sidebar-overlay.active {
+            display: block;
+            opacity: 1;
+        }
+
+        /* Legacy toggle button - hidden now */
+        .sidebar-toggle {
+            display: none;
         }
 
         @media (max-width: 900px) {
@@ -202,21 +243,104 @@
                 flex-direction: column;
             }
 
+            /* Mobile menu button in header */
+            .mobile-menu-btn {
+                display: flex;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .header-top {
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            /* Slide-in sidebar from left */
             .sidebar {
-                width: 100%;
-                position: relative;
+                position: fixed;
                 top: 0;
-                display: none;
+                left: -280px;
+                width: 280px;
+                height: 100vh;
+                z-index: 999;
+                border-radius: 0;
+                overflow-y: auto;
+                transition: left 0.3s ease;
+                padding: 20px 15px;
+                padding-top: 70px;
             }
 
             .sidebar.mobile-open {
-                display: block;
+                left: 0;
             }
 
-            .sidebar-toggle {
+            /* Close button inside mobile sidebar */
+            .mobile-sidebar-close {
+                position: absolute;
+                top: 15px;
+                right: 15px;
+                width: 40px;
+                height: 40px;
+                border-radius: 8px;
+                background: var(--bg-tertiary);
+                color: var(--text-primary);
+                border: 1px solid var(--border);
+                font-size: 20px;
+                cursor: pointer;
                 display: flex;
                 align-items: center;
                 justify-content: center;
+            }
+
+            .mobile-sidebar-close:hover {
+                background: var(--danger);
+                color: white;
+                border-color: var(--danger);
+            }
+
+            /* Stats grid on mobile */
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+            }
+
+            .stat-card {
+                padding: 12px;
+            }
+
+            .stat-value {
+                font-size: 18px;
+            }
+
+            .stat-label {
+                font-size: 10px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header h1 {
+                font-size: 16px;
+            }
+
+            .logout-btn {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+
+            .logout-btn span {
+                display: none;
+            }
+
+            .mobile-menu-btn {
+                width: 40px;
+                height: 40px;
+                font-size: 18px;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr 1fr;
             }
         }
 
@@ -742,15 +866,84 @@
                 padding: 6px 10px;
             }
         }
+
+        /* Modal Tabs */
+        .modal-tab {
+            flex: 1;
+            padding: 12px 16px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            border-bottom: 2px solid transparent;
+        }
+
+        .modal-tab:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .modal-tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+            background: var(--bg-tertiary);
+        }
+
+        .modal-tab-content {
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Primary color variable */
+        .modal-tab-content h4 {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        /* Form row in modal */
+        .modal .form-row {
+            display: flex;
+            gap: 15px;
+        }
+
+        .modal .form-row .form-group {
+            flex: 1;
+        }
+
+        @media (max-width: 600px) {
+            .modal-tab {
+                padding: 10px 8px;
+                font-size: 11px;
+            }
+
+            .modal .form-row {
+                flex-direction: column;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <!-- Header -->
+        <!-- Mobile sidebar overlay -->
+        <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
         <div class="header">
-            <button class="logout-btn" onclick="logout()">🚪 Выход</button>
-            <h1>🔑 Агент Мастера ключей</h1>
-            <p style="color: var(--text-secondary)">Управление пользователями 3x-ui</p>
+            <div class="header-top">
+                <div class="header-left">
+                    <button class="mobile-menu-btn" onclick="toggleSidebar()" aria-label="Меню">☰</button>
+                    <h1>🔑 Агент Мастера ключей</h1>
+                </div>
+                <button class="logout-btn" onclick="logout()">🚪 <span>Выход</span></button>
+            </div>
+            <p style="color: var(--text-secondary); margin-bottom: 15px;">Управление пользователями 3x-ui</p>
 
             <div class="stats-grid" id="stats">
                 <div class="stat-card">
@@ -772,12 +965,12 @@
             </div>
         </div>
 
-        <!-- Mobile sidebar toggle -->
-        <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
-
         <div class="app-layout">
             <!-- Sidebar Navigation -->
             <nav class="sidebar" id="sidebar">
+                <!-- Close button for mobile -->
+                <button class="mobile-sidebar-close" onclick="closeSidebar()" aria-label="Закрыть меню">✕</button>
+
                 <!-- Users Category -->
                 <div class="sidebar-category">
                     <div class="sidebar-category-title">👥 Пользователи</div>
@@ -808,6 +1001,25 @@
                         <button class="sidebar-item" onclick="showTab('sni-scanner')">🔍 SNI сканер</button>
                         <button class="sidebar-item" onclick="showTab('ssl')">🔐 SSL сертификаты</button>
                         <button class="sidebar-item" onclick="showTab('xui-control')">🎛️ X-UI управление</button>
+                        <button class="sidebar-item" onclick="showTab('panel-manage')">🔐 Панель 3x-ui</button>
+                        <button class="sidebar-item" onclick="showTab('nginx-manage')">🌐 Nginx</button>
+                    </div>
+                </div>
+
+                <!-- Camouflage Category -->
+                <div class="sidebar-category">
+                    <div class="sidebar-category-title">🎭 Камуфляж</div>
+                    <div class="sidebar-category-items">
+                        <button class="sidebar-item" onclick="showTab('camouflage')">🌐 Fake сайты</button>
+                    </div>
+                </div>
+
+                <!-- Automation Category -->
+                <div class="sidebar-category">
+                    <div class="sidebar-category-title">🤖 Автоматизация</div>
+                    <div class="sidebar-category-items">
+                        <button class="sidebar-item" onclick="showTab('automation')">⚙️ Настройки</button>
+                        <button class="sidebar-item" onclick="showTab('backups')">💾 Бэкапы</button>
                     </div>
                 </div>
 
@@ -1449,59 +1661,341 @@
             </div>
         </div>
 
-        <!-- Inbound Edit Modal -->
+        <!-- Inbound Edit Modal - Enhanced Visual Editor -->
         <div id="inbound-edit-modal" class="modal" style="display: none;">
-            <div class="modal-content" style="max-width: 700px;">
+            <div class="modal-content" style="max-width: 900px;">
                 <div class="modal-header">
                     <h3 id="inbound-modal-title">Редактировать Inbound</h3>
                     <button class="modal-close" onclick="closeInboundModal()">&times;</button>
                 </div>
-                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div class="modal-body" style="max-height: 75vh; overflow-y: auto; padding: 0;">
                     <input type="hidden" id="edit-inbound-id">
+                    <input type="hidden" id="edit-inbound-security-type">
+                    <input type="hidden" id="edit-inbound-network-type">
 
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Название</label>
-                            <input type="text" class="form-input" id="edit-inbound-remark">
+                    <!-- Modal Tabs -->
+                    <div class="modal-tabs" style="display: flex; border-bottom: 1px solid var(--border-color); background: var(--bg-secondary);">
+                        <button class="modal-tab active" data-tab="basic" onclick="switchInboundTab('basic')">📋 Основное</button>
+                        <button class="modal-tab" data-tab="transport" onclick="switchInboundTab('transport')">🔄 Транспорт</button>
+                        <button class="modal-tab" data-tab="security" onclick="switchInboundTab('security')">🔐 Безопасность</button>
+                        <button class="modal-tab" data-tab="advanced" onclick="switchInboundTab('advanced')">⚙️ Расширенные</button>
+                    </div>
+
+                    <!-- Tab: Basic -->
+                    <div class="modal-tab-content active" id="inbound-tab-basic" style="padding: 20px;">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Название (Remark)</label>
+                                <input type="text" class="form-input" id="edit-inbound-remark" placeholder="my-vless-reality">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Порт</label>
+                                <div style="display: flex; gap: 8px;">
+                                    <input type="number" class="form-input" id="edit-inbound-port" style="flex: 1;">
+                                    <button class="btn btn-secondary" onclick="generateRandomPort()" title="Случайный порт">🎲</button>
+                                </div>
+                            </div>
                         </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Протокол</label>
+                                <input type="text" class="form-input" id="edit-inbound-protocol" readonly style="background: var(--bg-tertiary);">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Статус</label>
+                                <select class="form-input" id="edit-inbound-enable">
+                                    <option value="1">✅ Включен</option>
+                                    <option value="0">❌ Выключен</option>
+                                </select>
+                            </div>
+                        </div>
+
                         <div class="form-group">
-                            <label class="form-label">Порт</label>
-                            <input type="number" class="form-input" id="edit-inbound-port">
+                            <label class="form-label">Listen IP (пусто = все интерфейсы)</label>
+                            <input type="text" class="form-input" id="edit-inbound-listen" placeholder="0.0.0.0 или пусто">
+                        </div>
+
+                        <!-- Sniffing Settings -->
+                        <div style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <label class="form-label" style="margin-bottom: 10px;">Sniffing</label>
+                            <div class="form-row">
+                                <div class="form-group" style="flex: 0 0 120px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                        <input type="checkbox" id="edit-sniffing-enabled" checked>
+                                        <span>Включен</span>
+                                    </label>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Dest Override</label>
+                                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                            <input type="checkbox" id="sniff-http" checked> HTTP
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                            <input type="checkbox" id="sniff-tls" checked> TLS
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                            <input type="checkbox" id="sniff-quic" checked> QUIC
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                            <input type="checkbox" id="sniff-fakedns"> FakeDNS
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="form-row">
+                    <!-- Tab: Transport -->
+                    <div class="modal-tab-content" id="inbound-tab-transport" style="padding: 20px; display: none;">
                         <div class="form-group">
-                            <label class="form-label">Протокол</label>
-                            <input type="text" class="form-input" id="edit-inbound-protocol" readonly style="background: var(--bg-tertiary);">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Статус</label>
-                            <select class="form-input" id="edit-inbound-enable">
-                                <option value="1">Включен</option>
-                                <option value="0">Выключен</option>
+                            <label class="form-label">Тип сети (Network)</label>
+                            <select class="form-input" id="edit-network-type" onchange="updateTransportFields()">
+                                <option value="tcp">TCP</option>
+                                <option value="ws">WebSocket</option>
+                                <option value="grpc">gRPC</option>
+                                <option value="httpupgrade">HTTPUpgrade</option>
+                                <option value="splithttp">SplitHTTP</option>
+                                <option value="kcp">mKCP</option>
+                                <option value="quic">QUIC</option>
                             </select>
                         </div>
+
+                        <!-- WebSocket Settings -->
+                        <div id="transport-ws-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: var(--primary);">🔌 WebSocket</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Path</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="text" class="form-input" id="edit-ws-path" placeholder="/ws" style="flex: 1;">
+                                        <button class="btn btn-secondary" onclick="generateRandomPath()" title="Случайный путь">🎲</button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Host</label>
+                                    <input type="text" class="form-input" id="edit-ws-host" placeholder="example.com">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- gRPC Settings -->
+                        <div id="transport-grpc-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: var(--primary);">📡 gRPC</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Service Name</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="text" class="form-input" id="edit-grpc-service" placeholder="grpc-service" style="flex: 1;">
+                                        <button class="btn btn-secondary" onclick="generateRandomServiceName()" title="Случайное имя">🎲</button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Mode</label>
+                                    <select class="form-input" id="edit-grpc-mode">
+                                        <option value="gun">gun</option>
+                                        <option value="multi">multi</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- HTTPUpgrade Settings -->
+                        <div id="transport-httpupgrade-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: var(--primary);">⬆️ HTTPUpgrade</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Path</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="text" class="form-input" id="edit-httpupgrade-path" placeholder="/httpupgrade" style="flex: 1;">
+                                        <button class="btn btn-secondary" onclick="document.getElementById('edit-httpupgrade-path').value = '/' + generateRandomString(8)" title="Случайный путь">🎲</button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Host</label>
+                                    <input type="text" class="form-input" id="edit-httpupgrade-host" placeholder="example.com">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SplitHTTP Settings -->
+                        <div id="transport-splithttp-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: var(--primary);">✂️ SplitHTTP</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Path</label>
+                                    <input type="text" class="form-input" id="edit-splithttp-path" placeholder="/splithttp">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Host</label>
+                                    <input type="text" class="form-input" id="edit-splithttp-host" placeholder="example.com">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TCP Settings -->
+                        <div id="transport-tcp-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: var(--primary);">🔗 TCP</h4>
+                            <div class="form-group">
+                                <label class="form-label">Header Type</label>
+                                <select class="form-input" id="edit-tcp-header-type">
+                                    <option value="none">none</option>
+                                    <option value="http">http</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Stream Settings (JSON)</label>
-                        <textarea class="form-input" id="edit-inbound-stream" rows="8" style="font-family: monospace; font-size: 12px;"></textarea>
+                    <!-- Tab: Security -->
+                    <div class="modal-tab-content" id="inbound-tab-security" style="padding: 20px; display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Тип безопасности (Security)</label>
+                            <select class="form-input" id="edit-security-type" onchange="updateSecurityFields()">
+                                <option value="none">none (без шифрования)</option>
+                                <option value="tls">TLS</option>
+                                <option value="reality">Reality</option>
+                            </select>
+                        </div>
+
+                        <!-- Reality Settings -->
+                        <div id="security-reality-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: #9b59b6;">🎭 Reality Settings</h4>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Dest (целевой сервер)</label>
+                                    <input type="text" class="form-input" id="edit-reality-dest" placeholder="www.microsoft.com:443">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Server Names (SNI)</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <select class="form-input" id="edit-reality-sni-select" style="flex: 1;" onchange="document.getElementById('edit-reality-sni').value = this.value">
+                                            <option value="">-- Выбрать --</option>
+                                            <option value="www.microsoft.com">microsoft.com</option>
+                                            <option value="dl.google.com">dl.google.com</option>
+                                            <option value="www.apple.com">apple.com</option>
+                                            <option value="www.samsung.com">samsung.com</option>
+                                            <option value="www.nvidia.com">nvidia.com</option>
+                                            <option value="www.amd.com">amd.com</option>
+                                            <option value="steamcommunity.com">steamcommunity.com</option>
+                                            <option value="www.cloudflare.com">cloudflare.com</option>
+                                            <option value="www.spotify.com">spotify.com</option>
+                                            <option value="gateway.icloud.com">icloud.com</option>
+                                        </select>
+                                    </div>
+                                    <input type="text" class="form-input" id="edit-reality-sni" placeholder="www.microsoft.com" style="margin-top: 8px;">
+                                </div>
+                            </div>
+
+                            <div class="form-group" style="margin-top: 15px;">
+                                <label class="form-label">Private Key</label>
+                                <div style="display: flex; gap: 8px;">
+                                    <input type="text" class="form-input" id="edit-reality-private-key" style="flex: 1; font-family: monospace; font-size: 11px;">
+                                    <button class="btn btn-primary" onclick="generateX25519Keys()" title="Генерировать новые ключи">🔄 X25519</button>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Public Key (для клиентов)</label>
+                                <div style="display: flex; gap: 8px;">
+                                    <input type="text" class="form-input" id="edit-reality-public-key" readonly style="flex: 1; font-family: monospace; font-size: 11px; background: var(--bg-secondary);">
+                                    <button class="btn btn-secondary" onclick="copyToClipboard(document.getElementById('edit-reality-public-key').value)" title="Копировать">📋</button>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Short IDs</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="text" class="form-input" id="edit-reality-short-ids" placeholder="abcd1234" style="flex: 1; font-family: monospace;">
+                                        <button class="btn btn-secondary" onclick="generateShortId()" title="Генерировать Short ID">🎲</button>
+                                    </div>
+                                    <small style="color: var(--text-secondary); font-size: 11px;">Через запятую для нескольких</small>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Fingerprint</label>
+                                    <select class="form-input" id="edit-reality-fingerprint">
+                                        <option value="chrome">chrome</option>
+                                        <option value="firefox">firefox</option>
+                                        <option value="safari">safari</option>
+                                        <option value="ios">ios</option>
+                                        <option value="android">android</option>
+                                        <option value="edge">edge</option>
+                                        <option value="randomized">randomized</option>
+                                        <option value="random">random</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Spider X</label>
+                                <input type="text" class="form-input" id="edit-reality-spider-x" placeholder="/">
+                            </div>
+                        </div>
+
+                        <!-- TLS Settings -->
+                        <div id="security-tls-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: #27ae60;">🔒 TLS Settings</h4>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Server Name</label>
+                                    <input type="text" class="form-input" id="edit-tls-server-name" placeholder="example.com">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">ALPN</label>
+                                    <select class="form-input" id="edit-tls-alpn" multiple style="height: 80px;">
+                                        <option value="h2" selected>h2</option>
+                                        <option value="http/1.1" selected>http/1.1</option>
+                                        <option value="h3">h3</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Cert File Path</label>
+                                    <input type="text" class="form-input" id="edit-tls-cert-file" placeholder="/path/to/fullchain.pem">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Key File Path</label>
+                                    <input type="text" class="form-input" id="edit-tls-key-file" placeholder="/path/to/privkey.pem">
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Settings (JSON)</label>
-                        <textarea class="form-input" id="edit-inbound-settings" rows="6" style="font-family: monospace; font-size: 12px;"></textarea>
-                    </div>
+                    <!-- Tab: Advanced (Raw JSON) -->
+                    <div class="modal-tab-content" id="inbound-tab-advanced" style="padding: 20px; display: none;">
+                        <div style="background: #fff3cd; color: #856404; padding: 10px 15px; border-radius: 8px; margin-bottom: 15px;">
+                            ⚠️ <strong>Внимание:</strong> Редактирование JSON напрямую. Изменения здесь перезапишут визуальные настройки.
+                        </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Sniffing (JSON)</label>
-                        <textarea class="form-input" id="edit-inbound-sniffing" rows="4" style="font-family: monospace; font-size: 12px;"></textarea>
+                        <div class="form-group">
+                            <label class="form-label">Stream Settings (JSON)</label>
+                            <textarea class="form-input" id="edit-inbound-stream" rows="10" style="font-family: monospace; font-size: 12px;"></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Settings (JSON)</label>
+                            <textarea class="form-input" id="edit-inbound-settings" rows="8" style="font-family: monospace; font-size: 12px;"></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Sniffing (JSON)</label>
+                            <textarea class="form-input" id="edit-inbound-sniffing" rows="4" style="font-family: monospace; font-size: 12px;"></textarea>
+                        </div>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button class="btn btn-secondary" onclick="closeInboundModal()">Отмена</button>
-                    <button class="btn btn-primary" onclick="saveInbound()">💾 Сохранить</button>
+                <div class="modal-footer" style="display: flex; justify-content: space-between;">
+                    <div>
+                        <button class="btn btn-secondary" onclick="resetInboundForm()" title="Сбросить изменения">🔄 Сбросить</button>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-secondary" onclick="closeInboundModal()">Отмена</button>
+                        <button class="btn btn-primary" onclick="saveInbound()">💾 Сохранить</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1540,6 +2034,33 @@
                     <button class="btn btn-primary" onclick="xuiAction('start')">▶️ Запустить</button>
                     <button class="btn btn-secondary" onclick="loadXuiStatus()">📊 Обновить</button>
                     <button class="btn btn-primary" onclick="openPanel()" id="panel-link-btn">🔗 Панель</button>
+                </div>
+
+                <!-- Panel Credentials Display -->
+                <div id="panel-credentials-box" style="margin-top: 15px; padding: 15px; background: var(--bg-tertiary); border-radius: 8px; border: 1px solid var(--border); display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span style="font-weight: 600; color: var(--text-primary);">🔐 Данные для входа в панель</span>
+                        <button class="btn btn-secondary" onclick="toggleCredentialsVisibility()" style="padding: 4px 8px; font-size: 12px;" id="toggle-creds-btn">👁️ Показать</button>
+                    </div>
+                    <div id="panel-creds-content" style="display: none;">
+                        <div style="display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; font-size: 13px;">
+                            <span style="color: var(--text-secondary);">Логин:</span>
+                            <code id="panel-username" style="background: var(--bg-primary); padding: 4px 8px; border-radius: 4px;">-</code>
+                            <button class="btn" onclick="copyToClipboard(document.getElementById('panel-username').textContent)" style="padding: 4px 8px; font-size: 11px;">📋</button>
+
+                            <span style="color: var(--text-secondary);">Пароль:</span>
+                            <code id="panel-password" style="background: var(--bg-primary); padding: 4px 8px; border-radius: 4px;">-</code>
+                            <button class="btn" onclick="copyToClipboard(document.getElementById('panel-password').textContent)" style="padding: 4px 8px; font-size: 11px;">📋</button>
+
+                            <span style="color: var(--text-secondary);">Порт:</span>
+                            <code id="panel-port" style="background: var(--bg-primary); padding: 4px 8px; border-radius: 4px;">-</code>
+                            <span></span>
+                        </div>
+                        <div style="margin-top: 12px; display: flex; gap: 10px;">
+                            <button class="btn btn-warning" onclick="showResetCredentialsModal()" style="font-size: 12px;">🔄 Сбросить пароль</button>
+                            <button class="btn btn-secondary" onclick="loadPanelCredentials()" style="font-size: 12px;">🔃 Обновить</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -1678,6 +2199,171 @@
             </div>
         </div>
 
+        <!-- Tab: Automation Settings -->
+        <div id="tab-automation" class="tab-content">
+            <h2>🤖 Автоматизация</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+                Настройки автоматических задач и мониторинга
+            </p>
+
+            <!-- Services Status -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">📊 Статус сервисов</h3>
+                <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));" id="services-status-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">X-UI</div>
+                        <div class="stat-value" id="service-xui-status" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">XUI-Manager</div>
+                        <div class="stat-value" id="service-manager-status" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Nginx</div>
+                        <div class="stat-value" id="service-nginx-status" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">WARP</div>
+                        <div class="stat-value" id="service-warp-status" style="font-size: 14px;">-</div>
+                    </div>
+                </div>
+                <div class="btn-group" style="margin-top: 15px;">
+                    <button class="btn btn-primary" onclick="loadServicesStatus()">🔄 Обновить</button>
+                    <button class="btn btn-warning" onclick="restartService('x-ui')">🔄 X-UI</button>
+                    <button class="btn btn-warning" onclick="restartService('nginx')">🔄 Nginx</button>
+                </div>
+            </div>
+
+            <!-- Backup Settings -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">💾 Настройки бэкапов</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="backup-enabled" checked>
+                            <span>Автоматические бэкапы</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Интервал (часов)</label>
+                        <input type="number" class="form-input" id="backup-interval" value="24" min="1" max="168">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Хранить (дней)</label>
+                        <input type="number" class="form-input" id="backup-retention" value="7" min="1" max="30">
+                    </div>
+                </div>
+            </div>
+
+            <!-- SSL Settings -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">🔐 SSL сертификаты</h3>
+                <div id="ssl-certificates-list" style="margin-bottom: 15px;">
+                    <p style="color: var(--text-secondary);">Загрузка...</p>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="ssl-auto-check" checked>
+                            <span>Авто-проверка SSL</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="ssl-auto-renew" checked>
+                            <span>Авто-продление</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="checkSSLCertificates()">🔍 Проверить SSL</button>
+                    <button class="btn btn-success" onclick="renewSSLCertificates()">🔄 Продлить</button>
+                </div>
+            </div>
+
+            <!-- WARP Settings -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">🌐 Cloudflare WARP</h3>
+                <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); margin-bottom: 15px;">
+                    <div class="stat-card">
+                        <div class="stat-label">Статус</div>
+                        <div class="stat-value" id="warp-connection-status" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">IP</div>
+                        <div class="stat-value" id="warp-ip" style="font-size: 12px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Страна</div>
+                        <div class="stat-value" id="warp-country" style="font-size: 14px;">-</div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="warp-health-check">
+                            <span>Мониторинг здоровья</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="warp-auto-restart">
+                            <span>Авто-перезапуск</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="checkWarpStatus()">🔍 Проверить</button>
+                    <button class="btn btn-warning" onclick="restartWarp()">🔄 Перезапустить</button>
+                </div>
+            </div>
+
+            <!-- Save Button -->
+            <div style="text-align: right; margin-top: 20px;">
+                <button class="btn btn-success" onclick="saveAutomationSettings()" style="padding: 12px 30px;">
+                    💾 Сохранить настройки
+                </button>
+            </div>
+        </div>
+
+        <!-- Tab: Backups -->
+        <div id="tab-backups" class="tab-content">
+            <h2>💾 Резервные копии</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+                Управление бэкапами базы данных и настроек
+            </p>
+
+            <div class="btn-group" style="margin-bottom: 20px;">
+                <button class="btn btn-success" onclick="createBackup()">➕ Создать бэкап</button>
+                <button class="btn btn-primary" onclick="loadBackups()">🔄 Обновить</button>
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Дата</th>
+                            <th>Файлов</th>
+                            <th>Размер</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="backups-table-body">
+                        <tr><td colspan="4" class="loading">Загрузка...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="background: var(--bg-secondary); padding: 15px; border-radius: 8px; margin-top: 20px;">
+                <h4 style="margin: 0 0 10px 0;">ℹ️ Что включено в бэкап:</h4>
+                <ul style="margin: 0; padding-left: 20px; color: var(--text-secondary); font-size: 13px;">
+                    <li>База данных x-ui.db (пользователи, inbounds)</li>
+                    <li>Конфигурация Xray (config.json)</li>
+                    <li>Настройки XUI-Manager (.env)</li>
+                </ul>
+            </div>
+        </div>
+
         <!-- Tab: Monitoring -->
         <div id="tab-monitoring" class="tab-content">
             <h2>Мониторинг сервера</h2>
@@ -1777,6 +2463,257 @@
                 </table>
             </div>
         </div>
+
+        <!-- Tab: Panel Management -->
+        <div id="tab-panel-manage" class="tab-content">
+            <h2>🔐 Управление панелью 3x-ui</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Управление учётными данными, настройками и резервными копиями панели 3x-ui
+            </p>
+
+            <!-- Panel Status -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">📊 Статус панели</h3>
+                <div id="panel-status-info" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-top: 15px;">
+                    <div class="stat-card">
+                        <div class="stat-label">Статус</div>
+                        <div class="stat-value" id="pm-status" style="font-size: 16px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Версия</div>
+                        <div class="stat-value" id="pm-version" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Xray</div>
+                        <div class="stat-value" id="pm-xray" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Пользователей</div>
+                        <div class="stat-value" id="pm-users" style="font-size: 16px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Inbounds</div>
+                        <div class="stat-value" id="pm-inbounds" style="font-size: 16px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Размер БД</div>
+                        <div class="stat-value" id="pm-dbsize" style="font-size: 14px;">-</div>
+                    </div>
+                </div>
+                <button class="btn btn-secondary" onclick="loadPanelStatus()" style="margin-top: 15px;">🔃 Обновить статус</button>
+            </div>
+
+            <!-- Credentials Management -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">🔑 Учётные данные</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+                    <div class="form-group">
+                        <label class="form-label">Новый логин</label>
+                        <input type="text" class="form-input" id="new-panel-username" placeholder="admin" value="admin">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Новый пароль</label>
+                        <input type="text" class="form-input" id="new-panel-password" placeholder="Новый пароль">
+                        <button class="btn btn-secondary" onclick="generateRandomPassword()" style="margin-top: 5px; font-size: 11px;">🎲 Сгенерировать</button>
+                    </div>
+                </div>
+                <div class="btn-group" style="margin-top: 15px;">
+                    <button class="btn btn-warning" onclick="resetPanelCredentials()">🔄 Сбросить пароль</button>
+                </div>
+            </div>
+
+            <!-- Database Backup/Restore -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">💾 Резервное копирование</h3>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-success" onclick="createPanelBackup()">📦 Создать бэкап</button>
+                    <button class="btn btn-secondary" onclick="loadPanelBackups()">📋 Список бэкапов</button>
+                </div>
+                <div id="panel-backups-list" style="display: none; margin-top: 15px;">
+                    <table style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Файл</th>
+                                <th>Размер</th>
+                                <th>Дата</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backups-tbody">
+                            <tr><td colspan="4">Нет резервных копий</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Panel Reinstall -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">🔧 Переустановка панели</h3>
+                <p style="color: #888; font-size: 12px; margin-bottom: 15px;">
+                    Переустановка панели с сохранением базы данных пользователей
+                </p>
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label class="form-label">Выберите форк</label>
+                    <select id="panel-fork-select" class="form-input" style="max-width: 300px;">
+                        <option value="mhsanaei">MHSanaei (рекомендуется)</option>
+                        <option value="alireza">Alireza0</option>
+                        <option value="franzkafka">FranzKafkaYu</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                        <input type="checkbox" id="preserve-db" checked> Сохранить базу данных
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                        <input type="checkbox" id="preserve-config" checked> Сохранить настройки
+                    </label>
+                </div>
+                <button class="btn btn-danger" onclick="reinstallPanel()">⚠️ Переустановить панель</button>
+            </div>
+        </div>
+
+        <!-- Tab: Nginx Management -->
+        <div id="tab-nginx-manage" class="tab-content">
+            <h2>🌐 Управление Nginx</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Просмотр конфигурации nginx, проверка настроек и требований для inbounds
+            </p>
+
+            <!-- Nginx Status -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">📊 Статус Nginx</h3>
+                <div id="nginx-status-info" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-top: 15px;">
+                    <div class="stat-card">
+                        <div class="stat-label">Статус</div>
+                        <div class="stat-value" id="nginx-running" style="font-size: 16px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Конфигурация</div>
+                        <div class="stat-value" id="nginx-valid" style="font-size: 16px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">SSL</div>
+                        <div class="stat-value" id="nginx-ssl" style="font-size: 16px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">XUI Manager</div>
+                        <div class="stat-value" id="nginx-xui-manager" style="font-size: 14px;">-</div>
+                    </div>
+                </div>
+                <div id="nginx-domains" style="margin-top: 15px; font-size: 13px; color: var(--text-secondary);"></div>
+                <div class="btn-group" style="margin-top: 15px;">
+                    <button class="btn btn-secondary" onclick="loadNginxStatus()">🔃 Обновить</button>
+                    <button class="btn btn-primary" onclick="testNginxConfig()">🧪 Проверить конфиг</button>
+                    <button class="btn btn-warning" onclick="reloadNginx()">🔄 Перезагрузить Nginx</button>
+                </div>
+            </div>
+
+            <!-- Nginx Warnings/Errors -->
+            <div id="nginx-issues" style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px; display: none;">
+                <h3 style="margin-top: 0;">⚠️ Проблемы</h3>
+                <div id="nginx-errors" style="color: var(--danger); margin-bottom: 10px;"></div>
+                <div id="nginx-warnings" style="color: var(--warning);"></div>
+            </div>
+
+            <!-- Inbound Requirements -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">📡 Требования Inbounds к Nginx</h3>
+                <p style="color: #888; font-size: 12px; margin-bottom: 15px;">
+                    Анализ inbounds, которым требуется конфигурация nginx (WebSocket, gRPC, HTTP Upgrade)
+                </p>
+                <button class="btn btn-primary" onclick="analyzeInboundRequirements()">🔍 Анализировать</button>
+                <div id="inbound-requirements" style="margin-top: 15px; display: none;">
+                    <table style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Inbound</th>
+                                <th>Тип</th>
+                                <th>Порт</th>
+                                <th>Требует Nginx</th>
+                                <th>Причина</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inbound-req-tbody"></tbody>
+                    </table>
+                </div>
+                <div id="suggested-nginx-config" style="margin-top: 15px; display: none;">
+                    <h4>Предлагаемая конфигурация:</h4>
+                    <pre id="suggested-config-content" style="background: var(--bg-primary); padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px;"></pre>
+                    <button class="btn btn-secondary" onclick="copySuggestedConfig()">📋 Копировать</button>
+                </div>
+            </div>
+
+            <!-- Nginx Config Viewer -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                <h3 style="margin-top: 0;">📄 Конфигурация Nginx</h3>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-secondary" onclick="loadNginxConfig()">📄 Показать конфиг</button>
+                </div>
+                <pre id="nginx-config-content" style="background: var(--bg-primary); padding: 15px; border-radius: 8px; max-height: 400px; overflow: auto; font-size: 12px; display: none;"></pre>
+            </div>
+        </div>
+
+        <!-- Tab: Camouflage -->
+        <div id="tab-camouflage" class="tab-content">
+            <h2>🎭 Камуфляж - Fake сайты</h2>
+            <p style="color: #666; margin-bottom: 20px; font-size: 14px;">
+                Установка фейковых сайтов для маскировки VPN-инфраструктуры
+            </p>
+
+            <!-- Current Site Status -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">📊 Текущий статус</h3>
+                <div id="camouflage-status" style="margin-top: 15px;">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                        <span style="color: var(--text-secondary);">Установлен:</span>
+                        <span id="camo-installed" style="font-weight: 600;">-</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="color: var(--text-secondary);">Шаблон:</span>
+                        <span id="camo-template-name">-</span>
+                    </div>
+                </div>
+                <div class="btn-group" style="margin-top: 15px;">
+                    <button class="btn btn-secondary" onclick="loadCamouflageStatus()">🔃 Обновить</button>
+                    <button class="btn btn-danger" onclick="removeCamouflage()">🗑️ Удалить fake сайт</button>
+                </div>
+            </div>
+
+            <!-- Template Gallery -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">🎨 Галерея шаблонов</h3>
+                <div class="btn-group" style="margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="loadCamouflageTemplates()">📋 Загрузить шаблоны</button>
+                    <button class="btn btn-success" onclick="installRandomTemplate()">🎲 Случайный шаблон</button>
+                </div>
+
+                <div id="templates-filter" style="margin-bottom: 15px; display: none;">
+                    <label class="form-label">Фильтр по категории:</label>
+                    <select id="template-category-filter" class="form-input" style="max-width: 200px;" onchange="filterTemplates()">
+                        <option value="">Все категории</option>
+                    </select>
+                </div>
+
+                <div id="templates-gallery" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px;"></div>
+            </div>
+
+            <!-- Custom HTML -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                <h3 style="margin-top: 0;">✏️ Собственный HTML</h3>
+                <p style="color: #888; font-size: 12px; margin-bottom: 15px;">
+                    Вставьте свой HTML код для создания кастомного fake сайта
+                </p>
+                <div class="form-group">
+                    <textarea id="custom-html-input" class="form-input" style="min-height: 200px; font-family: monospace;" placeholder="<!DOCTYPE html>
+<html>
+<head><title>My Site</title></head>
+<body>...</body>
+</html>"></textarea>
+                </div>
+                <button class="btn btn-primary" onclick="installCustomHtml()">📥 Установить HTML</button>
+            </div>
+        </div>
+
             </div><!-- Close main-content -->
         </div><!-- Close app-layout -->
     </div>
@@ -1843,7 +2780,7 @@
 
             // Close mobile sidebar after selection
             if (window.innerWidth <= 900) {
-                document.getElementById('sidebar').classList.remove('mobile-open');
+                closeSidebar();
             }
 
             // Handle tab-specific actions
@@ -1865,7 +2802,20 @@
 
         // Toggle mobile sidebar
         function toggleSidebar() {
-            document.getElementById('sidebar').classList.toggle('mobile-open');
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            sidebar.classList.toggle('mobile-open');
+            overlay.classList.toggle('active');
+            document.body.style.overflow = sidebar.classList.contains('mobile-open') ? 'hidden' : '';
+        }
+
+        // Close mobile sidebar
+        function closeSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            sidebar.classList.remove('mobile-open');
+            overlay.classList.remove('active');
+            document.body.style.overflow = '';
         }
 
         // Toast notifications
@@ -4188,6 +5138,309 @@ Subject: ${cert.subject || 'N/A'}
             }
         }
 
+        // ==================== INBOUND VISUAL EDITOR ====================
+
+        let currentInboundData = null; // Store original data for reset
+
+        // Generate random string
+        function generateRandomString(length = 8) {
+            const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+            let result = '';
+            for (let i = 0; i < length; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return result;
+        }
+
+        // Generate random port (30000-60000)
+        function generateRandomPort() {
+            const port = Math.floor(Math.random() * 30000) + 30000;
+            document.getElementById('edit-inbound-port').value = port;
+        }
+
+        // Generate random path
+        function generateRandomPath() {
+            const path = '/' + generateRandomString(8);
+            document.getElementById('edit-ws-path').value = path;
+        }
+
+        // Generate random service name
+        function generateRandomServiceName() {
+            document.getElementById('edit-grpc-service').value = generateRandomString(10);
+        }
+
+        // Generate Short ID (hex string)
+        function generateShortId() {
+            const hex = '0123456789abcdef';
+            let shortId = '';
+            for (let i = 0; i < 8; i++) {
+                shortId += hex.charAt(Math.floor(Math.random() * 16));
+            }
+            document.getElementById('edit-reality-short-ids').value = shortId;
+        }
+
+        // Generate X25519 keys via API
+        async function generateX25519Keys() {
+            try {
+                const response = await fetch(API_URL + 'api/generator/x25519', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.private_key && data.public_key) {
+                    document.getElementById('edit-reality-private-key').value = data.private_key;
+                    document.getElementById('edit-reality-public-key').value = data.public_key;
+                    showToast('✅ X25519 ключи сгенерированы', 'success');
+                } else {
+                    showToast('Ошибка генерации ключей', 'error');
+                }
+            } catch (error) {
+                console.error('Error generating X25519:', error);
+                showToast('Ошибка генерации ключей', 'error');
+            }
+        }
+
+        // Switch inbound modal tabs
+        function switchInboundTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.modal-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tabName);
+            });
+
+            // Update tab content
+            document.querySelectorAll('.modal-tab-content').forEach(content => {
+                content.style.display = 'none';
+            });
+            document.getElementById(`inbound-tab-${tabName}`).style.display = 'block';
+
+            // If switching to advanced, sync visual fields to JSON
+            if (tabName === 'advanced') {
+                syncVisualToJson();
+            }
+        }
+
+        // Update transport settings visibility based on network type
+        function updateTransportFields() {
+            const network = document.getElementById('edit-network-type').value;
+
+            // Hide all transport settings
+            ['tcp', 'ws', 'grpc', 'httpupgrade', 'splithttp'].forEach(type => {
+                const elem = document.getElementById(`transport-${type}-settings`);
+                if (elem) elem.style.display = 'none';
+            });
+
+            // Show selected transport settings
+            const selectedElem = document.getElementById(`transport-${network}-settings`);
+            if (selectedElem) selectedElem.style.display = 'block';
+        }
+
+        // Update security settings visibility
+        function updateSecurityFields() {
+            const security = document.getElementById('edit-security-type').value;
+
+            document.getElementById('security-reality-settings').style.display =
+                security === 'reality' ? 'block' : 'none';
+            document.getElementById('security-tls-settings').style.display =
+                security === 'tls' ? 'block' : 'none';
+        }
+
+        // Parse inbound data into visual fields
+        function parseInboundToVisual(ib) {
+            const stream = ib.stream_settings || {};
+            const sniff = ib.sniffing || {};
+
+            // Basic fields
+            document.getElementById('edit-inbound-listen').value = ib.listen || '';
+
+            // Sniffing
+            document.getElementById('edit-sniffing-enabled').checked = sniff.enabled !== false;
+            const destOverride = sniff.destOverride || ['http', 'tls', 'quic'];
+            document.getElementById('sniff-http').checked = destOverride.includes('http');
+            document.getElementById('sniff-tls').checked = destOverride.includes('tls');
+            document.getElementById('sniff-quic').checked = destOverride.includes('quic');
+            document.getElementById('sniff-fakedns').checked = destOverride.includes('fakedns');
+
+            // Network type
+            const network = stream.network || 'tcp';
+            document.getElementById('edit-network-type').value = network;
+
+            // Transport-specific settings
+            if (network === 'ws') {
+                const wsSettings = stream.wsSettings || {};
+                document.getElementById('edit-ws-path').value = wsSettings.path || '/';
+                document.getElementById('edit-ws-host').value = (wsSettings.headers || {}).Host || '';
+            } else if (network === 'grpc') {
+                const grpcSettings = stream.grpcSettings || {};
+                document.getElementById('edit-grpc-service').value = grpcSettings.serviceName || '';
+                document.getElementById('edit-grpc-mode').value = grpcSettings.multiMode ? 'multi' : 'gun';
+            } else if (network === 'httpupgrade') {
+                const httpSettings = stream.httpupgradeSettings || {};
+                document.getElementById('edit-httpupgrade-path').value = httpSettings.path || '/';
+                document.getElementById('edit-httpupgrade-host').value = httpSettings.host || '';
+            } else if (network === 'splithttp') {
+                const splitSettings = stream.splithttpSettings || {};
+                document.getElementById('edit-splithttp-path').value = splitSettings.path || '/';
+                document.getElementById('edit-splithttp-host').value = splitSettings.host || '';
+            } else if (network === 'tcp') {
+                const tcpSettings = stream.tcpSettings || {};
+                document.getElementById('edit-tcp-header-type').value =
+                    (tcpSettings.header || {}).type || 'none';
+            }
+
+            // Security type
+            const security = stream.security || 'none';
+            document.getElementById('edit-security-type').value = security;
+
+            // Reality settings
+            if (security === 'reality') {
+                const reality = stream.realitySettings || {};
+                document.getElementById('edit-reality-dest').value = reality.dest || '';
+                document.getElementById('edit-reality-sni').value =
+                    (reality.serverNames || [])[0] || '';
+                document.getElementById('edit-reality-private-key').value = reality.privateKey || '';
+                document.getElementById('edit-reality-public-key').value = reality.publicKey || '';
+                document.getElementById('edit-reality-short-ids').value =
+                    (reality.shortIds || []).join(', ');
+                document.getElementById('edit-reality-fingerprint').value =
+                    reality.fingerprint || 'chrome';
+                document.getElementById('edit-reality-spider-x').value = reality.spiderX || '/';
+            }
+
+            // TLS settings
+            if (security === 'tls') {
+                const tls = stream.tlsSettings || {};
+                document.getElementById('edit-tls-server-name').value = tls.serverName || '';
+                document.getElementById('edit-tls-cert-file').value =
+                    (tls.certificates || [{}])[0].certificateFile || '';
+                document.getElementById('edit-tls-key-file').value =
+                    (tls.certificates || [{}])[0].keyFile || '';
+            }
+
+            // Update visibility
+            updateTransportFields();
+            updateSecurityFields();
+        }
+
+        // Sync visual fields to JSON textareas
+        function syncVisualToJson() {
+            const stream = buildStreamSettingsFromVisual();
+            const sniffing = buildSniffingFromVisual();
+
+            document.getElementById('edit-inbound-stream').value =
+                JSON.stringify(stream, null, 2);
+            document.getElementById('edit-inbound-sniffing').value =
+                JSON.stringify(sniffing, null, 2);
+        }
+
+        // Build stream settings from visual fields
+        function buildStreamSettingsFromVisual() {
+            const network = document.getElementById('edit-network-type').value;
+            const security = document.getElementById('edit-security-type').value;
+
+            const stream = {
+                network: network,
+                security: security
+            };
+
+            // Transport settings
+            if (network === 'ws') {
+                stream.wsSettings = {
+                    path: document.getElementById('edit-ws-path').value || '/',
+                    headers: {}
+                };
+                const host = document.getElementById('edit-ws-host').value;
+                if (host) stream.wsSettings.headers.Host = host;
+            } else if (network === 'grpc') {
+                stream.grpcSettings = {
+                    serviceName: document.getElementById('edit-grpc-service').value || '',
+                    multiMode: document.getElementById('edit-grpc-mode').value === 'multi'
+                };
+            } else if (network === 'httpupgrade') {
+                stream.httpupgradeSettings = {
+                    path: document.getElementById('edit-httpupgrade-path').value || '/',
+                    host: document.getElementById('edit-httpupgrade-host').value || ''
+                };
+            } else if (network === 'splithttp') {
+                stream.splithttpSettings = {
+                    path: document.getElementById('edit-splithttp-path').value || '/',
+                    host: document.getElementById('edit-splithttp-host').value || ''
+                };
+            } else if (network === 'tcp') {
+                const headerType = document.getElementById('edit-tcp-header-type').value;
+                if (headerType !== 'none') {
+                    stream.tcpSettings = { header: { type: headerType } };
+                }
+            }
+
+            // Security settings
+            if (security === 'reality') {
+                const shortIds = document.getElementById('edit-reality-short-ids').value
+                    .split(',').map(s => s.trim()).filter(s => s);
+                const sni = document.getElementById('edit-reality-sni').value;
+
+                stream.realitySettings = {
+                    show: false,
+                    dest: document.getElementById('edit-reality-dest').value || 'www.microsoft.com:443',
+                    xver: 0,
+                    serverNames: sni ? [sni] : ['www.microsoft.com'],
+                    privateKey: document.getElementById('edit-reality-private-key').value,
+                    shortIds: shortIds.length ? shortIds : [''],
+                    fingerprint: document.getElementById('edit-reality-fingerprint').value || 'chrome',
+                    spiderX: document.getElementById('edit-reality-spider-x').value || '/'
+                };
+            } else if (security === 'tls') {
+                stream.tlsSettings = {
+                    serverName: document.getElementById('edit-tls-server-name').value,
+                    certificates: [{
+                        certificateFile: document.getElementById('edit-tls-cert-file').value,
+                        keyFile: document.getElementById('edit-tls-key-file').value
+                    }]
+                };
+            }
+
+            return stream;
+        }
+
+        // Build sniffing from visual fields
+        function buildSniffingFromVisual() {
+            const destOverride = [];
+            if (document.getElementById('sniff-http').checked) destOverride.push('http');
+            if (document.getElementById('sniff-tls').checked) destOverride.push('tls');
+            if (document.getElementById('sniff-quic').checked) destOverride.push('quic');
+            if (document.getElementById('sniff-fakedns').checked) destOverride.push('fakedns');
+
+            return {
+                enabled: document.getElementById('edit-sniffing-enabled').checked,
+                destOverride: destOverride
+            };
+        }
+
+        // Reset inbound form to original values
+        function resetInboundForm() {
+            if (currentInboundData) {
+                parseInboundToVisual(currentInboundData);
+                document.getElementById('edit-inbound-stream').value =
+                    currentInboundData.stream_settings ?
+                    JSON.stringify(currentInboundData.stream_settings, null, 2) : '';
+                document.getElementById('edit-inbound-settings').value =
+                    currentInboundData.settings ?
+                    JSON.stringify(currentInboundData.settings, null, 2) : '';
+                document.getElementById('edit-inbound-sniffing').value =
+                    currentInboundData.sniffing ?
+                    JSON.stringify(currentInboundData.sniffing, null, 2) : '';
+                showToast('Форма сброшена', 'info');
+            }
+        }
+
+        // Copy to clipboard
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('📋 Скопировано', 'success');
+            }).catch(err => {
+                console.error('Copy failed:', err);
+            });
+        }
+
         async function editInbound(id) {
             try {
                 const response = await fetch(API_URL + `api/inbounds/${id}/full`, {
@@ -4197,19 +5450,28 @@ Subject: ${cert.subject || 'N/A'}
 
                 if (data.success && data.inbound) {
                     const ib = data.inbound;
+                    currentInboundData = ib; // Store for reset
+
+                    // Basic fields
                     document.getElementById('edit-inbound-id').value = id;
                     document.getElementById('edit-inbound-remark').value = ib.remark || '';
                     document.getElementById('edit-inbound-port').value = ib.port || '';
                     document.getElementById('edit-inbound-protocol').value = ib.protocol || '';
                     document.getElementById('edit-inbound-enable').value = ib.enable ? '1' : '0';
 
-                    // Format JSON fields
+                    // Format JSON fields (Advanced tab)
                     document.getElementById('edit-inbound-stream').value =
                         ib.stream_settings ? JSON.stringify(ib.stream_settings, null, 2) : '';
                     document.getElementById('edit-inbound-settings').value =
                         ib.settings ? JSON.stringify(ib.settings, null, 2) : '';
                     document.getElementById('edit-inbound-sniffing').value =
                         ib.sniffing ? JSON.stringify(ib.sniffing, null, 2) : '';
+
+                    // Parse to visual fields
+                    parseInboundToVisual(ib);
+
+                    // Reset to first tab
+                    switchInboundTab('basic');
 
                     document.getElementById('inbound-modal-title').textContent = `Редактировать: ${ib.remark}`;
                     document.getElementById('inbound-edit-modal').style.display = 'flex';
@@ -4224,21 +5486,41 @@ Subject: ${cert.subject || 'N/A'}
 
         function closeInboundModal() {
             document.getElementById('inbound-edit-modal').style.display = 'none';
+            currentInboundData = null;
         }
 
         async function saveInbound() {
             const id = document.getElementById('edit-inbound-id').value;
+            const activeTab = document.querySelector('.modal-tab.active');
+            const isAdvancedTab = activeTab && activeTab.dataset.tab === 'advanced';
 
-            // Parse JSON fields
+            // Parse JSON fields - use visual or advanced based on active tab
             let streamSettings, settings, sniffing;
-            try {
-                const streamText = document.getElementById('edit-inbound-stream').value.trim();
-                streamSettings = streamText ? JSON.parse(streamText) : null;
-            } catch (e) {
-                showToast('Ошибка в Stream Settings JSON', 'error');
-                return;
+
+            if (isAdvancedTab) {
+                // Use raw JSON from advanced tab
+                try {
+                    const streamText = document.getElementById('edit-inbound-stream').value.trim();
+                    streamSettings = streamText ? JSON.parse(streamText) : null;
+                } catch (e) {
+                    showToast('Ошибка в Stream Settings JSON', 'error');
+                    return;
+                }
+
+                try {
+                    const sniffingText = document.getElementById('edit-inbound-sniffing').value.trim();
+                    sniffing = sniffingText ? JSON.parse(sniffingText) : null;
+                } catch (e) {
+                    showToast('Ошибка в Sniffing JSON', 'error');
+                    return;
+                }
+            } else {
+                // Build from visual fields
+                streamSettings = buildStreamSettingsFromVisual();
+                sniffing = buildSniffingFromVisual();
             }
 
+            // Settings always from JSON (contains clients)
             try {
                 const settingsText = document.getElementById('edit-inbound-settings').value.trim();
                 settings = settingsText ? JSON.parse(settingsText) : null;
@@ -4247,18 +5529,11 @@ Subject: ${cert.subject || 'N/A'}
                 return;
             }
 
-            try {
-                const sniffingText = document.getElementById('edit-inbound-sniffing').value.trim();
-                sniffing = sniffingText ? JSON.parse(sniffingText) : null;
-            } catch (e) {
-                showToast('Ошибка в Sniffing JSON', 'error');
-                return;
-            }
-
             const data = {
                 remark: document.getElementById('edit-inbound-remark').value,
                 port: parseInt(document.getElementById('edit-inbound-port').value),
                 enable: parseInt(document.getElementById('edit-inbound-enable').value),
+                listen: document.getElementById('edit-inbound-listen').value || '',
                 stream_settings: streamSettings,
                 settings: settings,
                 sniffing: sniffing
@@ -4833,10 +6108,919 @@ Subject: ${cert.subject || 'N/A'}
             }
         }
 
+        // ==================== PANEL MANAGEMENT ====================
+
+        // Load panel credentials
+        async function loadPanelCredentials() {
+            try {
+                const response = await fetch('/api/panel/credentials');
+                const data = await response.json();
+
+                if (data.success && data.credentials) {
+                    document.getElementById('panel-credentials-box').style.display = 'block';
+                    document.getElementById('panel-username').textContent = data.credentials.username || '-';
+                    document.getElementById('panel-password').textContent = data.credentials.password || '-';
+                    document.getElementById('panel-port').textContent = data.credentials.web_port || '-';
+                }
+            } catch (error) {
+                console.error('Error loading credentials:', error);
+            }
+        }
+
+        // Toggle credentials visibility
+        let credsVisible = false;
+        function toggleCredentialsVisibility() {
+            credsVisible = !credsVisible;
+            const content = document.getElementById('panel-creds-content');
+            const btn = document.getElementById('toggle-creds-btn');
+
+            if (credsVisible) {
+                content.style.display = 'block';
+                btn.textContent = '🙈 Скрыть';
+            } else {
+                content.style.display = 'none';
+                btn.textContent = '👁️ Показать';
+            }
+        }
+
+        // Show reset credentials modal
+        function showResetCredentialsModal() {
+            showTab('panel-manage');
+        }
+
+        // Load panel status
+        async function loadPanelStatus() {
+            try {
+                const response = await fetch('/api/panel/status');
+                const data = await response.json();
+
+                if (data.success && data.status) {
+                    const s = data.status;
+                    document.getElementById('pm-status').textContent = s.running ? '🟢 Работает' : '🔴 Остановлен';
+                    document.getElementById('pm-status').style.color = s.running ? 'var(--success)' : 'var(--danger)';
+                    document.getElementById('pm-version').textContent = s.version || '-';
+                    document.getElementById('pm-xray').textContent = s.xray_version || '-';
+                    document.getElementById('pm-users').textContent = s.users_count || '0';
+                    document.getElementById('pm-inbounds').textContent = s.inbounds_count || '0';
+                    document.getElementById('pm-dbsize').textContent = s.database_size || '-';
+                }
+            } catch (error) {
+                console.error('Error loading panel status:', error);
+                showToast('Ошибка загрузки статуса панели', 'error');
+            }
+        }
+
+        // Generate random password
+        function generateRandomPassword() {
+            const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%&*';
+            let password = '';
+            for (let i = 0; i < 16; i++) {
+                password += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            document.getElementById('new-panel-password').value = password;
+        }
+
+        // Reset panel credentials
+        async function resetPanelCredentials() {
+            const username = document.getElementById('new-panel-username').value || 'admin';
+            const password = document.getElementById('new-panel-password').value;
+
+            if (!password) {
+                showToast('Введите новый пароль', 'error');
+                return;
+            }
+
+            if (!confirm(`Сбросить учётные данные панели?\n\nНовый логин: ${username}\nНовый пароль: ${password}`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/panel/reset-credentials', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Учётные данные сброшены. Перезапустите панель.', 'success');
+                    loadPanelCredentials();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error resetting credentials:', error);
+                showToast('Ошибка сброса учётных данных', 'error');
+            }
+        }
+
+        // Create panel backup
+        async function createPanelBackup() {
+            try {
+                const response = await fetch('/api/panel/backup', { method: 'POST' });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Бэкап создан: ' + data.backup_path, 'success');
+                    loadPanelBackups();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error creating backup:', error);
+                showToast('Ошибка создания бэкапа', 'error');
+            }
+        }
+
+        // Load panel backups
+        async function loadPanelBackups() {
+            try {
+                const response = await fetch('/api/panel/backups');
+                const data = await response.json();
+
+                document.getElementById('panel-backups-list').style.display = 'block';
+                const tbody = document.getElementById('backups-tbody');
+
+                if (data.success && data.backups && data.backups.length > 0) {
+                    tbody.innerHTML = data.backups.map(b => `
+                        <tr>
+                            <td>${b.filename}</td>
+                            <td>${b.size || '-'}</td>
+                            <td>${b.created || '-'}</td>
+                            <td>
+                                <button class="btn btn-warning" onclick="restoreBackup('${b.path}')" style="font-size: 11px; padding: 4px 8px;">🔄 Восстановить</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4">Нет резервных копий</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error loading backups:', error);
+            }
+        }
+
+        // Restore backup
+        async function restoreBackup(backupPath) {
+            if (!confirm('Восстановить базу данных из этого бэкапа?\n\nТекущие данные будут перезаписаны!')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/panel/restore?backup_path=' + encodeURIComponent(backupPath), {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ База данных восстановлена. Перезапустите панель.', 'success');
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error restoring backup:', error);
+                showToast('Ошибка восстановления', 'error');
+            }
+        }
+
+        // Reinstall panel
+        async function reinstallPanel() {
+            const fork = document.getElementById('panel-fork-select').value;
+            const preserveDb = document.getElementById('preserve-db').checked;
+            const preserveConfig = document.getElementById('preserve-config').checked;
+
+            const forkNames = {
+                'mhsanaei': 'MHSanaei',
+                'alireza': 'Alireza0',
+                'franzkafka': 'FranzKafkaYu'
+            };
+
+            if (!confirm(`⚠️ ВНИМАНИЕ: Переустановка панели!\n\nФорк: ${forkNames[fork] || fork}\nСохранить БД: ${preserveDb ? 'Да' : 'Нет'}\nСохранить настройки: ${preserveConfig ? 'Да' : 'Нет'}\n\nЭто может занять несколько минут. Продолжить?`)) {
+                return;
+            }
+
+            showToast('Переустановка начата...', 'info');
+
+            try {
+                const response = await fetch('/api/panel/reinstall', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        fork: fork,
+                        preserve_database: preserveDb,
+                        preserve_config: preserveConfig
+                    })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Панель переустановлена!', 'success');
+                    loadPanelStatus();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error reinstalling panel:', error);
+                showToast('Ошибка переустановки', 'error');
+            }
+        }
+
+        // ==================== NGINX MANAGEMENT ====================
+
+        // Load nginx status
+        async function loadNginxStatus() {
+            try {
+                const response = await fetch('/api/nginx/status');
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('nginx-running').textContent = data.running ? '🟢 Работает' : '🔴 Остановлен';
+                    document.getElementById('nginx-running').style.color = data.running ? 'var(--success)' : 'var(--danger)';
+
+                    document.getElementById('nginx-valid').textContent = data.config_valid ? '✅ OK' : '❌ Ошибка';
+                    document.getElementById('nginx-valid').style.color = data.config_valid ? 'var(--success)' : 'var(--danger)';
+
+                    document.getElementById('nginx-ssl').textContent = data.ssl_enabled ? '🔒 Включён' : '🔓 Выключен';
+                    document.getElementById('nginx-xui-manager').textContent = data.has_xui_manager ? '✅' : '❌';
+
+                    if (data.domains && data.domains.length > 0) {
+                        document.getElementById('nginx-domains').innerHTML = '<strong>Домены:</strong> ' + data.domains.join(', ');
+                    }
+
+                    // Show issues if any
+                    const issuesDiv = document.getElementById('nginx-issues');
+                    if ((data.errors && data.errors.length > 0) || (data.warnings && data.warnings.length > 0)) {
+                        issuesDiv.style.display = 'block';
+                        document.getElementById('nginx-errors').innerHTML = data.errors ? data.errors.map(e => '❌ ' + e).join('<br>') : '';
+                        document.getElementById('nginx-warnings').innerHTML = data.warnings ? data.warnings.map(w => '⚠️ ' + w).join('<br>') : '';
+                    } else {
+                        issuesDiv.style.display = 'none';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading nginx status:', error);
+                showToast('Ошибка загрузки статуса nginx', 'error');
+            }
+        }
+
+        // Test nginx config
+        async function testNginxConfig() {
+            try {
+                const response = await fetch('/api/nginx/test', { method: 'POST' });
+                const data = await response.json();
+
+                if (data.valid) {
+                    showToast('✅ Конфигурация nginx валидна', 'success');
+                } else {
+                    showToast('❌ Ошибка конфигурации: ' + data.output, 'error');
+                }
+            } catch (error) {
+                console.error('Error testing nginx config:', error);
+                showToast('Ошибка тестирования', 'error');
+            }
+        }
+
+        // Reload nginx
+        async function reloadNginx() {
+            if (!confirm('Перезагрузить nginx?')) return;
+
+            try {
+                const response = await fetch('/api/nginx/reload', { method: 'POST' });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Nginx перезагружен', 'success');
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error reloading nginx:', error);
+                showToast('Ошибка перезагрузки nginx', 'error');
+            }
+        }
+
+        // Load nginx config
+        async function loadNginxConfig() {
+            try {
+                const response = await fetch('/api/nginx/config');
+                const data = await response.json();
+
+                const pre = document.getElementById('nginx-config-content');
+                pre.style.display = 'block';
+
+                if (data.success && data.configs) {
+                    let content = '';
+                    for (const [file, config] of Object.entries(data.configs)) {
+                        content += `# === ${file} ===\n${config}\n\n`;
+                    }
+                    pre.textContent = content;
+                } else {
+                    pre.textContent = 'Ошибка загрузки конфигурации';
+                }
+            } catch (error) {
+                console.error('Error loading nginx config:', error);
+            }
+        }
+
+        // Analyze inbound requirements
+        async function analyzeInboundRequirements() {
+            try {
+                const response = await fetch('/api/nginx/inbound-requirements');
+                const data = await response.json();
+
+                const reqDiv = document.getElementById('inbound-requirements');
+                const tbody = document.getElementById('inbound-req-tbody');
+                const suggestedDiv = document.getElementById('suggested-nginx-config');
+
+                if (data.success && data.requirements) {
+                    reqDiv.style.display = 'block';
+
+                    tbody.innerHTML = data.requirements.map(r => `
+                        <tr>
+                            <td>${r.remark || 'Inbound ' + r.inbound_id}</td>
+                            <td>${r.network}</td>
+                            <td>${r.port}</td>
+                            <td style="color: ${r.needs_nginx ? 'var(--warning)' : 'var(--success)'}">
+                                ${r.needs_nginx ? '⚠️ Да' : '✅ Нет'}
+                            </td>
+                            <td style="font-size: 11px;">${r.reason || '-'}</td>
+                        </tr>
+                    `).join('');
+
+                    if (data.suggested_config && data.needs_nginx_count > 0) {
+                        suggestedDiv.style.display = 'block';
+                        document.getElementById('suggested-config-content').textContent = data.suggested_config;
+                    } else {
+                        suggestedDiv.style.display = 'none';
+                    }
+
+                    showToast(`Найдено ${data.needs_nginx_count} inbound(s), требующих nginx`, 'info');
+                }
+            } catch (error) {
+                console.error('Error analyzing requirements:', error);
+                showToast('Ошибка анализа', 'error');
+            }
+        }
+
+        // Copy suggested nginx config
+        function copySuggestedConfig() {
+            const config = document.getElementById('suggested-config-content').textContent;
+            copyToClipboard(config);
+        }
+
+        // ==================== CAMOUFLAGE MANAGEMENT ====================
+
+        let allTemplates = [];
+
+        // Load camouflage status
+        async function loadCamouflageStatus() {
+            try {
+                const response = await fetch('/api/camouflage/current');
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('camo-installed').textContent = data.installed ? '✅ Да' : '❌ Нет';
+                    document.getElementById('camo-installed').style.color = data.installed ? 'var(--success)' : 'var(--text-secondary)';
+                    document.getElementById('camo-template-name').textContent = data.template_name || '-';
+                }
+            } catch (error) {
+                console.error('Error loading camouflage status:', error);
+            }
+        }
+
+        // Load camouflage templates
+        async function loadCamouflageTemplates() {
+            try {
+                const response = await fetch('/api/camouflage/templates');
+                const data = await response.json();
+
+                if (data.success && data.templates) {
+                    allTemplates = data.templates;
+                    renderTemplates(data.templates);
+
+                    // Load categories
+                    const catResponse = await fetch('/api/camouflage/categories');
+                    const catData = await catResponse.json();
+
+                    if (catData.success) {
+                        const select = document.getElementById('template-category-filter');
+                        catData.categories.forEach(cat => {
+                            const option = document.createElement('option');
+                            option.value = cat.id;
+                            option.textContent = cat.name;
+                            select.appendChild(option);
+                        });
+                        document.getElementById('templates-filter').style.display = 'block';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading templates:', error);
+                showToast('Ошибка загрузки шаблонов', 'error');
+            }
+        }
+
+        // Render templates
+        function renderTemplates(templates) {
+            const gallery = document.getElementById('templates-gallery');
+            gallery.innerHTML = templates.map(t => `
+                <div style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; border: 1px solid var(--border);">
+                    <h4 style="margin-top: 0; margin-bottom: 10px;">${t.name}</h4>
+                    <p style="color: var(--text-secondary); font-size: 12px; margin-bottom: 10px;">${t.description || '-'}</p>
+                    <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 10px;">
+                        <span style="background: var(--accent); color: white; padding: 2px 6px; border-radius: 4px;">${t.category}</span>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="installTemplate('${t.id}')" style="font-size: 12px; padding: 6px 12px;">📥 Установить</button>
+                        <button class="btn btn-secondary" onclick="previewTemplate('${t.id}')" style="font-size: 12px; padding: 6px 12px;">👁️ Предпросмотр</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Filter templates
+        function filterTemplates() {
+            const category = document.getElementById('template-category-filter').value;
+            if (!category) {
+                renderTemplates(allTemplates);
+            } else {
+                renderTemplates(allTemplates.filter(t => t.category === category));
+            }
+        }
+
+        // Install template
+        async function installTemplate(templateId) {
+            if (!confirm('Установить этот шаблон?\n\nТекущий index.html будет заменён.')) return;
+
+            try {
+                const response = await fetch('/api/camouflage/install', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ template_id: templateId, backup: true })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Шаблон установлен!', 'success');
+                    loadCamouflageStatus();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error installing template:', error);
+                showToast('Ошибка установки', 'error');
+            }
+        }
+
+        // Preview template
+        async function previewTemplate(templateId) {
+            try {
+                const response = await fetch('/api/camouflage/preview/' + templateId);
+                const data = await response.json();
+
+                if (data.success && data.html) {
+                    const win = window.open('', '_blank');
+                    win.document.write(data.html);
+                    win.document.close();
+                } else {
+                    showToast('Ошибка предпросмотра', 'error');
+                }
+            } catch (error) {
+                console.error('Error previewing:', error);
+            }
+        }
+
+        // Install random template
+        async function installRandomTemplate() {
+            if (!confirm('Установить случайный шаблон?')) return;
+
+            try {
+                const response = await fetch('/api/camouflage/install-random', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Случайный шаблон установлен: ' + (data.template_name || ''), 'success');
+                    loadCamouflageStatus();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error installing random template:', error);
+                showToast('Ошибка установки', 'error');
+            }
+        }
+
+        // Install custom HTML
+        async function installCustomHtml() {
+            const html = document.getElementById('custom-html-input').value;
+
+            if (!html || html.trim().length < 50) {
+                showToast('Введите HTML код (минимум 50 символов)', 'error');
+                return;
+            }
+
+            if (!confirm('Установить этот HTML как fake сайт?')) return;
+
+            try {
+                const response = await fetch('/api/camouflage/install-custom', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ html_content: html, backup: true })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Кастомный HTML установлен!', 'success');
+                    loadCamouflageStatus();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error installing custom HTML:', error);
+                showToast('Ошибка установки', 'error');
+            }
+        }
+
+        // Remove camouflage
+        async function removeCamouflage() {
+            if (!confirm('Удалить fake сайт и восстановить оригинал?')) return;
+
+            try {
+                const response = await fetch('/api/camouflage/remove', { method: 'DELETE' });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Fake сайт удалён', 'success');
+                    loadCamouflageStatus();
+                } else {
+                    showToast('Ошибка: ' + (data.error || 'Unknown'), 'error');
+                }
+            } catch (error) {
+                console.error('Error removing camouflage:', error);
+                showToast('Ошибка удаления', 'error');
+            }
+        }
+
+        // ==================== AUTOMATION ====================
+
+        // Load automation settings
+        async function loadAutomationSettings() {
+            try {
+                const response = await fetch(API_URL + 'api/automation/settings', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success && data.settings) {
+                    const s = data.settings;
+                    document.getElementById('backup-enabled').checked = s.backup_enabled;
+                    document.getElementById('backup-interval').value = s.backup_interval_hours;
+                    document.getElementById('backup-retention').value = s.backup_retention_days;
+                    document.getElementById('ssl-auto-check').checked = s.ssl_check_enabled;
+                    document.getElementById('ssl-auto-renew').checked = s.ssl_auto_renew;
+                    document.getElementById('warp-health-check').checked = s.warp_health_check_enabled;
+                    document.getElementById('warp-auto-restart').checked = s.warp_auto_restart;
+                }
+            } catch (error) {
+                console.error('Error loading automation settings:', error);
+            }
+        }
+
+        // Save automation settings
+        async function saveAutomationSettings() {
+            const settings = {
+                backup_enabled: document.getElementById('backup-enabled').checked,
+                backup_interval_hours: parseInt(document.getElementById('backup-interval').value),
+                backup_retention_days: parseInt(document.getElementById('backup-retention').value),
+                ssl_check_enabled: document.getElementById('ssl-auto-check').checked,
+                ssl_auto_renew: document.getElementById('ssl-auto-renew').checked,
+                warp_health_check_enabled: document.getElementById('warp-health-check').checked,
+                warp_auto_restart: document.getElementById('warp-auto-restart').checked
+            };
+
+            try {
+                const response = await fetch(API_URL + 'api/automation/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(settings)
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Настройки сохранены', 'success');
+                } else {
+                    showToast('Ошибка сохранения', 'error');
+                }
+            } catch (error) {
+                console.error('Error saving settings:', error);
+                showToast('Ошибка сохранения', 'error');
+            }
+        }
+
+        // Load services status
+        async function loadServicesStatus() {
+            try {
+                const response = await fetch(API_URL + 'api/automation/services', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success && data.services) {
+                    data.services.forEach(svc => {
+                        let elemId = '';
+                        if (svc.service === 'x-ui') elemId = 'service-xui-status';
+                        else if (svc.service === 'xui-manager') elemId = 'service-manager-status';
+                        else if (svc.service === 'nginx') elemId = 'service-nginx-status';
+
+                        if (elemId) {
+                            const elem = document.getElementById(elemId);
+                            if (elem) {
+                                elem.textContent = svc.active ? '✅ Активен' : '❌ Остановлен';
+                                elem.style.color = svc.active ? 'var(--success)' : 'var(--danger)';
+                            }
+                        }
+                    });
+                }
+
+                // Also check WARP
+                checkWarpStatus();
+            } catch (error) {
+                console.error('Error loading services status:', error);
+            }
+        }
+
+        // Restart service
+        async function restartService(service) {
+            if (!confirm(`Перезапустить ${service}?`)) return;
+
+            try {
+                const response = await fetch(API_URL + `api/automation/service/${service}/restart`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ ${service} перезапущен`, 'success');
+                    setTimeout(loadServicesStatus, 2000);
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error restarting service:', error);
+                showToast('Ошибка перезапуска', 'error');
+            }
+        }
+
+        // Check SSL certificates
+        async function checkSSLCertificates() {
+            const container = document.getElementById('ssl-certificates-list');
+            container.innerHTML = '<p style="color: var(--accent);">Проверка...</p>';
+
+            try {
+                const response = await fetch(API_URL + 'api/automation/ssl/check', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success && data.certificates.length > 0) {
+                    let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
+                    data.certificates.forEach(cert => {
+                        const statusColor = cert.status === 'ok' ? 'var(--success)' :
+                                          cert.status === 'warning' ? 'var(--warning)' : 'var(--danger)';
+                        html += `
+                            <div style="background: var(--bg-tertiary); padding: 10px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong>${cert.domain}</strong>
+                                    <div style="font-size: 12px; color: var(--text-secondary);">
+                                        Истекает: ${new Date(cert.expiry).toLocaleDateString()}
+                                    </div>
+                                </div>
+                                <div style="color: ${statusColor}; font-weight: 600;">
+                                    ${cert.days_left} дней
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<p style="color: var(--text-secondary);">SSL сертификаты не найдены</p>';
+                }
+            } catch (error) {
+                console.error('Error checking SSL:', error);
+                container.innerHTML = '<p style="color: var(--danger);">Ошибка проверки</p>';
+            }
+        }
+
+        // Renew SSL certificates
+        async function renewSSLCertificates() {
+            if (!confirm('Запустить продление SSL сертификатов?')) return;
+
+            showToast('Запуск продления SSL...', 'info');
+
+            try {
+                const response = await fetch(API_URL + 'api/automation/ssl/renew', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Сертификаты продлены', 'success');
+                    checkSSLCertificates();
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error renewing SSL:', error);
+                showToast('Ошибка продления', 'error');
+            }
+        }
+
+        // Check WARP status
+        async function checkWarpStatus() {
+            try {
+                const response = await fetch(API_URL + 'api/automation/warp/status', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    const statusElem = document.getElementById('warp-connection-status');
+                    const ipElem = document.getElementById('warp-ip');
+                    const countryElem = document.getElementById('warp-country');
+                    const serviceElem = document.getElementById('service-warp-status');
+
+                    if (!data.installed) {
+                        statusElem.textContent = 'Не установлен';
+                        statusElem.style.color = 'var(--text-secondary)';
+                        if (serviceElem) {
+                            serviceElem.textContent = 'Не установлен';
+                            serviceElem.style.color = 'var(--text-secondary)';
+                        }
+                    } else if (data.connected) {
+                        statusElem.textContent = '✅ Подключен';
+                        statusElem.style.color = 'var(--success)';
+                        ipElem.textContent = data.ip || '-';
+                        countryElem.textContent = data.country || '-';
+                        if (serviceElem) {
+                            serviceElem.textContent = '✅ Активен';
+                            serviceElem.style.color = 'var(--success)';
+                        }
+                    } else {
+                        statusElem.textContent = '❌ Отключен';
+                        statusElem.style.color = 'var(--danger)';
+                        if (serviceElem) {
+                            serviceElem.textContent = '❌ Отключен';
+                            serviceElem.style.color = 'var(--danger)';
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking WARP:', error);
+            }
+        }
+
+        // Restart WARP
+        async function restartWarp() {
+            try {
+                const response = await fetch(API_URL + 'api/automation/warp/restart', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ WARP перезапущен', 'success');
+                    setTimeout(checkWarpStatus, 3000);
+                } else {
+                    showToast('Ошибка перезапуска WARP', 'error');
+                }
+            } catch (error) {
+                console.error('Error restarting WARP:', error);
+                showToast('Ошибка перезапуска', 'error');
+            }
+        }
+
+        // ==================== BACKUPS ====================
+
+        // Load backups
+        async function loadBackups() {
+            const tbody = document.getElementById('backups-table-body');
+            tbody.innerHTML = '<tr><td colspan="4" class="loading">Загрузка...</td></tr>';
+
+            try {
+                const response = await fetch(API_URL + 'api/automation/backups', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success && data.backups.length > 0) {
+                    tbody.innerHTML = data.backups.map(backup => `
+                        <tr>
+                            <td>${new Date(backup.timestamp).toLocaleString()}</td>
+                            <td>${backup.files_count}</td>
+                            <td>${backup.size_human}</td>
+                            <td>
+                                <button class="btn btn-primary" style="padding: 4px 8px; font-size: 11px;"
+                                    onclick="restoreBackup('${backup.name}')">🔄 Восстановить</button>
+                                <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;"
+                                    onclick="deleteBackup('${backup.name}')">🗑️</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">Нет бэкапов</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error loading backups:', error);
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--danger);">Ошибка загрузки</td></tr>';
+            }
+        }
+
+        // Create backup
+        async function createBackup() {
+            showToast('Создание бэкапа...', 'info');
+
+            try {
+                const response = await fetch(API_URL + 'api/automation/backup/create', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ Бэкап создан: ${data.files.length} файлов`, 'success');
+                    loadBackups();
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error creating backup:', error);
+                showToast('Ошибка создания бэкапа', 'error');
+            }
+        }
+
+        // Restore backup
+        async function restoreBackup(name) {
+            if (!confirm(`Восстановить из бэкапа ${name}?\n\nЭто перезапишет текущие данные!`)) return;
+
+            showToast('Восстановление...', 'info');
+
+            try {
+                const response = await fetch(API_URL + `api/automation/backup/restore/${name}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ Восстановлено: ${data.restored_files.length} файлов`, 'success');
+                    // Reload page after restore
+                    setTimeout(() => window.location.reload(), 2000);
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error restoring backup:', error);
+                showToast('Ошибка восстановления', 'error');
+            }
+        }
+
+        // Delete backup
+        async function deleteBackup(name) {
+            if (!confirm(`Удалить бэкап ${name}?`)) return;
+
+            try {
+                const response = await fetch(API_URL + `api/automation/backup/${name}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Бэкап удалён', 'success');
+                    loadBackups();
+                } else {
+                    showToast('Ошибка удаления', 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting backup:', error);
+                showToast('Ошибка удаления', 'error');
+            }
+        }
+
         // ==================== INITIALIZATION ====================
 
         // Initialize
         window.onload = function() {
+            // Load panel credentials on X-UI control tab
+            loadPanelCredentials();
             loadStats();
             loadInbounds();
             loadUsers();

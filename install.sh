@@ -48,47 +48,374 @@ fi
 print_header "XUI-Manager - Автоматическая установка"
 
 # 1. Проверка наличия 3x-ui
-print_info "Шаг 1/8: Проверка наличия 3x-ui..."
+print_info "Шаг 1/10: Проверка наличия 3x-ui..."
 
 XUI_DB="/etc/x-ui/x-ui.db"
+XUI_CONFIG="/usr/local/x-ui/bin/config.json"
 XUI_INSTALLED=false
+XUI_VERSION=""
 
+# Функция получения версии 3x-ui
+get_xui_version() {
+    if command -v x-ui &> /dev/null; then
+        x-ui version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || echo ""
+    elif [ -f "/usr/local/x-ui/x-ui" ]; then
+        /usr/local/x-ui/x-ui version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || echo ""
+    else
+        echo ""
+    fi
+}
+
+# Генерация случайных учётных данных (как в x-ui-pro)
+gen_random_str() {
+    local length=$((RANDOM % 7 + 6))  # 6-12 символов
+    LC_CTYPE=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c $length
+}
+
+# Поиск свободного порта
+find_free_port() {
+    local start=${1:-30000}
+    local end=${2:-60000}
+    local port
+    for i in {1..100}; do
+        port=$((RANDOM % (end - start) + start))
+        if ! nc -z 127.0.0.1 "$port" &>/dev/null 2>&1; then
+            echo "$port"
+            return 0
+        fi
+    done
+    echo "$start"
+}
+
+# Функция установки 3x-ui с выбором форка
+install_3xui() {
+    local fork=${1:-"mhsanaei"}
+    local auto_config=${2:-"yes"}
+
+    print_info "Установка 3x-ui..."
+
+    # Проверяем наличие curl и nc
+    if ! command -v curl &> /dev/null; then
+        apt update -qq && apt install -y curl
+    fi
+    if ! command -v nc &> /dev/null; then
+        apt install -y netcat-openbsd 2>/dev/null || apt install -y netcat 2>/dev/null || true
+    fi
+
+    # Выбор форка
+    local install_url=""
+    case "$fork" in
+        "mhsanaei"|"0")
+            print_info "Форк: MHSanaei (рекомендуется)"
+            install_url="https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh"
+            ;;
+        "alireza"|"1")
+            print_info "Форк: Alireza0"
+            install_url="https://raw.githubusercontent.com/alireza0/x-ui/master/install.sh"
+            ;;
+        "franzkafka"|"2")
+            print_info "Форк: FranzKafkaYu"
+            install_url="https://raw.githubusercontent.com/FranzKafkaYu/x-ui/master/install.sh"
+            ;;
+        *)
+            print_info "Форк: MHSanaei (по умолчанию)"
+            install_url="https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh"
+            ;;
+    esac
+
+    # Генерируем учётные данные заранее
+    local gen_user=$(gen_random_str)
+    local gen_pass=$(gen_random_str)
+    local gen_port=$(find_free_port 30000 60000)
+    local gen_path="/$(gen_random_str)"
+
+    print_info "Сгенерированы учётные данные:"
+    print_info "  Пользователь: $gen_user"
+    print_info "  Пароль: $gen_pass"
+    print_info "  Порт: $gen_port"
+    print_info "  Путь: $gen_path"
+
+    # Сохраняем данные для последующего использования
+    XUI_GEN_USER="$gen_user"
+    XUI_GEN_PASS="$gen_pass"
+    XUI_GEN_PORT="$gen_port"
+    XUI_GEN_PATH="$gen_path"
+
+    # Запуск установки
+    # Используем expect для автоматизации ввода, если доступен
+    if command -v expect &> /dev/null && [ "$auto_config" = "yes" ]; then
+        print_info "Автоматическая установка с предустановленными данными..."
+
+        # Создаём expect скрипт для автоматизации
+        cat > /tmp/install_xui.exp << EXPECT_EOF
+#!/usr/bin/expect -f
+set timeout 300
+spawn bash -c "curl -Ls $install_url | bash"
+expect {
+    -re "username.*:" {
+        send "$gen_user\r"
+        exp_continue
+    }
+    -re "password.*:" {
+        send "$gen_pass\r"
+        exp_continue
+    }
+    -re "port.*:" {
+        send "$gen_port\r"
+        exp_continue
+    }
+    -re "path.*:" {
+        send "$gen_path\r"
+        exp_continue
+    }
+    -re "y/n|Y/N|yes/no" {
+        send "y\r"
+        exp_continue
+    }
+    eof
+}
+EXPECT_EOF
+        chmod +x /tmp/install_xui.exp
+        /tmp/install_xui.exp
+        rm -f /tmp/install_xui.exp
+    else
+        # Обычная установка
+        print_info "Запуск интерактивной установки..."
+        print_warning "Используйте сгенерированные данные выше для настройки"
+        bash <(curl -Ls "$install_url")
+    fi
+
+    # Ждём завершения установки
+    sleep 3
+
+    # Проверяем успешность установки
+    if systemctl is-active --quiet x-ui; then
+        print_success "3x-ui успешно установлен и запущен"
+
+        # Пытаемся настроить учётные данные через SQLite если они не были применены
+        if [ -f "$XUI_DB" ] && [ "$auto_config" = "yes" ]; then
+            configure_3xui_credentials "$gen_user" "$gen_pass" "$gen_port" "$gen_path"
+        fi
+
+        return 0
+    else
+        print_error "Ошибка установки 3x-ui"
+        return 1
+    fi
+}
+
+# Настройка учётных данных 3x-ui через SQLite
+configure_3xui_credentials() {
+    local username=${1:-"admin"}
+    local password=${2:-"admin"}
+    local port=${3:-"2053"}
+    local path=${4:-"/"}
+
+    if [ ! -f "$XUI_DB" ]; then
+        print_warning "База данных 3x-ui не найдена"
+        return 1
+    fi
+
+    print_info "Настройка учётных данных в базе данных..."
+
+    # Генерируем bcrypt хеш пароля (если bcrypt доступен)
+    local password_hash=""
+    if command -v python3 &> /dev/null; then
+        password_hash=$(python3 -c "
+import bcrypt
+password = '$password'.encode('utf-8')
+salt = bcrypt.gensalt(rounds=10)
+hash = bcrypt.hashpw(password, salt)
+print(hash.decode('utf-8'))
+" 2>/dev/null) || true
+    fi
+
+    # Обновляем настройки
+    sqlite3 "$XUI_DB" "UPDATE settings SET value='$username' WHERE key='webUserName';" 2>/dev/null || true
+
+    if [ -n "$password_hash" ]; then
+        sqlite3 "$XUI_DB" "UPDATE settings SET value='$password_hash' WHERE key='webPassword';" 2>/dev/null || true
+    else
+        sqlite3 "$XUI_DB" "UPDATE settings SET value='$password' WHERE key='webPassword';" 2>/dev/null || true
+    fi
+
+    sqlite3 "$XUI_DB" "UPDATE settings SET value='$port' WHERE key='webPort';" 2>/dev/null || true
+    sqlite3 "$XUI_DB" "UPDATE settings SET value='$path' WHERE key='webBasePath';" 2>/dev/null || true
+
+    # Перезапускаем сервис для применения изменений
+    systemctl restart x-ui 2>/dev/null || true
+    sleep 2
+
+    print_success "Учётные данные настроены"
+}
+
+# Функция настройки 3x-ui после установки
+configure_3xui() {
+    print_info "Настройка 3x-ui для работы с XUI-Manager..."
+
+    # Включаем API в конфигурации 3x-ui если нужно
+    if [ -f "$XUI_CONFIG" ]; then
+        # Проверяем текущий статус API
+        local api_enabled=$(grep -o '"api":\s*true' "$XUI_CONFIG" 2>/dev/null || echo "")
+        if [ -z "$api_enabled" ]; then
+            print_info "Рекомендуется включить API в панели 3x-ui для полной интеграции"
+        fi
+    fi
+
+    # Проверяем порт панели
+    local panel_port="2053"
+    if [ -f "$XUI_DB" ]; then
+        panel_port=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webPort'" 2>/dev/null || echo "2053")
+    fi
+    print_info "Панель 3x-ui работает на порту: $panel_port"
+
+    # Проверяем учетные данные
+    if [ -f "$XUI_DB" ]; then
+        local admin_user=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webUserName'" 2>/dev/null || echo "")
+        if [ -n "$admin_user" ]; then
+            print_success "Учётная запись панели: $admin_user"
+        fi
+    fi
+}
+
+# Проверка установки 3x-ui
 if [ -f "$XUI_DB" ]; then
     print_success "Найдена база данных 3x-ui: $XUI_DB"
     XUI_INSTALLED=true
-elif systemctl list-units --full -all | grep -Fq "x-ui.service"; then
-    print_success "Найден сервис x-ui"
-    XUI_INSTALLED=true
-elif command -v x-ui &> /dev/null; then
-    print_success "Найдена команда x-ui"
+fi
+
+if systemctl list-units --full -all | grep -Fq "x-ui.service"; then
+    if [ "$XUI_INSTALLED" = false ]; then
+        print_success "Найден сервис x-ui"
+    fi
     XUI_INSTALLED=true
 fi
 
-if [ "$XUI_INSTALLED" = false ]; then
-    print_warning "3x-ui не найден на сервере"
-    read -p "Хотите установить 3x-ui сейчас? (y/n): " -n 1 -r
+if command -v x-ui &> /dev/null; then
+    XUI_VERSION=$(get_xui_version)
+    if [ "$XUI_INSTALLED" = false ]; then
+        print_success "Найдена команда x-ui"
+    fi
+    XUI_INSTALLED=true
+fi
+
+# Если 3x-ui установлен, показываем версию и предлагаем обновление
+if [ "$XUI_INSTALLED" = true ]; then
+    if [ -n "$XUI_VERSION" ]; then
+        print_success "Версия 3x-ui: $XUI_VERSION"
+    else
+        print_success "3x-ui установлен (версия не определена)"
+    fi
+
+    # Проверяем статус сервиса
+    if systemctl is-active --quiet x-ui; then
+        print_success "Сервис x-ui: активен"
+    else
+        print_warning "Сервис x-ui: не запущен"
+        read -p "Запустить сервис x-ui? (y/n): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            systemctl start x-ui
+            sleep 2
+            if systemctl is-active --quiet x-ui; then
+                print_success "Сервис x-ui запущен"
+            else
+                print_error "Не удалось запустить x-ui"
+            fi
+        fi
+    fi
+
+    # Предлагаем обновление
+    read -p "Проверить обновления 3x-ui? (y/n): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        print_info "Установка 3x-ui..."
-        bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
-        print_success "3x-ui установлен"
-    else
-        print_error "XUI-Manager требует наличия 3x-ui"
-        exit 1
+        print_info "Проверка обновлений 3x-ui..."
+        # Используем команду x-ui update для проверки
+        if command -v x-ui &> /dev/null; then
+            x-ui update 2>&1 | head -20 || true
+        fi
     fi
+else
+    # 3x-ui не установлен
+    print_warning "3x-ui не найден на сервере"
+    echo ""
+    echo -e "${BLUE}3x-ui - это панель управления для Xray, необходимая для работы XUI-Manager${NC}"
+    echo ""
+    echo "Доступные варианты:"
+    echo "  1) Установить 3x-ui сейчас (рекомендуется)"
+    echo "  2) Указать путь к существующей базе данных"
+    echo "  3) Отменить установку"
+    echo ""
+    read -p "Выберите вариант (1-3): " INSTALL_CHOICE
+
+    case $INSTALL_CHOICE in
+        1)
+            install_3xui
+            if [ $? -ne 0 ]; then
+                print_error "Установка 3x-ui не удалась"
+                exit 1
+            fi
+            XUI_INSTALLED=true
+
+            # Настройка после установки
+            configure_3xui
+            ;;
+        2)
+            read -p "Введите полный путь к x-ui.db: " CUSTOM_DB_PATH
+            if [ -f "$CUSTOM_DB_PATH" ]; then
+                XUI_DB="$CUSTOM_DB_PATH"
+                XUI_INSTALLED=true
+            else
+                print_error "Файл $CUSTOM_DB_PATH не существует"
+                exit 1
+            fi
+            ;;
+        3)
+            print_error "Установка отменена. XUI-Manager требует наличия 3x-ui"
+            exit 1
+            ;;
+        *)
+            print_error "Неверный выбор"
+            exit 1
+            ;;
+    esac
 fi
 
-# Определение пути к БД
+# Определение пути к БД если еще не определен
 if [ ! -f "$XUI_DB" ]; then
-    print_warning "База данных не найдена по стандартному пути"
-    read -p "Введите полный путь к x-ui.db: " XUI_DB
+    # Поиск БД в альтернативных местах
+    for db_path in "/etc/x-ui/x-ui.db" "/var/lib/x-ui/x-ui.db" "/usr/local/x-ui/x-ui.db"; do
+        if [ -f "$db_path" ]; then
+            XUI_DB="$db_path"
+            break
+        fi
+    done
+
     if [ ! -f "$XUI_DB" ]; then
-        print_error "Файл $XUI_DB не существует"
-        exit 1
+        print_warning "База данных не найдена по стандартным путям"
+        read -p "Введите полный путь к x-ui.db: " XUI_DB
+        if [ ! -f "$XUI_DB" ]; then
+            print_error "Файл $XUI_DB не существует"
+            exit 1
+        fi
     fi
 fi
 
 print_success "Путь к БД: $XUI_DB"
+
+# Получаем данные из 3x-ui для XUI-Manager
+XUI_PANEL_PORT="2053"
+XUI_PANEL_USER="admin"
+XUI_PANEL_PASS="admin"
+
+if [ -f "$XUI_DB" ]; then
+    # Извлекаем настройки из БД
+    XUI_PANEL_PORT=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webPort'" 2>/dev/null || echo "2053")
+    XUI_PANEL_USER=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webUserName'" 2>/dev/null || echo "admin")
+    # Пароль не извлекаем напрямую из соображений безопасности
+    print_info "Порт панели 3x-ui: $XUI_PANEL_PORT"
+    print_info "Пользователь панели: $XUI_PANEL_USER"
+fi
 
 # 2. Установка системных зависимостей
 print_info "Шаг 2/10: Установка системных зависимостей..."
@@ -176,7 +503,46 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
     # Обновляем путь к БД в .env
     sed -i "s|XUI_DB_PATH=.*|XUI_DB_PATH=$XUI_DB|g" "$INSTALL_DIR/.env"
 
-    print_success "Файл .env создан"
+    # Обновляем настройки панели 3x-ui
+    sed -i "s|XUI_PANEL_URL=.*|XUI_PANEL_URL=http://localhost:$XUI_PANEL_PORT|g" "$INSTALL_DIR/.env"
+    sed -i "s|XUI_PANEL_USERNAME=.*|XUI_PANEL_USERNAME=$XUI_PANEL_USER|g" "$INSTALL_DIR/.env"
+
+    # Генерируем случайный API ключ
+    API_KEY=$(openssl rand -hex 32 2>/dev/null || head -c 64 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
+    if [ -n "$API_KEY" ]; then
+        sed -i "s|API_KEY=.*|API_KEY=$API_KEY|g" "$INSTALL_DIR/.env"
+    fi
+
+    # Определяем регион сервера
+    SERVER_COUNTRY=$(curl -s --max-time 5 "https://ipinfo.io/country" 2>/dev/null || echo "")
+    if [ -n "$SERVER_COUNTRY" ]; then
+        sed -i "s|SERVER_COUNTRY=.*|SERVER_COUNTRY=$SERVER_COUNTRY|g" "$INSTALL_DIR/.env"
+        print_info "Определён регион сервера: $SERVER_COUNTRY"
+
+        # Устанавливаем региональные настройки
+        case "$SERVER_COUNTRY" in
+            RU)
+                sed -i "s|DEFAULT_REGION=.*|DEFAULT_REGION=RU|g" "$INSTALL_DIR/.env"
+                ;;
+            CN)
+                sed -i "s|DEFAULT_REGION=.*|DEFAULT_REGION=CN|g" "$INSTALL_DIR/.env"
+                ;;
+            IR)
+                sed -i "s|DEFAULT_REGION=.*|DEFAULT_REGION=IR|g" "$INSTALL_DIR/.env"
+                ;;
+        esac
+    fi
+
+    print_success "Файл .env создан и настроен"
+else
+    print_success "Файл .env уже существует"
+
+    # Обновляем путь к БД если отличается
+    CURRENT_DB=$(grep "^XUI_DB_PATH=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
+    if [ "$CURRENT_DB" != "$XUI_DB" ]; then
+        sed -i "s|XUI_DB_PATH=.*|XUI_DB_PATH=$XUI_DB|g" "$INSTALL_DIR/.env"
+        print_info "Обновлён путь к БД в .env"
+    fi
 fi
 
 # 6. Установка Python зависимостей в виртуальное окружение

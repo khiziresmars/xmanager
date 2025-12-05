@@ -33,6 +33,10 @@ from app.background_tasks import background_tasks
 from app.ssl_manager import ssl_manager
 from app.xui_client import xui_client
 from app.preset_templates import list_templates as list_preset_templates, get_template, apply_template, get_template_params
+from app.panel_manager import get_panel_manager
+from app.nginx_manager import get_nginx_manager
+from app.camouflage import get_camouflage_manager
+from app.xray_generator import get_xray_generator
 
 # Настройка логирования
 logging.basicConfig(
@@ -4118,6 +4122,997 @@ async def install_xray_version(version: str, username: str = Depends(get_current
         logger.error(f"Error installing Xray: {e}")
         subprocess.run(['systemctl', 'start', 'x-ui'], capture_output=True)
         return {"success": False, "message": str(e)}
+
+
+# ==================== REGION MANAGEMENT ====================
+
+@app.get("/api/regions")
+async def get_regions(username: str = Depends(get_current_user)):
+    """Get list of all available regions with their configurations."""
+    try:
+        from app.region_manager import get_region_manager
+        region_manager = get_region_manager()
+        regions = region_manager.list_regions()
+        return {"success": True, "regions": regions, "default_region": settings.DEFAULT_REGION}
+    except ImportError:
+        return {"success": True, "regions": ["RU", "CN", "IR", "UAE", "TR", "GLOBAL"], "default_region": "GLOBAL"}
+    except Exception as e:
+        logger.error(f"Error getting regions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/regions/detect")
+async def detect_server_region(username: str = Depends(get_current_user)):
+    """Detect server location and recommended region settings."""
+    try:
+        from app.region_manager import get_region_manager
+        region_manager = get_region_manager()
+        location = await region_manager.detect_server_location()
+        return {"success": True, "location": location.__dict__ if hasattr(location, '__dict__') else location}
+    except ImportError:
+        try:
+            result = subprocess.run(['curl', '-s', '--max-time', '5', 'https://ipinfo.io/country'],
+                                   capture_output=True, text=True)
+            country = result.stdout.strip() if result.returncode == 0 else "UNKNOWN"
+            return {"success": True, "location": {"country": country}}
+        except:
+            return {"success": True, "location": {"country": "UNKNOWN"}}
+    except Exception as e:
+        logger.error(f"Error detecting region: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/regions/{region}/routing")
+async def get_region_routing(region: str, username: str = Depends(get_current_user)):
+    """Get routing rules for a specific region."""
+    try:
+        from app.preset_templates import get_regional_routing
+        routing = get_regional_routing(region.upper())
+        return {"success": True, "region": region.upper(), "routing": routing}
+    except Exception as e:
+        logger.error(f"Error getting routing for {region}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/regions/{region}/domains")
+async def get_region_reality_domains(region: str, username: str = Depends(get_current_user)):
+    """Get recommended Reality domains for a region."""
+    try:
+        from app.preset_templates import get_regional_reality_domains
+        domains = get_regional_reality_domains(region.upper())
+        return {"success": True, "region": region.upper(), "domains": domains}
+    except Exception as e:
+        logger.error(f"Error getting domains for {region}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== SITE CHECKER ====================
+
+@app.get("/api/sites/whitelist")
+async def get_sites_whitelist(
+    region: Optional[str] = Query(None, description="Filter by blocked region"),
+    username: str = Depends(get_current_user)
+):
+    """Get site whitelist for checking accessibility."""
+    try:
+        from app.site_checker import get_site_checker
+        site_checker = get_site_checker()
+        if region:
+            sites = [s for s in site_checker.whitelist if region.upper() in s.get("blocked_in", [])]
+        else:
+            sites = site_checker.whitelist
+        return {"success": True, "count": len(sites), "sites": sites}
+    except ImportError:
+        return {"success": False, "message": "Site checker module not available"}
+    except Exception as e:
+        logger.error(f"Error getting whitelist: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sites/check")
+async def check_sites_accessibility(request: Dict[str, Any], username: str = Depends(get_current_user)):
+    """Check accessibility of sites. Body: {"urls": [...], "timeout": 10}"""
+    try:
+        from app.site_checker import get_site_checker
+        site_checker = get_site_checker()
+        urls = request.get("urls", [])
+        timeout = request.get("timeout", 10)
+        if not urls:
+            raise HTTPException(status_code=400, detail="urls list is required")
+        results = await site_checker.check_sites(urls, timeout=timeout)
+        return {"success": True, "results": results}
+    except ImportError:
+        return {"success": False, "message": "Site checker module not available"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking sites: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sites/check/{region}")
+async def check_region_blocked_sites(region: str, username: str = Depends(get_current_user)):
+    """Check accessibility of sites blocked in a specific region."""
+    try:
+        from app.site_checker import get_site_checker
+        site_checker = get_site_checker()
+        results = await site_checker.check_region_blocked_sites(region.upper())
+        return {"success": True, "region": region.upper(), **results}
+    except ImportError:
+        return {"success": False, "message": "Site checker module not available"}
+    except Exception as e:
+        logger.error(f"Error checking sites for region {region}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== SERVER HEALTH MONITORING ====================
+
+@app.get("/api/health/server")
+async def get_server_health(username: str = Depends(get_current_user)):
+    """Get comprehensive server health status with all checks."""
+    try:
+        from app.server_monitor import get_monitor
+        monitor = get_monitor()
+        health_state = await monitor.run_all_checks()
+        return {
+            "success": True,
+            "overall_status": health_state.overall_status.value,
+            "consecutive_failures": health_state.consecutive_failures,
+            "last_check": health_state.last_check.isoformat() if health_state.last_check else None,
+            "checks": {
+                name: {
+                    "status": check.status.value,
+                    "message": check.message,
+                    "details": check.details,
+                    "last_check": check.last_check.isoformat() if check.last_check else None
+                }
+                for name, check in health_state.checks.items()
+            }
+        }
+    except ImportError:
+        import psutil
+        return {
+            "success": True, "overall_status": "healthy",
+            "checks": {"system": {"status": "healthy", "details": {
+                "cpu_percent": psutil.cpu_percent(),
+                "memory_percent": psutil.virtual_memory().percent,
+                "disk_percent": psutil.disk_usage('/').percent
+            }}}
+        }
+    except Exception as e:
+        logger.error(f"Error getting server health: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/health/xui-panel")
+async def check_xui_panel_health(username: str = Depends(get_current_user)):
+    """Check 3x-ui panel API health."""
+    try:
+        result = await xui_client.health_check()
+        return result
+    except Exception as e:
+        logger.error(f"Error checking XUI panel health: {e}")
+        return {"success": False, "status": "unhealthy", "error": str(e)}
+
+
+# ==================== TELEGRAM NOTIFICATIONS ====================
+
+@app.get("/api/telegram/status")
+async def get_telegram_status(username: str = Depends(get_current_user)):
+    """Get Telegram bot configuration status."""
+    try:
+        from app.telegram_bot import get_notifier
+        notifier = get_notifier()
+        return {
+            "success": True, "configured": notifier.is_configured(),
+            "enabled": settings.TELEGRAM_ENABLED,
+            "admin_ids_count": len(settings.TELEGRAM_ADMIN_IDS) if settings.TELEGRAM_ADMIN_IDS else 0,
+            "alert_cooldown": settings.TELEGRAM_ALERT_COOLDOWN
+        }
+    except ImportError:
+        return {"success": True, "configured": False, "enabled": False, "message": "Telegram module not available"}
+    except Exception as e:
+        logger.error(f"Error getting telegram status: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/telegram/test")
+async def send_telegram_test(username: str = Depends(get_current_user)):
+    """Send a test message to configured Telegram admins."""
+    try:
+        from app.telegram_bot import get_notifier, AlertType
+        notifier = get_notifier()
+        if not notifier.is_configured():
+            return {"success": False, "message": "Telegram bot not configured"}
+        await notifier.send_alert(
+            AlertType.CUSTOM,
+            f"🧪 Тестовое сообщение от XUI-Manager\nСервер: {settings.HOST}:{settings.PORT}\nВерсия: {CURRENT_VERSION}",
+            force=True
+        )
+        return {"success": True, "message": "Test message sent"}
+    except ImportError:
+        return {"success": False, "message": "Telegram module not available"}
+    except Exception as e:
+        logger.error(f"Error sending test message: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ==================== ADVANCED INBOUND MANAGEMENT ====================
+
+@app.put("/api/inbounds/{inbound_id}/reality")
+async def update_inbound_reality(inbound_id: int, request: Dict[str, Any], username: str = Depends(get_current_user)):
+    """Update Reality settings for an inbound."""
+    try:
+        result = await xui_client.update_reality_settings(
+            inbound_id=inbound_id, dest=request.get("dest"),
+            server_names=request.get("server_names"), private_key=request.get("private_key"),
+            short_ids=request.get("short_ids"), fingerprint=request.get("fingerprint", "chrome")
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error updating reality settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/inbounds/{inbound_id}/clone")
+async def clone_inbound(inbound_id: int, request: Dict[str, Any], username: str = Depends(get_current_user)):
+    """Clone an inbound with new port and remark."""
+    try:
+        new_port = request.get("new_port")
+        new_remark = request.get("new_remark")
+        if not new_port:
+            raise HTTPException(status_code=400, detail="new_port is required")
+        result = await xui_client.clone_inbound(source_id=inbound_id, new_port=new_port, new_remark=new_remark)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cloning inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/inbounds/{inbound_id}/port")
+async def update_inbound_port(inbound_id: int, new_port: int = Query(...), username: str = Depends(get_current_user)):
+    """Change inbound port."""
+    try:
+        result = await xui_client.update_inbound_port(inbound_id, new_port)
+        return result
+    except Exception as e:
+        logger.error(f"Error updating port: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/inbounds/{inbound_id}/sniffing")
+async def update_inbound_sniffing(inbound_id: int, request: Dict[str, Any], username: str = Depends(get_current_user)):
+    """Update inbound sniffing settings."""
+    try:
+        result = await xui_client.update_inbound_sniffing(
+            inbound_id=inbound_id, enabled=request.get("enabled", True),
+            dest_override=request.get("dest_override", ["http", "tls", "quic", "fakedns"])
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error updating sniffing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== PANEL MANAGEMENT ====================
+
+class ResetCredentialsRequest(BaseModel):
+    """Request to reset panel credentials"""
+    username: str = "admin"
+    password: str = "admin"
+
+class UpdatePanelPortRequest(BaseModel):
+    """Request to update panel port"""
+    port: int
+
+class UpdatePanelPathRequest(BaseModel):
+    """Request to update panel base path"""
+    path: str
+
+class ReinstallPanelRequest(BaseModel):
+    """Request to reinstall panel"""
+    fork: str = "mhsanaei"
+    preserve_database: bool = True
+    preserve_config: bool = True
+
+@app.get("/api/panel/credentials")
+async def get_panel_credentials(username: str = Depends(get_current_user)):
+    """Get current panel login credentials"""
+    try:
+        manager = get_panel_manager()
+        creds = manager.get_credentials()
+        if creds:
+            return {
+                "success": True,
+                "credentials": {
+                    "username": creds.username,
+                    "password": creds.password,
+                    "web_port": creds.web_port,
+                    "web_base_path": creds.web_base_path
+                }
+            }
+        return {"success": False, "error": "Could not retrieve credentials"}
+    except Exception as e:
+        logger.error(f"Error getting panel credentials: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/panel/reset-credentials")
+async def reset_panel_credentials(request: ResetCredentialsRequest, username: str = Depends(get_current_user)):
+    """Reset panel login credentials"""
+    try:
+        manager = get_panel_manager()
+        result = manager.reset_credentials(request.username, request.password)
+        return result
+    except Exception as e:
+        logger.error(f"Error resetting credentials: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/panel/status")
+async def get_panel_status(username: str = Depends(get_current_user)):
+    """Get comprehensive panel status"""
+    try:
+        manager = get_panel_manager()
+        status = manager.get_panel_status()
+        return {
+            "success": True,
+            "status": {
+                "running": status.running,
+                "version": status.version,
+                "xray_version": status.xray_version,
+                "uptime": status.uptime,
+                "web_port": status.web_port,
+                "web_base_path": status.web_base_path,
+                "users_count": status.users_count,
+                "inbounds_count": status.inbounds_count,
+                "database_size": status.database_size,
+                "log_level": status.log_level
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting panel status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/panel/backup")
+async def backup_panel_database(username: str = Depends(get_current_user)):
+    """Backup panel database"""
+    try:
+        manager = get_panel_manager()
+        result = manager.backup_database()
+        return result
+    except Exception as e:
+        logger.error(f"Error backing up database: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/panel/backups")
+async def list_panel_backups(username: str = Depends(get_current_user)):
+    """List available database backups"""
+    try:
+        manager = get_panel_manager()
+        backups = manager.list_backups()
+        return {"success": True, "backups": backups}
+    except Exception as e:
+        logger.error(f"Error listing backups: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/panel/restore")
+async def restore_panel_database(backup_path: str = Query(...), username: str = Depends(get_current_user)):
+    """Restore panel database from backup"""
+    try:
+        manager = get_panel_manager()
+        result = manager.restore_database(backup_path)
+        return result
+    except Exception as e:
+        logger.error(f"Error restoring database: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/panel/forks")
+async def get_available_forks(username: str = Depends(get_current_user)):
+    """Get list of available panel forks for installation"""
+    try:
+        manager = get_panel_manager()
+        forks = manager.get_available_forks()
+        return {"success": True, "forks": forks}
+    except Exception as e:
+        logger.error(f"Error getting forks: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/panel/reinstall")
+async def reinstall_panel(request: ReinstallPanelRequest, username: str = Depends(get_current_user)):
+    """Reinstall panel with selected fork (preserves database optionally)"""
+    try:
+        manager = get_panel_manager()
+        result = await manager.reinstall_panel(
+            fork=request.fork,
+            preserve_database=request.preserve_database,
+            preserve_config=request.preserve_config
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error reinstalling panel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/panel/port")
+async def update_panel_port(request: UpdatePanelPortRequest, username: str = Depends(get_current_user)):
+    """Update panel web port"""
+    try:
+        manager = get_panel_manager()
+        result = manager.update_panel_port(request.port)
+        return result
+    except Exception as e:
+        logger.error(f"Error updating port: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/panel/path")
+async def update_panel_base_path(request: UpdatePanelPathRequest, username: str = Depends(get_current_user)):
+    """Update panel base path"""
+    try:
+        manager = get_panel_manager()
+        result = manager.update_panel_path(request.path)
+        return result
+    except Exception as e:
+        logger.error(f"Error updating path: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/panel/settings")
+async def get_panel_settings(username: str = Depends(get_current_user)):
+    """Get all panel settings"""
+    try:
+        manager = get_panel_manager()
+        settings_data = manager.get_panel_settings()
+        return {"success": True, "settings": settings_data}
+    except Exception as e:
+        logger.error(f"Error getting settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== NGINX MANAGEMENT ====================
+
+@app.get("/api/nginx/status")
+async def get_nginx_status(username: str = Depends(get_current_user)):
+    """Get comprehensive nginx status"""
+    try:
+        manager = get_nginx_manager()
+        status = manager.get_status()
+        return {"success": True, **status}
+    except Exception as e:
+        logger.error(f"Error getting nginx status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/nginx/config")
+async def get_nginx_config(config_file: Optional[str] = None, username: str = Depends(get_current_user)):
+    """Get nginx configuration content"""
+    try:
+        manager = get_nginx_manager()
+        result = manager.get_config_content(config_file)
+        return result
+    except Exception as e:
+        logger.error(f"Error getting nginx config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/nginx/test")
+async def test_nginx_config(username: str = Depends(get_current_user)):
+    """Test nginx configuration"""
+    try:
+        manager = get_nginx_manager()
+        valid, output = manager.test_config()
+        return {"success": True, "valid": valid, "output": output}
+    except Exception as e:
+        logger.error(f"Error testing nginx config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/nginx/reload")
+async def reload_nginx(username: str = Depends(get_current_user)):
+    """Reload nginx configuration"""
+    try:
+        manager = get_nginx_manager()
+        success, message = manager.reload_nginx()
+        return {"success": success, "message": message}
+    except Exception as e:
+        logger.error(f"Error reloading nginx: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/nginx/analyze")
+async def analyze_nginx_config(username: str = Depends(get_current_user)):
+    """Analyze nginx configuration for XUI requirements"""
+    try:
+        manager = get_nginx_manager()
+        analysis = manager.analyze_config()
+        return {
+            "success": True,
+            "valid": analysis.valid,
+            "errors": analysis.errors,
+            "warnings": analysis.warnings,
+            "has_xui_manager": analysis.has_xui_manager,
+            "has_xui_panel": analysis.has_xui_panel,
+            "ssl_enabled": analysis.ssl_enabled,
+            "domains": analysis.domains,
+            "locations": list(analysis.inbound_locations.keys())
+        }
+    except Exception as e:
+        logger.error(f"Error analyzing nginx config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/nginx/inbound-requirements")
+async def get_inbound_nginx_requirements(username: str = Depends(get_current_user)):
+    """Analyze which inbounds need nginx configuration"""
+    try:
+        # Get inbounds from database
+        inbounds = db.get_all_inbounds()
+
+        manager = get_nginx_manager()
+        requirements = manager.get_inbound_nginx_requirements(inbounds)
+
+        # Filter to only those needing nginx
+        needs_nginx = [r for r in requirements if r.get("needs_nginx")]
+        warnings = [r for r in requirements if r.get("warning")]
+
+        return {
+            "success": True,
+            "total_inbounds": len(inbounds),
+            "needs_nginx_count": len(needs_nginx),
+            "requirements": requirements,
+            "suggested_config": manager.generate_inbound_config(needs_nginx) if needs_nginx else None,
+            "warnings": warnings
+        }
+    except Exception as e:
+        logger.error(f"Error getting inbound requirements: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== CAMOUFLAGE / FAKE SITES ====================
+
+class InstallTemplateRequest(BaseModel):
+    """Request to install a fake site template"""
+    template_id: str
+    backup: bool = True
+
+class InstallRandomTemplateRequest(BaseModel):
+    """Request to install a random fake site"""
+    category: Optional[str] = None
+
+class InstallCustomSiteRequest(BaseModel):
+    """Request to install custom HTML content"""
+    html_content: str
+    backup: bool = True
+
+@app.get("/api/camouflage/templates")
+async def list_camouflage_templates(username: str = Depends(get_current_user)):
+    """List all available fake site templates"""
+    try:
+        manager = get_camouflage_manager()
+        templates = manager.list_templates()
+        return {"success": True, "templates": templates}
+    except Exception as e:
+        logger.error(f"Error listing templates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/camouflage/templates/{template_id}")
+async def get_camouflage_template(template_id: str, username: str = Depends(get_current_user)):
+    """Get details of a specific template"""
+    try:
+        manager = get_camouflage_manager()
+        template = manager.get_template(template_id)
+        if template:
+            return {"success": True, "template": template}
+        return {"success": False, "error": "Template not found"}
+    except Exception as e:
+        logger.error(f"Error getting template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/camouflage/preview/{template_id}")
+async def preview_camouflage_template(template_id: str, username: str = Depends(get_current_user)):
+    """Preview a template's HTML content"""
+    try:
+        manager = get_camouflage_manager()
+        result = manager.preview_template(template_id)
+        return result
+    except Exception as e:
+        logger.error(f"Error previewing template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/camouflage/install")
+async def install_camouflage_template(request: InstallTemplateRequest, username: str = Depends(get_current_user)):
+    """Install a fake site template"""
+    try:
+        manager = get_camouflage_manager()
+        result = manager.install_template(request.template_id, request.backup)
+        return result
+    except Exception as e:
+        logger.error(f"Error installing template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/camouflage/install-random")
+async def install_random_camouflage(request: InstallRandomTemplateRequest, username: str = Depends(get_current_user)):
+    """Install a random fake site template"""
+    try:
+        manager = get_camouflage_manager()
+        result = manager.install_random(request.category)
+        return result
+    except Exception as e:
+        logger.error(f"Error installing random template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/camouflage/install-custom")
+async def install_custom_site(request: InstallCustomSiteRequest, username: str = Depends(get_current_user)):
+    """Install custom HTML as fake site"""
+    try:
+        manager = get_camouflage_manager()
+        result = manager.install_custom(request.html_content, request.backup)
+        return result
+    except Exception as e:
+        logger.error(f"Error installing custom site: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/camouflage/current")
+async def get_current_camouflage(username: str = Depends(get_current_user)):
+    """Get currently installed fake site info"""
+    try:
+        manager = get_camouflage_manager()
+        result = manager.get_current_site()
+        return result
+    except Exception as e:
+        logger.error(f"Error getting current site: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/camouflage/remove")
+async def remove_camouflage(username: str = Depends(get_current_user)):
+    """Remove fake site and restore original"""
+    try:
+        manager = get_camouflage_manager()
+        result = manager.remove_site()
+        return result
+    except Exception as e:
+        logger.error(f"Error removing site: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/camouflage/categories")
+async def get_camouflage_categories(username: str = Depends(get_current_user)):
+    """Get available template categories"""
+    try:
+        from app.camouflage import FakeSiteCategory
+        categories = [
+            {"id": cat.value, "name": cat.name.replace("_", " ").title()}
+            for cat in FakeSiteCategory
+        ]
+        return {"success": True, "categories": categories}
+    except Exception as e:
+        logger.error(f"Error getting categories: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== XRAY CONFIG GENERATOR ====================
+
+class GenerateRealityRequest(BaseModel):
+    """Request to generate VLESS Reality config"""
+    port: Optional[int] = None
+    tag: Optional[str] = "vless-reality"
+    dest: Optional[str] = None
+    sni: Optional[str] = None
+
+class GenerateInboundRequest(BaseModel):
+    """Request to generate inbound config"""
+    template_type: str  # vless_reality, vless_ws, vless_grpc, trojan_ws, vmess_ws, shadowsocks, etc.
+    port: Optional[int] = None
+    path: Optional[str] = None
+    service_name: Optional[str] = None
+    cipher: Optional[str] = "2022-blake3-aes-128-gcm"
+
+@app.get("/api/generator/uuid")
+async def generate_uuid(username: str = Depends(get_current_user)):
+    """Generate a new UUID"""
+    try:
+        gen = get_xray_generator()
+        return {"success": True, "uuid": gen.generate_uuid()}
+    except Exception as e:
+        logger.error(f"Error generating UUID: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/x25519")
+async def generate_x25519_keys(username: str = Depends(get_current_user)):
+    """Generate X25519 key pair for Reality"""
+    try:
+        gen = get_xray_generator()
+        keys = gen.generate_x25519_keys()
+        return {
+            "success": True,
+            "keys": {
+                "privateKey": keys.private_key,
+                "publicKey": keys.public_key
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error generating X25519 keys: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/short-id")
+async def generate_short_id(count: int = 1, length: int = 8, username: str = Depends(get_current_user)):
+    """Generate short ID(s) for Reality"""
+    try:
+        gen = get_xray_generator()
+        if count == 1:
+            return {"success": True, "shortId": gen.generate_short_id(length)}
+        else:
+            return {"success": True, "shortIds": gen.generate_short_ids(count)}
+    except Exception as e:
+        logger.error(f"Error generating short ID: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/password")
+async def generate_password_api(
+    length: int = 16,
+    special: bool = True,
+    username: str = Depends(get_current_user)
+):
+    """Generate random password"""
+    try:
+        gen = get_xray_generator()
+        return {"success": True, "password": gen.generate_password(length, special)}
+    except Exception as e:
+        logger.error(f"Error generating password: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/credentials")
+async def generate_credentials(username: str = Depends(get_current_user)):
+    """Generate complete panel credentials set"""
+    try:
+        gen = get_xray_generator()
+        creds = gen.generate_credentials()
+        return {"success": True, "credentials": creds}
+    except Exception as e:
+        logger.error(f"Error generating credentials: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/available-port")
+async def find_available_port(
+    start: int = 30000,
+    end: int = 60000,
+    username: str = Depends(get_current_user)
+):
+    """Find an available port in range"""
+    try:
+        gen = get_xray_generator()
+        port = gen.find_available_port(start, end)
+        return {"success": True, "port": port}
+    except Exception as e:
+        logger.error(f"Error finding port: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/sni-targets")
+async def get_sni_targets(username: str = Depends(get_current_user)):
+    """Get list of recommended SNI targets for Reality"""
+    try:
+        gen = get_xray_generator()
+        return {
+            "success": True,
+            "targets": gen.REALITY_SNI_TARGETS,
+            "recommended": gen.get_random_sni()
+        }
+    except Exception as e:
+        logger.error(f"Error getting SNI targets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/fingerprints")
+async def get_fingerprints(username: str = Depends(get_current_user)):
+    """Get list of available fingerprints"""
+    try:
+        gen = get_xray_generator()
+        return {
+            "success": True,
+            "fingerprints": gen.FINGERPRINTS,
+            "recommended": gen.get_random_fingerprint()
+        }
+    except Exception as e:
+        logger.error(f"Error getting fingerprints: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/generator/vless-reality")
+async def generate_vless_reality(request: GenerateRealityRequest, username: str = Depends(get_current_user)):
+    """Generate complete VLESS+Reality inbound configuration"""
+    try:
+        gen = get_xray_generator()
+        config = gen.generate_vless_reality_config(
+            port=request.port,
+            tag=request.tag,
+            dest=request.dest,
+            sni=request.sni
+        )
+        return {"success": True, "config": config}
+    except Exception as e:
+        logger.error(f"Error generating VLESS Reality config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/generator/inbound")
+async def generate_inbound(request: GenerateInboundRequest, username: str = Depends(get_current_user)):
+    """Generate inbound configuration by template type"""
+    try:
+        gen = get_xray_generator()
+
+        generators = {
+            "vless_reality": lambda: gen.generate_vless_reality_config(request.port),
+            "vless_ws": lambda: gen.generate_vless_ws_config(request.port, path=request.path),
+            "vless_grpc": lambda: gen.generate_vless_grpc_config(request.port, service_name=request.service_name),
+            "trojan_ws": lambda: gen.generate_trojan_ws_config(request.port, path=request.path),
+            "vmess_ws": lambda: gen.generate_vmess_ws_config(request.port, path=request.path),
+            "shadowsocks": lambda: gen.generate_shadowsocks_config(request.port, cipher=request.cipher),
+            "vless_httpupgrade": lambda: gen.generate_vless_httpupgrade_config(request.port, path=request.path),
+            "vless_splithttp": lambda: gen.generate_vless_splithttp_config(request.port, path=request.path),
+        }
+
+        if request.template_type not in generators:
+            return {"success": False, "error": f"Unknown template type: {request.template_type}"}
+
+        config = generators[request.template_type]()
+        return {"success": True, "config": config}
+    except Exception as e:
+        logger.error(f"Error generating inbound: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/generator/inbound-types")
+async def get_inbound_types(username: str = Depends(get_current_user)):
+    """Get available inbound generation types"""
+    return {
+        "success": True,
+        "types": [
+            {"id": "vless_reality", "name": "VLESS + Reality", "requires_nginx": False},
+            {"id": "vless_ws", "name": "VLESS + WebSocket", "requires_nginx": True},
+            {"id": "vless_grpc", "name": "VLESS + gRPC", "requires_nginx": True},
+            {"id": "vless_httpupgrade", "name": "VLESS + HTTPUpgrade", "requires_nginx": True},
+            {"id": "vless_splithttp", "name": "VLESS + SplitHTTP", "requires_nginx": True},
+            {"id": "trojan_ws", "name": "Trojan + WebSocket", "requires_nginx": True},
+            {"id": "vmess_ws", "name": "VMess + WebSocket", "requires_nginx": True},
+            {"id": "shadowsocks", "name": "ShadowSocks 2022", "requires_nginx": False},
+        ]
+    }
+
+@app.get("/api/generator/ss-password")
+async def generate_ss_password(
+    cipher: str = "2022-blake3-aes-128-gcm",
+    username: str = Depends(get_current_user)
+):
+    """Generate ShadowSocks password for specific cipher"""
+    try:
+        gen = get_xray_generator()
+        return {
+            "success": True,
+            "password": gen.generate_ss_password(cipher),
+            "cipher": cipher
+        }
+    except Exception as e:
+        logger.error(f"Error generating SS password: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== AUTOMATION API ====================
+
+from app.automation import get_automation_manager
+
+@app.get("/api/automation/status")
+async def get_automation_status(username: str = Depends(get_current_user)):
+    """Get automation status and settings"""
+    try:
+        manager = get_automation_manager()
+        return {"success": True, **manager.get_status()}
+    except Exception as e:
+        logger.error(f"Error getting automation status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/automation/settings")
+async def get_automation_settings(username: str = Depends(get_current_user)):
+    """Get automation settings"""
+    try:
+        manager = get_automation_manager()
+        return {"success": True, "settings": manager.get_settings()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/automation/settings")
+async def update_automation_settings(request: Dict[str, Any], username: str = Depends(get_current_user)):
+    """Update automation settings"""
+    try:
+        manager = get_automation_manager()
+        success = manager.update_settings(request)
+        return {"success": success, "settings": manager.get_settings()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/automation/backup/create")
+async def create_backup(username: str = Depends(get_current_user)):
+    """Create a new backup"""
+    try:
+        manager = get_automation_manager()
+        return manager.create_backup()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/automation/backups")
+async def list_backups(username: str = Depends(get_current_user)):
+    """List all backups"""
+    try:
+        manager = get_automation_manager()
+        backups = manager.list_backups()
+        return {"success": True, "backups": backups, "count": len(backups)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/automation/backup/restore/{backup_name}")
+async def restore_backup(backup_name: str, username: str = Depends(get_current_user)):
+    """Restore from a backup"""
+    try:
+        manager = get_automation_manager()
+        return manager.restore_backup(backup_name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/automation/backup/{backup_name}")
+async def delete_backup(backup_name: str, username: str = Depends(get_current_user)):
+    """Delete a backup"""
+    try:
+        manager = get_automation_manager()
+        success = manager.delete_backup(backup_name)
+        return {"success": success}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/automation/ssl/check")
+async def check_ssl_certificates(username: str = Depends(get_current_user)):
+    """Check SSL certificate status"""
+    try:
+        manager = get_automation_manager()
+        certs = manager.check_ssl_certificates()
+        return {"success": True, "certificates": certs, "count": len(certs)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/automation/ssl/renew")
+async def renew_ssl_certificates(username: str = Depends(get_current_user)):
+    """Renew SSL certificates"""
+    try:
+        manager = get_automation_manager()
+        return manager.renew_ssl_certificates()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/automation/services")
+async def get_services_status(username: str = Depends(get_current_user)):
+    """Get status of all services"""
+    try:
+        manager = get_automation_manager()
+        services = ["x-ui", "xui-manager", "nginx"]
+        statuses = [manager.get_service_status(s) for s in services]
+        return {"success": True, "services": statuses}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/automation/service/{service}/restart")
+async def restart_service(service: str, username: str = Depends(get_current_user)):
+    """Restart a service"""
+    try:
+        manager = get_automation_manager()
+        return manager.restart_service(service)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/automation/warp/status")
+async def get_warp_status(username: str = Depends(get_current_user)):
+    """Get WARP status"""
+    try:
+        manager = get_automation_manager()
+        status = manager.check_warp_status()
+        return {"success": True, **status}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/automation/warp/restart")
+async def restart_warp(username: str = Depends(get_current_user)):
+    """Restart WARP"""
+    try:
+        manager = get_automation_manager()
+        success = manager.restart_warp()
+        return {"success": success}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==================== ЗАПУСК ПРИЛОЖЕНИЯ ====================

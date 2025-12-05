@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """
-3x-ui Panel API Client
-Handles all HTTP requests to the 3x-ui panel
+3x-ui Panel API Client - Extended Version
+Handles all HTTP requests to the 3x-ui panel with advanced features
 """
 
 import aiohttp
 import asyncio
+import json
 import logging
-from typing import Dict, List, Optional, Any
-from config import settings
+from typing import Dict, List, Optional, Any, Union
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 class XUIClient:
-    """Client for interacting with 3x-ui panel API"""
+    """Extended client for interacting with 3x-ui panel API"""
 
     def __init__(self):
         self.base_url = settings.XUI_PANEL_URL.rstrip('/')
@@ -22,6 +23,7 @@ class XUIClient:
         self.password = settings.XUI_PANEL_PASSWORD
         self.session_cookie = None
         self._session: Optional[aiohttp.ClientSession] = None
+        self._last_login: float = 0
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session"""
@@ -50,12 +52,13 @@ class XUIClient:
                 if response.status == 200:
                     result = await response.json()
                     if result.get("success"):
-                        # Extract session cookie
                         cookies = response.cookies
                         if 'session' in cookies:
                             self.session_cookie = cookies['session'].value
                         elif '3x-ui' in cookies:
                             self.session_cookie = cookies['3x-ui'].value
+                        import time
+                        self._last_login = time.time()
                         logger.info("Successfully logged in to 3x-ui panel")
                         return True
 
@@ -66,30 +69,29 @@ class XUIClient:
             logger.error(f"Error logging in to 3x-ui: {e}")
             return False
 
-    async def _request(self, method: str, endpoint: str, **kwargs) -> Optional[Dict]:
+    async def _request(
+        self,
+        method: str,
+        endpoint: str,
+        retry_on_401: bool = True,
+        **kwargs
+    ) -> Optional[Dict]:
         """Make authenticated request to 3x-ui panel"""
         try:
-            # Ensure we're logged in
             if not self.session_cookie:
                 if not await self.login():
                     return None
 
             session = await self._get_session()
             url = f"{self.base_url}{endpoint}"
-
-            # Add session cookie
             cookies = {'session': self.session_cookie, '3x-ui': self.session_cookie}
 
             async with session.request(method, url, cookies=cookies, **kwargs) as response:
                 if response.status == 200:
                     return await response.json()
-                elif response.status == 404:
-                    # Try to re-login
+                elif response.status in [401, 404] and retry_on_401:
                     if await self.login():
-                        cookies = {'session': self.session_cookie, '3x-ui': self.session_cookie}
-                        async with session.request(method, url, cookies=cookies, **kwargs) as retry_response:
-                            if retry_response.status == 200:
-                                return await retry_response.json()
+                        return await self._request(method, endpoint, retry_on_401=False, **kwargs)
 
                 logger.error(f"Request failed: {method} {endpoint} - {response.status}")
                 return None
@@ -133,6 +135,211 @@ class XUIClient:
         """Import inbound from JSON"""
         result = await self._request("POST", "/panel/api/inbounds/import", json=inbound_json)
         return result
+
+    # ==================== EXTENDED INBOUND METHODS ====================
+
+    async def update_inbound_settings(
+        self,
+        inbound_id: int,
+        settings_update: Dict[str, Any]
+    ) -> Optional[Dict]:
+        """
+        Update specific settings of an inbound
+
+        Args:
+            inbound_id: Inbound ID
+            settings_update: Dict with settings to update (merged with existing)
+
+        Returns:
+            Update result
+        """
+        inbound = await self.get_inbound(inbound_id)
+        if not inbound:
+            return {"success": False, "msg": "Inbound not found"}
+
+        try:
+            current_settings = json.loads(inbound.get("settings", "{}"))
+            current_settings.update(settings_update)
+            inbound["settings"] = json.dumps(current_settings)
+
+            return await self.update_inbound(inbound_id, inbound)
+        except json.JSONDecodeError as e:
+            return {"success": False, "msg": f"Invalid settings JSON: {e}"}
+
+    async def update_inbound_stream_settings(
+        self,
+        inbound_id: int,
+        stream_update: Dict[str, Any]
+    ) -> Optional[Dict]:
+        """
+        Update stream settings of an inbound
+
+        Args:
+            inbound_id: Inbound ID
+            stream_update: Dict with stream settings to update
+
+        Returns:
+            Update result
+        """
+        inbound = await self.get_inbound(inbound_id)
+        if not inbound:
+            return {"success": False, "msg": "Inbound not found"}
+
+        try:
+            current_stream = json.loads(inbound.get("streamSettings", "{}"))
+            self._deep_update(current_stream, stream_update)
+            inbound["streamSettings"] = json.dumps(current_stream)
+
+            return await self.update_inbound(inbound_id, inbound)
+        except json.JSONDecodeError as e:
+            return {"success": False, "msg": f"Invalid stream settings JSON: {e}"}
+
+    async def update_inbound_sniffing(
+        self,
+        inbound_id: int,
+        enabled: bool = True,
+        dest_override: List[str] = None
+    ) -> Optional[Dict]:
+        """
+        Update sniffing settings of an inbound
+
+        Args:
+            inbound_id: Inbound ID
+            enabled: Enable/disable sniffing
+            dest_override: List of dest override values ["http", "tls", "quic", "fakedns"]
+        """
+        inbound = await self.get_inbound(inbound_id)
+        if not inbound:
+            return {"success": False, "msg": "Inbound not found"}
+
+        sniffing = {
+            "enabled": enabled,
+            "destOverride": dest_override or ["http", "tls", "quic", "fakedns"]
+        }
+        inbound["sniffing"] = json.dumps(sniffing)
+
+        return await self.update_inbound(inbound_id, inbound)
+
+    async def update_inbound_port(self, inbound_id: int, new_port: int) -> Optional[Dict]:
+        """Change inbound port"""
+        inbound = await self.get_inbound(inbound_id)
+        if not inbound:
+            return {"success": False, "msg": "Inbound not found"}
+
+        inbound["port"] = new_port
+        return await self.update_inbound(inbound_id, inbound)
+
+    async def toggle_inbound(self, inbound_id: int, enable: bool) -> Optional[Dict]:
+        """Enable/disable inbound"""
+        inbound = await self.get_inbound(inbound_id)
+        if not inbound:
+            return {"success": False, "msg": "Inbound not found"}
+
+        inbound["enable"] = enable
+        return await self.update_inbound(inbound_id, inbound)
+
+    async def update_reality_settings(
+        self,
+        inbound_id: int,
+        dest: str = None,
+        server_names: List[str] = None,
+        private_key: str = None,
+        short_ids: List[str] = None,
+        fingerprint: str = None
+    ) -> Optional[Dict]:
+        """
+        Update Reality settings for an inbound
+
+        Args:
+            inbound_id: Inbound ID
+            dest: Destination domain:port (e.g., "www.microsoft.com:443")
+            server_names: List of allowed server names
+            private_key: Reality private key
+            short_ids: List of short IDs
+            fingerprint: Browser fingerprint (chrome, firefox, safari, etc.)
+        """
+        inbound = await self.get_inbound(inbound_id)
+        if not inbound:
+            return {"success": False, "msg": "Inbound not found"}
+
+        try:
+            stream_settings = json.loads(inbound.get("streamSettings", "{}"))
+
+            if stream_settings.get("security") != "reality":
+                return {"success": False, "msg": "Inbound is not using Reality"}
+
+            reality = stream_settings.get("realitySettings", {})
+
+            if dest:
+                reality["dest"] = dest
+            if server_names:
+                reality["serverNames"] = server_names
+            if private_key:
+                reality["privateKey"] = private_key
+            if short_ids:
+                reality["shortIds"] = short_ids
+            if fingerprint:
+                reality["fingerprint"] = fingerprint
+
+            stream_settings["realitySettings"] = reality
+            inbound["streamSettings"] = json.dumps(stream_settings)
+
+            return await self.update_inbound(inbound_id, inbound)
+
+        except json.JSONDecodeError as e:
+            return {"success": False, "msg": f"Invalid JSON: {e}"}
+
+    async def clone_inbound(
+        self,
+        source_id: int,
+        new_port: int,
+        new_remark: str = None
+    ) -> Optional[Dict]:
+        """
+        Clone an inbound to a new port
+
+        Args:
+            source_id: Source inbound ID to clone
+            new_port: Port for the new inbound
+            new_remark: Optional new remark/name
+        """
+        source = await self.get_inbound(source_id)
+        if not source:
+            return {"success": False, "msg": "Source inbound not found"}
+
+        # Create new inbound data
+        new_inbound = {
+            "remark": new_remark or f"{source.get('remark', 'Cloned')}_copy",
+            "enable": True,
+            "port": new_port,
+            "protocol": source.get("protocol"),
+            "settings": source.get("settings", "{}"),
+            "streamSettings": source.get("streamSettings", "{}"),
+            "sniffing": source.get("sniffing", "{}"),
+            "expiryTime": 0,
+            "listen": "",
+            "total": 0,
+            "up": 0,
+            "down": 0,
+        }
+
+        # Clear clients from settings
+        try:
+            settings = json.loads(new_inbound["settings"])
+            settings["clients"] = []
+            new_inbound["settings"] = json.dumps(settings)
+        except:
+            pass
+
+        return await self.add_inbound(new_inbound)
+
+    def _deep_update(self, base: Dict, update: Dict):
+        """Deep update nested dictionary"""
+        for key, value in update.items():
+            if isinstance(value, dict) and key in base and isinstance(base[key], dict):
+                self._deep_update(base[key], value)
+            else:
+                base[key] = value
 
     # ==================== CLIENT ENDPOINTS ====================
 
@@ -191,6 +398,11 @@ class XUIClient:
         result = await self._request("POST", f"/panel/api/inbounds/{inbound_id}/delClient/{client_id}")
         return result and result.get("success", False)
 
+    async def delete_client_by_email(self, inbound_id: int, email: str) -> bool:
+        """Delete client by email"""
+        result = await self._request("POST", f"/panel/api/inbounds/{inbound_id}/delClientByEmail/{email}")
+        return result and result.get("success", False)
+
     async def reset_client_traffic(self, inbound_id: int, email: str) -> bool:
         """Reset traffic counter for single client"""
         result = await self._request("POST", f"/panel/api/inbounds/{inbound_id}/resetClientTraffic/{email}")
@@ -209,6 +421,16 @@ class XUIClient:
     async def delete_depleted_clients(self, inbound_id: int) -> Optional[Dict]:
         """Delete clients who exceeded their traffic limits"""
         result = await self._request("POST", f"/panel/api/inbounds/delDepletedClients/{inbound_id}")
+        return result
+
+    async def update_client_traffic(self, email: str, traffic_gb: int) -> Optional[Dict]:
+        """Update client traffic limit"""
+        traffic_bytes = traffic_gb * 1024 * 1024 * 1024
+        result = await self._request(
+            "POST",
+            f"/panel/api/inbounds/updateClientTraffic/{email}",
+            json={"total": traffic_bytes}
+        )
         return result
 
     # ==================== SERVER ENDPOINTS ====================
@@ -257,7 +479,7 @@ class XUIClient:
         return None
 
     async def get_new_x25519_cert(self) -> Optional[Dict]:
-        """Generate new X25519 certificate"""
+        """Generate new X25519 certificate for Reality"""
         result = await self._request("GET", "/panel/api/server/getNewX25519Cert")
         if result and result.get("success"):
             return result.get("obj")
@@ -327,6 +549,47 @@ class XUIClient:
         except Exception as e:
             logger.error(f"Error importing database: {e}")
         return False
+
+    async def backup_to_telegram(self) -> bool:
+        """Backup database to Telegram (if configured in 3x-ui)"""
+        result = await self._request("GET", "/panel/api/backuptotgbot")
+        return result and result.get("success", False)
+
+    # ==================== HEALTH CHECK ====================
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Perform health check on 3x-ui panel"""
+        result = {
+            "api_accessible": False,
+            "authenticated": False,
+            "xray_running": False,
+            "details": {}
+        }
+
+        try:
+            # Check if API is accessible
+            session = await self._get_session()
+            async with session.get(f"{self.base_url}/login", timeout=aiohttp.ClientTimeout(total=5)) as response:
+                result["api_accessible"] = response.status in [200, 302]
+
+            # Check authentication
+            if self.session_cookie or await self.login():
+                result["authenticated"] = True
+
+                # Check server status
+                status = await self.get_server_status()
+                if status:
+                    result["xray_running"] = status.get("xray", {}).get("state") == "running"
+                    result["details"] = {
+                        "cpu": status.get("cpu"),
+                        "mem": status.get("mem"),
+                        "xray_version": status.get("xray", {}).get("version"),
+                    }
+
+        except Exception as e:
+            result["error"] = str(e)
+
+        return result
 
 
 # Global instance
