@@ -4984,6 +4984,137 @@ async def generate_ss_password(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== AUTOMATION API ====================
+
+from app.automation import get_automation_manager
+
+@app.get("/api/automation/status")
+async def get_automation_status(username: str = Depends(get_current_user)):
+    """Get automation status and settings"""
+    try:
+        manager = get_automation_manager()
+        return {"success": True, **manager.get_status()}
+    except Exception as e:
+        logger.error(f"Error getting automation status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/automation/settings")
+async def get_automation_settings(username: str = Depends(get_current_user)):
+    """Get automation settings"""
+    try:
+        manager = get_automation_manager()
+        return {"success": True, "settings": manager.get_settings()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/automation/settings")
+async def update_automation_settings(request: Dict[str, Any], username: str = Depends(get_current_user)):
+    """Update automation settings"""
+    try:
+        manager = get_automation_manager()
+        success = manager.update_settings(request)
+        return {"success": success, "settings": manager.get_settings()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/automation/backup/create")
+async def create_backup(username: str = Depends(get_current_user)):
+    """Create a new backup"""
+    try:
+        manager = get_automation_manager()
+        return manager.create_backup()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/automation/backups")
+async def list_backups(username: str = Depends(get_current_user)):
+    """List all backups"""
+    try:
+        manager = get_automation_manager()
+        backups = manager.list_backups()
+        return {"success": True, "backups": backups, "count": len(backups)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/automation/backup/restore/{backup_name}")
+async def restore_backup(backup_name: str, username: str = Depends(get_current_user)):
+    """Restore from a backup"""
+    try:
+        manager = get_automation_manager()
+        return manager.restore_backup(backup_name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/automation/backup/{backup_name}")
+async def delete_backup(backup_name: str, username: str = Depends(get_current_user)):
+    """Delete a backup"""
+    try:
+        manager = get_automation_manager()
+        success = manager.delete_backup(backup_name)
+        return {"success": success}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/automation/ssl/check")
+async def check_ssl_certificates(username: str = Depends(get_current_user)):
+    """Check SSL certificate status"""
+    try:
+        manager = get_automation_manager()
+        certs = manager.check_ssl_certificates()
+        return {"success": True, "certificates": certs, "count": len(certs)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/automation/ssl/renew")
+async def renew_ssl_certificates(username: str = Depends(get_current_user)):
+    """Renew SSL certificates"""
+    try:
+        manager = get_automation_manager()
+        return manager.renew_ssl_certificates()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/automation/services")
+async def get_services_status(username: str = Depends(get_current_user)):
+    """Get status of all services"""
+    try:
+        manager = get_automation_manager()
+        services = ["x-ui", "xui-manager", "nginx"]
+        statuses = [manager.get_service_status(s) for s in services]
+        return {"success": True, "services": statuses}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/automation/service/{service}/restart")
+async def restart_service(service: str, username: str = Depends(get_current_user)):
+    """Restart a service"""
+    try:
+        manager = get_automation_manager()
+        return manager.restart_service(service)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/automation/warp/status")
+async def get_warp_status(username: str = Depends(get_current_user)):
+    """Get WARP status"""
+    try:
+        manager = get_automation_manager()
+        status = manager.check_warp_status()
+        return {"success": True, **status}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/automation/warp/restart")
+async def restart_warp(username: str = Depends(get_current_user)):
+    """Restart WARP"""
+    try:
+        manager = get_automation_manager()
+        success = manager.restart_warp()
+        return {"success": success}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== ЗАПУСК ПРИЛОЖЕНИЯ ====================
 
 if __name__ == "__main__":

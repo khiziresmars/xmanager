@@ -866,6 +866,67 @@
                 padding: 6px 10px;
             }
         }
+
+        /* Modal Tabs */
+        .modal-tab {
+            flex: 1;
+            padding: 12px 16px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            border-bottom: 2px solid transparent;
+        }
+
+        .modal-tab:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .modal-tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+            background: var(--bg-tertiary);
+        }
+
+        .modal-tab-content {
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Primary color variable */
+        .modal-tab-content h4 {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        /* Form row in modal */
+        .modal .form-row {
+            display: flex;
+            gap: 15px;
+        }
+
+        .modal .form-row .form-group {
+            flex: 1;
+        }
+
+        @media (max-width: 600px) {
+            .modal-tab {
+                padding: 10px 8px;
+                font-size: 11px;
+            }
+
+            .modal .form-row {
+                flex-direction: column;
+            }
+        }
     </style>
 </head>
 <body>
@@ -950,6 +1011,15 @@
                     <div class="sidebar-category-title">🎭 Камуфляж</div>
                     <div class="sidebar-category-items">
                         <button class="sidebar-item" onclick="showTab('camouflage')">🌐 Fake сайты</button>
+                    </div>
+                </div>
+
+                <!-- Automation Category -->
+                <div class="sidebar-category">
+                    <div class="sidebar-category-title">🤖 Автоматизация</div>
+                    <div class="sidebar-category-items">
+                        <button class="sidebar-item" onclick="showTab('automation')">⚙️ Настройки</button>
+                        <button class="sidebar-item" onclick="showTab('backups')">💾 Бэкапы</button>
                     </div>
                 </div>
 
@@ -1591,59 +1661,341 @@
             </div>
         </div>
 
-        <!-- Inbound Edit Modal -->
+        <!-- Inbound Edit Modal - Enhanced Visual Editor -->
         <div id="inbound-edit-modal" class="modal" style="display: none;">
-            <div class="modal-content" style="max-width: 700px;">
+            <div class="modal-content" style="max-width: 900px;">
                 <div class="modal-header">
                     <h3 id="inbound-modal-title">Редактировать Inbound</h3>
                     <button class="modal-close" onclick="closeInboundModal()">&times;</button>
                 </div>
-                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div class="modal-body" style="max-height: 75vh; overflow-y: auto; padding: 0;">
                     <input type="hidden" id="edit-inbound-id">
+                    <input type="hidden" id="edit-inbound-security-type">
+                    <input type="hidden" id="edit-inbound-network-type">
 
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Название</label>
-                            <input type="text" class="form-input" id="edit-inbound-remark">
+                    <!-- Modal Tabs -->
+                    <div class="modal-tabs" style="display: flex; border-bottom: 1px solid var(--border-color); background: var(--bg-secondary);">
+                        <button class="modal-tab active" data-tab="basic" onclick="switchInboundTab('basic')">📋 Основное</button>
+                        <button class="modal-tab" data-tab="transport" onclick="switchInboundTab('transport')">🔄 Транспорт</button>
+                        <button class="modal-tab" data-tab="security" onclick="switchInboundTab('security')">🔐 Безопасность</button>
+                        <button class="modal-tab" data-tab="advanced" onclick="switchInboundTab('advanced')">⚙️ Расширенные</button>
+                    </div>
+
+                    <!-- Tab: Basic -->
+                    <div class="modal-tab-content active" id="inbound-tab-basic" style="padding: 20px;">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Название (Remark)</label>
+                                <input type="text" class="form-input" id="edit-inbound-remark" placeholder="my-vless-reality">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Порт</label>
+                                <div style="display: flex; gap: 8px;">
+                                    <input type="number" class="form-input" id="edit-inbound-port" style="flex: 1;">
+                                    <button class="btn btn-secondary" onclick="generateRandomPort()" title="Случайный порт">🎲</button>
+                                </div>
+                            </div>
                         </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Протокол</label>
+                                <input type="text" class="form-input" id="edit-inbound-protocol" readonly style="background: var(--bg-tertiary);">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Статус</label>
+                                <select class="form-input" id="edit-inbound-enable">
+                                    <option value="1">✅ Включен</option>
+                                    <option value="0">❌ Выключен</option>
+                                </select>
+                            </div>
+                        </div>
+
                         <div class="form-group">
-                            <label class="form-label">Порт</label>
-                            <input type="number" class="form-input" id="edit-inbound-port">
+                            <label class="form-label">Listen IP (пусто = все интерфейсы)</label>
+                            <input type="text" class="form-input" id="edit-inbound-listen" placeholder="0.0.0.0 или пусто">
+                        </div>
+
+                        <!-- Sniffing Settings -->
+                        <div style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <label class="form-label" style="margin-bottom: 10px;">Sniffing</label>
+                            <div class="form-row">
+                                <div class="form-group" style="flex: 0 0 120px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                        <input type="checkbox" id="edit-sniffing-enabled" checked>
+                                        <span>Включен</span>
+                                    </label>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Dest Override</label>
+                                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                            <input type="checkbox" id="sniff-http" checked> HTTP
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                            <input type="checkbox" id="sniff-tls" checked> TLS
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                            <input type="checkbox" id="sniff-quic" checked> QUIC
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                                            <input type="checkbox" id="sniff-fakedns"> FakeDNS
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="form-row">
+                    <!-- Tab: Transport -->
+                    <div class="modal-tab-content" id="inbound-tab-transport" style="padding: 20px; display: none;">
                         <div class="form-group">
-                            <label class="form-label">Протокол</label>
-                            <input type="text" class="form-input" id="edit-inbound-protocol" readonly style="background: var(--bg-tertiary);">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Статус</label>
-                            <select class="form-input" id="edit-inbound-enable">
-                                <option value="1">Включен</option>
-                                <option value="0">Выключен</option>
+                            <label class="form-label">Тип сети (Network)</label>
+                            <select class="form-input" id="edit-network-type" onchange="updateTransportFields()">
+                                <option value="tcp">TCP</option>
+                                <option value="ws">WebSocket</option>
+                                <option value="grpc">gRPC</option>
+                                <option value="httpupgrade">HTTPUpgrade</option>
+                                <option value="splithttp">SplitHTTP</option>
+                                <option value="kcp">mKCP</option>
+                                <option value="quic">QUIC</option>
                             </select>
                         </div>
+
+                        <!-- WebSocket Settings -->
+                        <div id="transport-ws-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: var(--primary);">🔌 WebSocket</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Path</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="text" class="form-input" id="edit-ws-path" placeholder="/ws" style="flex: 1;">
+                                        <button class="btn btn-secondary" onclick="generateRandomPath()" title="Случайный путь">🎲</button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Host</label>
+                                    <input type="text" class="form-input" id="edit-ws-host" placeholder="example.com">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- gRPC Settings -->
+                        <div id="transport-grpc-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: var(--primary);">📡 gRPC</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Service Name</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="text" class="form-input" id="edit-grpc-service" placeholder="grpc-service" style="flex: 1;">
+                                        <button class="btn btn-secondary" onclick="generateRandomServiceName()" title="Случайное имя">🎲</button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Mode</label>
+                                    <select class="form-input" id="edit-grpc-mode">
+                                        <option value="gun">gun</option>
+                                        <option value="multi">multi</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- HTTPUpgrade Settings -->
+                        <div id="transport-httpupgrade-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: var(--primary);">⬆️ HTTPUpgrade</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Path</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="text" class="form-input" id="edit-httpupgrade-path" placeholder="/httpupgrade" style="flex: 1;">
+                                        <button class="btn btn-secondary" onclick="document.getElementById('edit-httpupgrade-path').value = '/' + generateRandomString(8)" title="Случайный путь">🎲</button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Host</label>
+                                    <input type="text" class="form-input" id="edit-httpupgrade-host" placeholder="example.com">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SplitHTTP Settings -->
+                        <div id="transport-splithttp-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: var(--primary);">✂️ SplitHTTP</h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Path</label>
+                                    <input type="text" class="form-input" id="edit-splithttp-path" placeholder="/splithttp">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Host</label>
+                                    <input type="text" class="form-input" id="edit-splithttp-host" placeholder="example.com">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TCP Settings -->
+                        <div id="transport-tcp-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: var(--primary);">🔗 TCP</h4>
+                            <div class="form-group">
+                                <label class="form-label">Header Type</label>
+                                <select class="form-input" id="edit-tcp-header-type">
+                                    <option value="none">none</option>
+                                    <option value="http">http</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Stream Settings (JSON)</label>
-                        <textarea class="form-input" id="edit-inbound-stream" rows="8" style="font-family: monospace; font-size: 12px;"></textarea>
+                    <!-- Tab: Security -->
+                    <div class="modal-tab-content" id="inbound-tab-security" style="padding: 20px; display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Тип безопасности (Security)</label>
+                            <select class="form-input" id="edit-security-type" onchange="updateSecurityFields()">
+                                <option value="none">none (без шифрования)</option>
+                                <option value="tls">TLS</option>
+                                <option value="reality">Reality</option>
+                            </select>
+                        </div>
+
+                        <!-- Reality Settings -->
+                        <div id="security-reality-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: #9b59b6;">🎭 Reality Settings</h4>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Dest (целевой сервер)</label>
+                                    <input type="text" class="form-input" id="edit-reality-dest" placeholder="www.microsoft.com:443">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Server Names (SNI)</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <select class="form-input" id="edit-reality-sni-select" style="flex: 1;" onchange="document.getElementById('edit-reality-sni').value = this.value">
+                                            <option value="">-- Выбрать --</option>
+                                            <option value="www.microsoft.com">microsoft.com</option>
+                                            <option value="dl.google.com">dl.google.com</option>
+                                            <option value="www.apple.com">apple.com</option>
+                                            <option value="www.samsung.com">samsung.com</option>
+                                            <option value="www.nvidia.com">nvidia.com</option>
+                                            <option value="www.amd.com">amd.com</option>
+                                            <option value="steamcommunity.com">steamcommunity.com</option>
+                                            <option value="www.cloudflare.com">cloudflare.com</option>
+                                            <option value="www.spotify.com">spotify.com</option>
+                                            <option value="gateway.icloud.com">icloud.com</option>
+                                        </select>
+                                    </div>
+                                    <input type="text" class="form-input" id="edit-reality-sni" placeholder="www.microsoft.com" style="margin-top: 8px;">
+                                </div>
+                            </div>
+
+                            <div class="form-group" style="margin-top: 15px;">
+                                <label class="form-label">Private Key</label>
+                                <div style="display: flex; gap: 8px;">
+                                    <input type="text" class="form-input" id="edit-reality-private-key" style="flex: 1; font-family: monospace; font-size: 11px;">
+                                    <button class="btn btn-primary" onclick="generateX25519Keys()" title="Генерировать новые ключи">🔄 X25519</button>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Public Key (для клиентов)</label>
+                                <div style="display: flex; gap: 8px;">
+                                    <input type="text" class="form-input" id="edit-reality-public-key" readonly style="flex: 1; font-family: monospace; font-size: 11px; background: var(--bg-secondary);">
+                                    <button class="btn btn-secondary" onclick="copyToClipboard(document.getElementById('edit-reality-public-key').value)" title="Копировать">📋</button>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Short IDs</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="text" class="form-input" id="edit-reality-short-ids" placeholder="abcd1234" style="flex: 1; font-family: monospace;">
+                                        <button class="btn btn-secondary" onclick="generateShortId()" title="Генерировать Short ID">🎲</button>
+                                    </div>
+                                    <small style="color: var(--text-secondary); font-size: 11px;">Через запятую для нескольких</small>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Fingerprint</label>
+                                    <select class="form-input" id="edit-reality-fingerprint">
+                                        <option value="chrome">chrome</option>
+                                        <option value="firefox">firefox</option>
+                                        <option value="safari">safari</option>
+                                        <option value="ios">ios</option>
+                                        <option value="android">android</option>
+                                        <option value="edge">edge</option>
+                                        <option value="randomized">randomized</option>
+                                        <option value="random">random</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Spider X</label>
+                                <input type="text" class="form-input" id="edit-reality-spider-x" placeholder="/">
+                            </div>
+                        </div>
+
+                        <!-- TLS Settings -->
+                        <div id="security-tls-settings" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                            <h4 style="margin: 0 0 15px 0; color: #27ae60;">🔒 TLS Settings</h4>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Server Name</label>
+                                    <input type="text" class="form-input" id="edit-tls-server-name" placeholder="example.com">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">ALPN</label>
+                                    <select class="form-input" id="edit-tls-alpn" multiple style="height: 80px;">
+                                        <option value="h2" selected>h2</option>
+                                        <option value="http/1.1" selected>http/1.1</option>
+                                        <option value="h3">h3</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Cert File Path</label>
+                                    <input type="text" class="form-input" id="edit-tls-cert-file" placeholder="/path/to/fullchain.pem">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Key File Path</label>
+                                    <input type="text" class="form-input" id="edit-tls-key-file" placeholder="/path/to/privkey.pem">
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Settings (JSON)</label>
-                        <textarea class="form-input" id="edit-inbound-settings" rows="6" style="font-family: monospace; font-size: 12px;"></textarea>
-                    </div>
+                    <!-- Tab: Advanced (Raw JSON) -->
+                    <div class="modal-tab-content" id="inbound-tab-advanced" style="padding: 20px; display: none;">
+                        <div style="background: #fff3cd; color: #856404; padding: 10px 15px; border-radius: 8px; margin-bottom: 15px;">
+                            ⚠️ <strong>Внимание:</strong> Редактирование JSON напрямую. Изменения здесь перезапишут визуальные настройки.
+                        </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Sniffing (JSON)</label>
-                        <textarea class="form-input" id="edit-inbound-sniffing" rows="4" style="font-family: monospace; font-size: 12px;"></textarea>
+                        <div class="form-group">
+                            <label class="form-label">Stream Settings (JSON)</label>
+                            <textarea class="form-input" id="edit-inbound-stream" rows="10" style="font-family: monospace; font-size: 12px;"></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Settings (JSON)</label>
+                            <textarea class="form-input" id="edit-inbound-settings" rows="8" style="font-family: monospace; font-size: 12px;"></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Sniffing (JSON)</label>
+                            <textarea class="form-input" id="edit-inbound-sniffing" rows="4" style="font-family: monospace; font-size: 12px;"></textarea>
+                        </div>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button class="btn btn-secondary" onclick="closeInboundModal()">Отмена</button>
-                    <button class="btn btn-primary" onclick="saveInbound()">💾 Сохранить</button>
+                <div class="modal-footer" style="display: flex; justify-content: space-between;">
+                    <div>
+                        <button class="btn btn-secondary" onclick="resetInboundForm()" title="Сбросить изменения">🔄 Сбросить</button>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-secondary" onclick="closeInboundModal()">Отмена</button>
+                        <button class="btn btn-primary" onclick="saveInbound()">💾 Сохранить</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1844,6 +2196,171 @@
 
                 <div id="update-server-logs" style="font-family: monospace; font-size: 12px; color: var(--text-secondary); max-height: 150px; overflow-y: auto; background: var(--bg-tertiary); padding: 10px; border-radius: 6px; display: none;">
                 </div>
+            </div>
+        </div>
+
+        <!-- Tab: Automation Settings -->
+        <div id="tab-automation" class="tab-content">
+            <h2>🤖 Автоматизация</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+                Настройки автоматических задач и мониторинга
+            </p>
+
+            <!-- Services Status -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">📊 Статус сервисов</h3>
+                <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));" id="services-status-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">X-UI</div>
+                        <div class="stat-value" id="service-xui-status" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">XUI-Manager</div>
+                        <div class="stat-value" id="service-manager-status" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Nginx</div>
+                        <div class="stat-value" id="service-nginx-status" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">WARP</div>
+                        <div class="stat-value" id="service-warp-status" style="font-size: 14px;">-</div>
+                    </div>
+                </div>
+                <div class="btn-group" style="margin-top: 15px;">
+                    <button class="btn btn-primary" onclick="loadServicesStatus()">🔄 Обновить</button>
+                    <button class="btn btn-warning" onclick="restartService('x-ui')">🔄 X-UI</button>
+                    <button class="btn btn-warning" onclick="restartService('nginx')">🔄 Nginx</button>
+                </div>
+            </div>
+
+            <!-- Backup Settings -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">💾 Настройки бэкапов</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="backup-enabled" checked>
+                            <span>Автоматические бэкапы</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Интервал (часов)</label>
+                        <input type="number" class="form-input" id="backup-interval" value="24" min="1" max="168">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Хранить (дней)</label>
+                        <input type="number" class="form-input" id="backup-retention" value="7" min="1" max="30">
+                    </div>
+                </div>
+            </div>
+
+            <!-- SSL Settings -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">🔐 SSL сертификаты</h3>
+                <div id="ssl-certificates-list" style="margin-bottom: 15px;">
+                    <p style="color: var(--text-secondary);">Загрузка...</p>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="ssl-auto-check" checked>
+                            <span>Авто-проверка SSL</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="ssl-auto-renew" checked>
+                            <span>Авто-продление</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="checkSSLCertificates()">🔍 Проверить SSL</button>
+                    <button class="btn btn-success" onclick="renewSSLCertificates()">🔄 Продлить</button>
+                </div>
+            </div>
+
+            <!-- WARP Settings -->
+            <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">🌐 Cloudflare WARP</h3>
+                <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); margin-bottom: 15px;">
+                    <div class="stat-card">
+                        <div class="stat-label">Статус</div>
+                        <div class="stat-value" id="warp-connection-status" style="font-size: 14px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">IP</div>
+                        <div class="stat-value" id="warp-ip" style="font-size: 12px;">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Страна</div>
+                        <div class="stat-value" id="warp-country" style="font-size: 14px;">-</div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="warp-health-check">
+                            <span>Мониторинг здоровья</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="warp-auto-restart">
+                            <span>Авто-перезапуск</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="checkWarpStatus()">🔍 Проверить</button>
+                    <button class="btn btn-warning" onclick="restartWarp()">🔄 Перезапустить</button>
+                </div>
+            </div>
+
+            <!-- Save Button -->
+            <div style="text-align: right; margin-top: 20px;">
+                <button class="btn btn-success" onclick="saveAutomationSettings()" style="padding: 12px 30px;">
+                    💾 Сохранить настройки
+                </button>
+            </div>
+        </div>
+
+        <!-- Tab: Backups -->
+        <div id="tab-backups" class="tab-content">
+            <h2>💾 Резервные копии</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+                Управление бэкапами базы данных и настроек
+            </p>
+
+            <div class="btn-group" style="margin-bottom: 20px;">
+                <button class="btn btn-success" onclick="createBackup()">➕ Создать бэкап</button>
+                <button class="btn btn-primary" onclick="loadBackups()">🔄 Обновить</button>
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Дата</th>
+                            <th>Файлов</th>
+                            <th>Размер</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="backups-table-body">
+                        <tr><td colspan="4" class="loading">Загрузка...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="background: var(--bg-secondary); padding: 15px; border-radius: 8px; margin-top: 20px;">
+                <h4 style="margin: 0 0 10px 0;">ℹ️ Что включено в бэкап:</h4>
+                <ul style="margin: 0; padding-left: 20px; color: var(--text-secondary); font-size: 13px;">
+                    <li>База данных x-ui.db (пользователи, inbounds)</li>
+                    <li>Конфигурация Xray (config.json)</li>
+                    <li>Настройки XUI-Manager (.env)</li>
+                </ul>
             </div>
         </div>
 
@@ -4621,6 +5138,309 @@ Subject: ${cert.subject || 'N/A'}
             }
         }
 
+        // ==================== INBOUND VISUAL EDITOR ====================
+
+        let currentInboundData = null; // Store original data for reset
+
+        // Generate random string
+        function generateRandomString(length = 8) {
+            const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+            let result = '';
+            for (let i = 0; i < length; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return result;
+        }
+
+        // Generate random port (30000-60000)
+        function generateRandomPort() {
+            const port = Math.floor(Math.random() * 30000) + 30000;
+            document.getElementById('edit-inbound-port').value = port;
+        }
+
+        // Generate random path
+        function generateRandomPath() {
+            const path = '/' + generateRandomString(8);
+            document.getElementById('edit-ws-path').value = path;
+        }
+
+        // Generate random service name
+        function generateRandomServiceName() {
+            document.getElementById('edit-grpc-service').value = generateRandomString(10);
+        }
+
+        // Generate Short ID (hex string)
+        function generateShortId() {
+            const hex = '0123456789abcdef';
+            let shortId = '';
+            for (let i = 0; i < 8; i++) {
+                shortId += hex.charAt(Math.floor(Math.random() * 16));
+            }
+            document.getElementById('edit-reality-short-ids').value = shortId;
+        }
+
+        // Generate X25519 keys via API
+        async function generateX25519Keys() {
+            try {
+                const response = await fetch(API_URL + 'api/generator/x25519', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.private_key && data.public_key) {
+                    document.getElementById('edit-reality-private-key').value = data.private_key;
+                    document.getElementById('edit-reality-public-key').value = data.public_key;
+                    showToast('✅ X25519 ключи сгенерированы', 'success');
+                } else {
+                    showToast('Ошибка генерации ключей', 'error');
+                }
+            } catch (error) {
+                console.error('Error generating X25519:', error);
+                showToast('Ошибка генерации ключей', 'error');
+            }
+        }
+
+        // Switch inbound modal tabs
+        function switchInboundTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.modal-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tabName);
+            });
+
+            // Update tab content
+            document.querySelectorAll('.modal-tab-content').forEach(content => {
+                content.style.display = 'none';
+            });
+            document.getElementById(`inbound-tab-${tabName}`).style.display = 'block';
+
+            // If switching to advanced, sync visual fields to JSON
+            if (tabName === 'advanced') {
+                syncVisualToJson();
+            }
+        }
+
+        // Update transport settings visibility based on network type
+        function updateTransportFields() {
+            const network = document.getElementById('edit-network-type').value;
+
+            // Hide all transport settings
+            ['tcp', 'ws', 'grpc', 'httpupgrade', 'splithttp'].forEach(type => {
+                const elem = document.getElementById(`transport-${type}-settings`);
+                if (elem) elem.style.display = 'none';
+            });
+
+            // Show selected transport settings
+            const selectedElem = document.getElementById(`transport-${network}-settings`);
+            if (selectedElem) selectedElem.style.display = 'block';
+        }
+
+        // Update security settings visibility
+        function updateSecurityFields() {
+            const security = document.getElementById('edit-security-type').value;
+
+            document.getElementById('security-reality-settings').style.display =
+                security === 'reality' ? 'block' : 'none';
+            document.getElementById('security-tls-settings').style.display =
+                security === 'tls' ? 'block' : 'none';
+        }
+
+        // Parse inbound data into visual fields
+        function parseInboundToVisual(ib) {
+            const stream = ib.stream_settings || {};
+            const sniff = ib.sniffing || {};
+
+            // Basic fields
+            document.getElementById('edit-inbound-listen').value = ib.listen || '';
+
+            // Sniffing
+            document.getElementById('edit-sniffing-enabled').checked = sniff.enabled !== false;
+            const destOverride = sniff.destOverride || ['http', 'tls', 'quic'];
+            document.getElementById('sniff-http').checked = destOverride.includes('http');
+            document.getElementById('sniff-tls').checked = destOverride.includes('tls');
+            document.getElementById('sniff-quic').checked = destOverride.includes('quic');
+            document.getElementById('sniff-fakedns').checked = destOverride.includes('fakedns');
+
+            // Network type
+            const network = stream.network || 'tcp';
+            document.getElementById('edit-network-type').value = network;
+
+            // Transport-specific settings
+            if (network === 'ws') {
+                const wsSettings = stream.wsSettings || {};
+                document.getElementById('edit-ws-path').value = wsSettings.path || '/';
+                document.getElementById('edit-ws-host').value = (wsSettings.headers || {}).Host || '';
+            } else if (network === 'grpc') {
+                const grpcSettings = stream.grpcSettings || {};
+                document.getElementById('edit-grpc-service').value = grpcSettings.serviceName || '';
+                document.getElementById('edit-grpc-mode').value = grpcSettings.multiMode ? 'multi' : 'gun';
+            } else if (network === 'httpupgrade') {
+                const httpSettings = stream.httpupgradeSettings || {};
+                document.getElementById('edit-httpupgrade-path').value = httpSettings.path || '/';
+                document.getElementById('edit-httpupgrade-host').value = httpSettings.host || '';
+            } else if (network === 'splithttp') {
+                const splitSettings = stream.splithttpSettings || {};
+                document.getElementById('edit-splithttp-path').value = splitSettings.path || '/';
+                document.getElementById('edit-splithttp-host').value = splitSettings.host || '';
+            } else if (network === 'tcp') {
+                const tcpSettings = stream.tcpSettings || {};
+                document.getElementById('edit-tcp-header-type').value =
+                    (tcpSettings.header || {}).type || 'none';
+            }
+
+            // Security type
+            const security = stream.security || 'none';
+            document.getElementById('edit-security-type').value = security;
+
+            // Reality settings
+            if (security === 'reality') {
+                const reality = stream.realitySettings || {};
+                document.getElementById('edit-reality-dest').value = reality.dest || '';
+                document.getElementById('edit-reality-sni').value =
+                    (reality.serverNames || [])[0] || '';
+                document.getElementById('edit-reality-private-key').value = reality.privateKey || '';
+                document.getElementById('edit-reality-public-key').value = reality.publicKey || '';
+                document.getElementById('edit-reality-short-ids').value =
+                    (reality.shortIds || []).join(', ');
+                document.getElementById('edit-reality-fingerprint').value =
+                    reality.fingerprint || 'chrome';
+                document.getElementById('edit-reality-spider-x').value = reality.spiderX || '/';
+            }
+
+            // TLS settings
+            if (security === 'tls') {
+                const tls = stream.tlsSettings || {};
+                document.getElementById('edit-tls-server-name').value = tls.serverName || '';
+                document.getElementById('edit-tls-cert-file').value =
+                    (tls.certificates || [{}])[0].certificateFile || '';
+                document.getElementById('edit-tls-key-file').value =
+                    (tls.certificates || [{}])[0].keyFile || '';
+            }
+
+            // Update visibility
+            updateTransportFields();
+            updateSecurityFields();
+        }
+
+        // Sync visual fields to JSON textareas
+        function syncVisualToJson() {
+            const stream = buildStreamSettingsFromVisual();
+            const sniffing = buildSniffingFromVisual();
+
+            document.getElementById('edit-inbound-stream').value =
+                JSON.stringify(stream, null, 2);
+            document.getElementById('edit-inbound-sniffing').value =
+                JSON.stringify(sniffing, null, 2);
+        }
+
+        // Build stream settings from visual fields
+        function buildStreamSettingsFromVisual() {
+            const network = document.getElementById('edit-network-type').value;
+            const security = document.getElementById('edit-security-type').value;
+
+            const stream = {
+                network: network,
+                security: security
+            };
+
+            // Transport settings
+            if (network === 'ws') {
+                stream.wsSettings = {
+                    path: document.getElementById('edit-ws-path').value || '/',
+                    headers: {}
+                };
+                const host = document.getElementById('edit-ws-host').value;
+                if (host) stream.wsSettings.headers.Host = host;
+            } else if (network === 'grpc') {
+                stream.grpcSettings = {
+                    serviceName: document.getElementById('edit-grpc-service').value || '',
+                    multiMode: document.getElementById('edit-grpc-mode').value === 'multi'
+                };
+            } else if (network === 'httpupgrade') {
+                stream.httpupgradeSettings = {
+                    path: document.getElementById('edit-httpupgrade-path').value || '/',
+                    host: document.getElementById('edit-httpupgrade-host').value || ''
+                };
+            } else if (network === 'splithttp') {
+                stream.splithttpSettings = {
+                    path: document.getElementById('edit-splithttp-path').value || '/',
+                    host: document.getElementById('edit-splithttp-host').value || ''
+                };
+            } else if (network === 'tcp') {
+                const headerType = document.getElementById('edit-tcp-header-type').value;
+                if (headerType !== 'none') {
+                    stream.tcpSettings = { header: { type: headerType } };
+                }
+            }
+
+            // Security settings
+            if (security === 'reality') {
+                const shortIds = document.getElementById('edit-reality-short-ids').value
+                    .split(',').map(s => s.trim()).filter(s => s);
+                const sni = document.getElementById('edit-reality-sni').value;
+
+                stream.realitySettings = {
+                    show: false,
+                    dest: document.getElementById('edit-reality-dest').value || 'www.microsoft.com:443',
+                    xver: 0,
+                    serverNames: sni ? [sni] : ['www.microsoft.com'],
+                    privateKey: document.getElementById('edit-reality-private-key').value,
+                    shortIds: shortIds.length ? shortIds : [''],
+                    fingerprint: document.getElementById('edit-reality-fingerprint').value || 'chrome',
+                    spiderX: document.getElementById('edit-reality-spider-x').value || '/'
+                };
+            } else if (security === 'tls') {
+                stream.tlsSettings = {
+                    serverName: document.getElementById('edit-tls-server-name').value,
+                    certificates: [{
+                        certificateFile: document.getElementById('edit-tls-cert-file').value,
+                        keyFile: document.getElementById('edit-tls-key-file').value
+                    }]
+                };
+            }
+
+            return stream;
+        }
+
+        // Build sniffing from visual fields
+        function buildSniffingFromVisual() {
+            const destOverride = [];
+            if (document.getElementById('sniff-http').checked) destOverride.push('http');
+            if (document.getElementById('sniff-tls').checked) destOverride.push('tls');
+            if (document.getElementById('sniff-quic').checked) destOverride.push('quic');
+            if (document.getElementById('sniff-fakedns').checked) destOverride.push('fakedns');
+
+            return {
+                enabled: document.getElementById('edit-sniffing-enabled').checked,
+                destOverride: destOverride
+            };
+        }
+
+        // Reset inbound form to original values
+        function resetInboundForm() {
+            if (currentInboundData) {
+                parseInboundToVisual(currentInboundData);
+                document.getElementById('edit-inbound-stream').value =
+                    currentInboundData.stream_settings ?
+                    JSON.stringify(currentInboundData.stream_settings, null, 2) : '';
+                document.getElementById('edit-inbound-settings').value =
+                    currentInboundData.settings ?
+                    JSON.stringify(currentInboundData.settings, null, 2) : '';
+                document.getElementById('edit-inbound-sniffing').value =
+                    currentInboundData.sniffing ?
+                    JSON.stringify(currentInboundData.sniffing, null, 2) : '';
+                showToast('Форма сброшена', 'info');
+            }
+        }
+
+        // Copy to clipboard
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('📋 Скопировано', 'success');
+            }).catch(err => {
+                console.error('Copy failed:', err);
+            });
+        }
+
         async function editInbound(id) {
             try {
                 const response = await fetch(API_URL + `api/inbounds/${id}/full`, {
@@ -4630,19 +5450,28 @@ Subject: ${cert.subject || 'N/A'}
 
                 if (data.success && data.inbound) {
                     const ib = data.inbound;
+                    currentInboundData = ib; // Store for reset
+
+                    // Basic fields
                     document.getElementById('edit-inbound-id').value = id;
                     document.getElementById('edit-inbound-remark').value = ib.remark || '';
                     document.getElementById('edit-inbound-port').value = ib.port || '';
                     document.getElementById('edit-inbound-protocol').value = ib.protocol || '';
                     document.getElementById('edit-inbound-enable').value = ib.enable ? '1' : '0';
 
-                    // Format JSON fields
+                    // Format JSON fields (Advanced tab)
                     document.getElementById('edit-inbound-stream').value =
                         ib.stream_settings ? JSON.stringify(ib.stream_settings, null, 2) : '';
                     document.getElementById('edit-inbound-settings').value =
                         ib.settings ? JSON.stringify(ib.settings, null, 2) : '';
                     document.getElementById('edit-inbound-sniffing').value =
                         ib.sniffing ? JSON.stringify(ib.sniffing, null, 2) : '';
+
+                    // Parse to visual fields
+                    parseInboundToVisual(ib);
+
+                    // Reset to first tab
+                    switchInboundTab('basic');
 
                     document.getElementById('inbound-modal-title').textContent = `Редактировать: ${ib.remark}`;
                     document.getElementById('inbound-edit-modal').style.display = 'flex';
@@ -4657,21 +5486,41 @@ Subject: ${cert.subject || 'N/A'}
 
         function closeInboundModal() {
             document.getElementById('inbound-edit-modal').style.display = 'none';
+            currentInboundData = null;
         }
 
         async function saveInbound() {
             const id = document.getElementById('edit-inbound-id').value;
+            const activeTab = document.querySelector('.modal-tab.active');
+            const isAdvancedTab = activeTab && activeTab.dataset.tab === 'advanced';
 
-            // Parse JSON fields
+            // Parse JSON fields - use visual or advanced based on active tab
             let streamSettings, settings, sniffing;
-            try {
-                const streamText = document.getElementById('edit-inbound-stream').value.trim();
-                streamSettings = streamText ? JSON.parse(streamText) : null;
-            } catch (e) {
-                showToast('Ошибка в Stream Settings JSON', 'error');
-                return;
+
+            if (isAdvancedTab) {
+                // Use raw JSON from advanced tab
+                try {
+                    const streamText = document.getElementById('edit-inbound-stream').value.trim();
+                    streamSettings = streamText ? JSON.parse(streamText) : null;
+                } catch (e) {
+                    showToast('Ошибка в Stream Settings JSON', 'error');
+                    return;
+                }
+
+                try {
+                    const sniffingText = document.getElementById('edit-inbound-sniffing').value.trim();
+                    sniffing = sniffingText ? JSON.parse(sniffingText) : null;
+                } catch (e) {
+                    showToast('Ошибка в Sniffing JSON', 'error');
+                    return;
+                }
+            } else {
+                // Build from visual fields
+                streamSettings = buildStreamSettingsFromVisual();
+                sniffing = buildSniffingFromVisual();
             }
 
+            // Settings always from JSON (contains clients)
             try {
                 const settingsText = document.getElementById('edit-inbound-settings').value.trim();
                 settings = settingsText ? JSON.parse(settingsText) : null;
@@ -4680,18 +5529,11 @@ Subject: ${cert.subject || 'N/A'}
                 return;
             }
 
-            try {
-                const sniffingText = document.getElementById('edit-inbound-sniffing').value.trim();
-                sniffing = sniffingText ? JSON.parse(sniffingText) : null;
-            } catch (e) {
-                showToast('Ошибка в Sniffing JSON', 'error');
-                return;
-            }
-
             const data = {
                 remark: document.getElementById('edit-inbound-remark').value,
                 port: parseInt(document.getElementById('edit-inbound-port').value),
                 enable: parseInt(document.getElementById('edit-inbound-enable').value),
+                listen: document.getElementById('edit-inbound-listen').value || '',
                 stream_settings: streamSettings,
                 settings: settings,
                 sniffing: sniffing
@@ -5818,6 +6660,357 @@ Subject: ${cert.subject || 'N/A'}
                 }
             } catch (error) {
                 console.error('Error removing camouflage:', error);
+                showToast('Ошибка удаления', 'error');
+            }
+        }
+
+        // ==================== AUTOMATION ====================
+
+        // Load automation settings
+        async function loadAutomationSettings() {
+            try {
+                const response = await fetch(API_URL + 'api/automation/settings', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success && data.settings) {
+                    const s = data.settings;
+                    document.getElementById('backup-enabled').checked = s.backup_enabled;
+                    document.getElementById('backup-interval').value = s.backup_interval_hours;
+                    document.getElementById('backup-retention').value = s.backup_retention_days;
+                    document.getElementById('ssl-auto-check').checked = s.ssl_check_enabled;
+                    document.getElementById('ssl-auto-renew').checked = s.ssl_auto_renew;
+                    document.getElementById('warp-health-check').checked = s.warp_health_check_enabled;
+                    document.getElementById('warp-auto-restart').checked = s.warp_auto_restart;
+                }
+            } catch (error) {
+                console.error('Error loading automation settings:', error);
+            }
+        }
+
+        // Save automation settings
+        async function saveAutomationSettings() {
+            const settings = {
+                backup_enabled: document.getElementById('backup-enabled').checked,
+                backup_interval_hours: parseInt(document.getElementById('backup-interval').value),
+                backup_retention_days: parseInt(document.getElementById('backup-retention').value),
+                ssl_check_enabled: document.getElementById('ssl-auto-check').checked,
+                ssl_auto_renew: document.getElementById('ssl-auto-renew').checked,
+                warp_health_check_enabled: document.getElementById('warp-health-check').checked,
+                warp_auto_restart: document.getElementById('warp-auto-restart').checked
+            };
+
+            try {
+                const response = await fetch(API_URL + 'api/automation/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(settings)
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Настройки сохранены', 'success');
+                } else {
+                    showToast('Ошибка сохранения', 'error');
+                }
+            } catch (error) {
+                console.error('Error saving settings:', error);
+                showToast('Ошибка сохранения', 'error');
+            }
+        }
+
+        // Load services status
+        async function loadServicesStatus() {
+            try {
+                const response = await fetch(API_URL + 'api/automation/services', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success && data.services) {
+                    data.services.forEach(svc => {
+                        let elemId = '';
+                        if (svc.service === 'x-ui') elemId = 'service-xui-status';
+                        else if (svc.service === 'xui-manager') elemId = 'service-manager-status';
+                        else if (svc.service === 'nginx') elemId = 'service-nginx-status';
+
+                        if (elemId) {
+                            const elem = document.getElementById(elemId);
+                            if (elem) {
+                                elem.textContent = svc.active ? '✅ Активен' : '❌ Остановлен';
+                                elem.style.color = svc.active ? 'var(--success)' : 'var(--danger)';
+                            }
+                        }
+                    });
+                }
+
+                // Also check WARP
+                checkWarpStatus();
+            } catch (error) {
+                console.error('Error loading services status:', error);
+            }
+        }
+
+        // Restart service
+        async function restartService(service) {
+            if (!confirm(`Перезапустить ${service}?`)) return;
+
+            try {
+                const response = await fetch(API_URL + `api/automation/service/${service}/restart`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ ${service} перезапущен`, 'success');
+                    setTimeout(loadServicesStatus, 2000);
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error restarting service:', error);
+                showToast('Ошибка перезапуска', 'error');
+            }
+        }
+
+        // Check SSL certificates
+        async function checkSSLCertificates() {
+            const container = document.getElementById('ssl-certificates-list');
+            container.innerHTML = '<p style="color: var(--accent);">Проверка...</p>';
+
+            try {
+                const response = await fetch(API_URL + 'api/automation/ssl/check', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success && data.certificates.length > 0) {
+                    let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
+                    data.certificates.forEach(cert => {
+                        const statusColor = cert.status === 'ok' ? 'var(--success)' :
+                                          cert.status === 'warning' ? 'var(--warning)' : 'var(--danger)';
+                        html += `
+                            <div style="background: var(--bg-tertiary); padding: 10px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong>${cert.domain}</strong>
+                                    <div style="font-size: 12px; color: var(--text-secondary);">
+                                        Истекает: ${new Date(cert.expiry).toLocaleDateString()}
+                                    </div>
+                                </div>
+                                <div style="color: ${statusColor}; font-weight: 600;">
+                                    ${cert.days_left} дней
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<p style="color: var(--text-secondary);">SSL сертификаты не найдены</p>';
+                }
+            } catch (error) {
+                console.error('Error checking SSL:', error);
+                container.innerHTML = '<p style="color: var(--danger);">Ошибка проверки</p>';
+            }
+        }
+
+        // Renew SSL certificates
+        async function renewSSLCertificates() {
+            if (!confirm('Запустить продление SSL сертификатов?')) return;
+
+            showToast('Запуск продления SSL...', 'info');
+
+            try {
+                const response = await fetch(API_URL + 'api/automation/ssl/renew', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Сертификаты продлены', 'success');
+                    checkSSLCertificates();
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error renewing SSL:', error);
+                showToast('Ошибка продления', 'error');
+            }
+        }
+
+        // Check WARP status
+        async function checkWarpStatus() {
+            try {
+                const response = await fetch(API_URL + 'api/automation/warp/status', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    const statusElem = document.getElementById('warp-connection-status');
+                    const ipElem = document.getElementById('warp-ip');
+                    const countryElem = document.getElementById('warp-country');
+                    const serviceElem = document.getElementById('service-warp-status');
+
+                    if (!data.installed) {
+                        statusElem.textContent = 'Не установлен';
+                        statusElem.style.color = 'var(--text-secondary)';
+                        if (serviceElem) {
+                            serviceElem.textContent = 'Не установлен';
+                            serviceElem.style.color = 'var(--text-secondary)';
+                        }
+                    } else if (data.connected) {
+                        statusElem.textContent = '✅ Подключен';
+                        statusElem.style.color = 'var(--success)';
+                        ipElem.textContent = data.ip || '-';
+                        countryElem.textContent = data.country || '-';
+                        if (serviceElem) {
+                            serviceElem.textContent = '✅ Активен';
+                            serviceElem.style.color = 'var(--success)';
+                        }
+                    } else {
+                        statusElem.textContent = '❌ Отключен';
+                        statusElem.style.color = 'var(--danger)';
+                        if (serviceElem) {
+                            serviceElem.textContent = '❌ Отключен';
+                            serviceElem.style.color = 'var(--danger)';
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking WARP:', error);
+            }
+        }
+
+        // Restart WARP
+        async function restartWarp() {
+            try {
+                const response = await fetch(API_URL + 'api/automation/warp/restart', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ WARP перезапущен', 'success');
+                    setTimeout(checkWarpStatus, 3000);
+                } else {
+                    showToast('Ошибка перезапуска WARP', 'error');
+                }
+            } catch (error) {
+                console.error('Error restarting WARP:', error);
+                showToast('Ошибка перезапуска', 'error');
+            }
+        }
+
+        // ==================== BACKUPS ====================
+
+        // Load backups
+        async function loadBackups() {
+            const tbody = document.getElementById('backups-table-body');
+            tbody.innerHTML = '<tr><td colspan="4" class="loading">Загрузка...</td></tr>';
+
+            try {
+                const response = await fetch(API_URL + 'api/automation/backups', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success && data.backups.length > 0) {
+                    tbody.innerHTML = data.backups.map(backup => `
+                        <tr>
+                            <td>${new Date(backup.timestamp).toLocaleString()}</td>
+                            <td>${backup.files_count}</td>
+                            <td>${backup.size_human}</td>
+                            <td>
+                                <button class="btn btn-primary" style="padding: 4px 8px; font-size: 11px;"
+                                    onclick="restoreBackup('${backup.name}')">🔄 Восстановить</button>
+                                <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;"
+                                    onclick="deleteBackup('${backup.name}')">🗑️</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">Нет бэкапов</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error loading backups:', error);
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--danger);">Ошибка загрузки</td></tr>';
+            }
+        }
+
+        // Create backup
+        async function createBackup() {
+            showToast('Создание бэкапа...', 'info');
+
+            try {
+                const response = await fetch(API_URL + 'api/automation/backup/create', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ Бэкап создан: ${data.files.length} файлов`, 'success');
+                    loadBackups();
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error creating backup:', error);
+                showToast('Ошибка создания бэкапа', 'error');
+            }
+        }
+
+        // Restore backup
+        async function restoreBackup(name) {
+            if (!confirm(`Восстановить из бэкапа ${name}?\n\nЭто перезапишет текущие данные!`)) return;
+
+            showToast('Восстановление...', 'info');
+
+            try {
+                const response = await fetch(API_URL + `api/automation/backup/restore/${name}`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`✅ Восстановлено: ${data.restored_files.length} файлов`, 'success');
+                    // Reload page after restore
+                    setTimeout(() => window.location.reload(), 2000);
+                } else {
+                    showToast('Ошибка: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error restoring backup:', error);
+                showToast('Ошибка восстановления', 'error');
+            }
+        }
+
+        // Delete backup
+        async function deleteBackup(name) {
+            if (!confirm(`Удалить бэкап ${name}?`)) return;
+
+            try {
+                const response = await fetch(API_URL + `api/automation/backup/${name}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('✅ Бэкап удалён', 'success');
+                    loadBackups();
+                } else {
+                    showToast('Ошибка удаления', 'error');
+                }
+            } catch (error) {
+                console.error('Error deleting backup:', error);
                 showToast('Ошибка удаления', 'error');
             }
         }
