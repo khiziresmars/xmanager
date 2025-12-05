@@ -8,8 +8,8 @@ from datetime import datetime
 import re
 
 # Current application version (Semantic Versioning: MAJOR.MINOR.PATCH)
-CURRENT_VERSION = "2.3.4"
-VERSION_NAME = "Агент Мастера ключей"
+CURRENT_VERSION = "2.3.5"
+VERSION_NAME = "Компактный Интерфейс"
 GITHUB_REPO = "khiziresmars/xmanager"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
