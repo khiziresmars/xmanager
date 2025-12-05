@@ -4357,10 +4357,11 @@ async function deleteBackup(name) {
 let bulkUsersData = [];
 let bulkSelectedIds = new Set();
 
-// Load users for bulk operations
+// Load users for bulk operations (all users)
 async function loadBulkUsers() {
     try {
-        const response = await fetch(API_URL + 'api/users', { credentials: 'include' });
+        // Load ALL users for bulk operations
+        const response = await fetch(API_URL + 'api/users?per_page=10000', { credentials: 'include' });
         if (!response.ok) throw new Error('Failed to load users');
         const data = await response.json();
         bulkUsersData = data.users || data;
@@ -4606,15 +4607,17 @@ async function bulkDeleteUsers() {
 
 // ==================== QUICK OPERATIONS (NO SELECTION NEEDED) ====================
 
-// Ensure bulk users data is loaded
+// Ensure bulk users data is loaded (all users, not paginated)
 async function ensureBulkUsersLoaded() {
     if (bulkUsersData.length === 0) {
         showToast('Загрузка пользователей...', 'info');
         try {
-            const response = await fetch(API_URL + 'api/users', { credentials: 'include' });
+            // Load ALL users by setting high per_page limit
+            const response = await fetch(API_URL + 'api/users?per_page=10000', { credentials: 'include' });
             if (!response.ok) throw new Error('Failed to load');
             const data = await response.json();
             bulkUsersData = data.users || data;
+            showToast(`Загружено ${bulkUsersData.length} пользователей`, 'success');
         } catch (e) {
             showToast('Ошибка загрузки', 'error');
             return false;

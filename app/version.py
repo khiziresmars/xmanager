@@ -8,7 +8,7 @@ from datetime import datetime
 import re
 
 # Current application version (Semantic Versioning: MAJOR.MINOR.PATCH)
-CURRENT_VERSION = "2.4.2"
+CURRENT_VERSION = "2.4.3"
 VERSION_NAME = "Bulk Operations Pro"
 GITHUB_REPO = "khiziresmars/xmanager"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
