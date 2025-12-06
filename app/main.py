@@ -818,6 +818,35 @@ async def get_disabled_users(
         logger.error(f"Error getting disabled users: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/api/users/traffic-exhausted")
+async def get_traffic_exhausted_users(
+    inbound_id: Optional[int] = Query(None, description="Фильтр по инбаунду")
+):
+    """Получение пользователей с исчерпанным трафиком"""
+    try:
+        users = db.get_traffic_exhausted_users(inbound_id)
+        return {
+            "users": users,
+            "count": len(users)
+        }
+    except Exception as e:
+        logger.error(f"Error getting traffic exhausted users: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/users/problems")
+async def get_problem_users(
+    inbound_id: Optional[int] = Query(None, description="Фильтр по инбаунду")
+):
+    """Получение всех проблемных пользователей (истекшие, отключенные, исчерпавшие трафик)"""
+    try:
+        result = db.get_problem_users(inbound_id)
+        return result
+    except Exception as e:
+        logger.error(f"Error getting problem users: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/users/bulk-delete")
 async def bulk_delete_users(
     request: Dict[str, List[int]],

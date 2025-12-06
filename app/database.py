@@ -1760,6 +1760,111 @@ class XUIDatabase:
             logger.error(f"Error getting disabled users: {e}", exc_info=True)
             return []
 
+    def get_traffic_exhausted_users(self, inbound_id: Optional[int] = None) -> List[Dict]:
+        """Получение пользователей с исчерпанным трафиком (использовали >= лимита)"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            query = """
+                SELECT
+                    id, email, inbound_id,
+                    expiry_time, total, up, down, enable,
+                    (up + down) as used
+                FROM client_traffics
+                WHERE total > 0 AND (up + down) >= total
+            """
+            params = []
+
+            if inbound_id:
+                query += " AND inbound_id = ?"
+                params.append(inbound_id)
+
+            query += " ORDER BY (up + down) DESC"
+
+            cursor.execute(query, params)
+            columns = [description[0] for description in cursor.description]
+            users = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+            conn.close()
+
+            logger.info(f"Found {len(users)} users with exhausted traffic")
+            return users
+
+        except Exception as e:
+            logger.error(f"Error getting traffic exhausted users: {e}", exc_info=True)
+            return []
+
+    def get_problem_users(self, inbound_id: Optional[int] = None) -> Dict:
+        """Получение всех проблемных пользователей (истекшие, отключенные, исчерпавшие трафик)"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            current_time = int(datetime.now().timestamp() * 1000)
+
+            base_query = """
+                SELECT
+                    id, email, inbound_id,
+                    expiry_time, total, up, down, enable
+                FROM client_traffics
+            """
+
+            inbound_filter = " AND inbound_id = ?" if inbound_id else ""
+            params = [inbound_id] if inbound_id else []
+
+            # Expired by time
+            cursor.execute(
+                base_query + f" WHERE expiry_time > 0 AND expiry_time < ?" + inbound_filter,
+                [current_time] + params
+            )
+            expired = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
+
+            # Disabled
+            cursor.execute(
+                base_query + f" WHERE (enable = 0 OR enable = 'false')" + inbound_filter,
+                params
+            )
+            disabled = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
+
+            # Traffic exhausted
+            cursor.execute(
+                base_query + f" WHERE total > 0 AND (up + down) >= total" + inbound_filter,
+                params
+            )
+            traffic_exhausted = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
+
+            conn.close()
+
+            return {
+                "expired": {
+                    "users": expired,
+                    "count": len(expired)
+                },
+                "disabled": {
+                    "users": disabled,
+                    "count": len(disabled)
+                },
+                "traffic_exhausted": {
+                    "users": traffic_exhausted,
+                    "count": len(traffic_exhausted)
+                },
+                "total_problem_users": len(set(
+                    [u['id'] for u in expired] +
+                    [u['id'] for u in disabled] +
+                    [u['id'] for u in traffic_exhausted]
+                ))
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting problem users: {e}", exc_info=True)
+            return {
+                "expired": {"users": [], "count": 0},
+                "disabled": {"users": [], "count": 0},
+                "traffic_exhausted": {"users": [], "count": 0},
+                "total_problem_users": 0,
+                "error": str(e)
+            }
+
     def bulk_delete_users(self, user_ids: List[int]) -> Dict:
         """Массовое удаление пользователей по списку ID
 
