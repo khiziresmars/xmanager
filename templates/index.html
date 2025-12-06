@@ -35,6 +35,14 @@
                     <div class="stat-label">Активных</div>
                     <div class="stat-value" id="active-users" style="color: var(--success)">-</div>
                 </div>
+                <div class="stat-card" onclick="showTab('expired')" style="cursor: pointer;">
+                    <div class="stat-label">Истекших</div>
+                    <div class="stat-value" id="expired-users" style="color: var(--warning)">-</div>
+                </div>
+                <div class="stat-card" onclick="showTab('disabled')" style="cursor: pointer;">
+                    <div class="stat-label">Отключенных</div>
+                    <div class="stat-value" id="disabled-users" style="color: var(--danger)">-</div>
+                </div>
                 <div class="stat-card">
                     <div class="stat-label">Загружено</div>
                     <div class="stat-value" id="total-upload" style="color: var(--warning)">-</div>

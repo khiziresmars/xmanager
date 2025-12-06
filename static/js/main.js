@@ -128,6 +128,19 @@ function loadStats() {
         .catch(function(error) {
             console.error('Error loading stats:', error);
         });
+
+    // Load problem users count (expired, disabled)
+    fetch(API_URL + 'api/users/problems', { credentials: 'include' })
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            var expiredEl = document.getElementById('expired-users');
+            var disabledEl = document.getElementById('disabled-users');
+            if (expiredEl) expiredEl.textContent = data.expired?.count || 0;
+            if (disabledEl) disabledEl.textContent = data.disabled?.count || 0;
+        })
+        .catch(function(error) {
+            console.error('Error loading problem users:', error);
+        });
 }
 
 // Store inbounds data globally
