@@ -2919,6 +2919,162 @@ async function applyPresetToInbound(presetName) {
     showToast(`✅ Шаблон "${presetName}" применён`, 'success');
 }
 
+// Create new inbound from preset template
+async function createInboundFromPreset(presetName) {
+    try {
+        showToast('⏳ Создание inbound...', 'info');
+
+        const response = await fetch(API_URL + 'api/presets/create-inbound', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                preset_name: presetName,
+                auto_generate: true  // Auto-generate keys, ports, etc.
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            showToast(`✅ Inbound "${data.remark}" создан на порту ${data.port}`, 'success');
+            loadInboundsTable();  // Refresh list
+        } else {
+            showToast('❌ Ошибка: ' + (data.detail || data.error || 'Неизвестная ошибка'), 'error');
+        }
+    } catch (error) {
+        console.error('Error creating inbound from preset:', error);
+        showToast('❌ Ошибка создания inbound', 'error');
+    }
+}
+
+// Update fingerprint on all TLS/Reality inbounds
+async function updateAllFingerprints() {
+    const fingerprint = prompt('Введите fingerprint для всех inbounds:\n(chrome, firefox, safari, ios, android, edge, randomized, random)', 'chrome');
+
+    if (!fingerprint) return;
+
+    try {
+        showToast('⏳ Обновление fingerprint...', 'info');
+
+        const response = await fetch(API_URL + 'api/inbounds/bulk-update-fingerprint', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ fingerprint: fingerprint })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            showToast(`✅ Обновлено ${data.updated_count} inbounds`, 'success');
+            loadInboundsTable();
+        } else {
+            showToast('❌ Ошибка: ' + (data.detail || data.error), 'error');
+        }
+    } catch (error) {
+        console.error('Error updating fingerprints:', error);
+        showToast('❌ Ошибка обновления', 'error');
+    }
+}
+
+// Show bulk optimize modal
+function showBulkOptimizeModal() {
+    // Create modal if not exists
+    let modal = document.getElementById('bulk-optimize-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'bulk-optimize-modal';
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 500px;">
+                <div class="modal-header">
+                    <h3>⚙️ Массовая оптимизация</h3>
+                    <button class="modal-close" onclick="document.getElementById('bulk-optimize-modal').style.display='none'">&times;</button>
+                </div>
+                <div class="modal-body" style="padding: 20px;">
+                    <div class="form-group">
+                        <label class="form-label">Fingerprint (uTLS)</label>
+                        <select class="form-input" id="bulk-fingerprint">
+                            <option value="">-- Не менять --</option>
+                            <option value="chrome" selected>chrome</option>
+                            <option value="firefox">firefox</option>
+                            <option value="safari">safari</option>
+                            <option value="ios">ios</option>
+                            <option value="android">android</option>
+                            <option value="randomized">randomized</option>
+                            <option value="random">random</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Применить к</label>
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="bulk-apply-tls" checked> TLS inbounds
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="bulk-apply-reality" checked> Reality inbounds
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="bulk-enable-sniffing" checked>
+                            <span>Включить Sniffing на всех</span>
+                        </label>
+                    </div>
+
+                    <button class="btn btn-primary" onclick="applyBulkOptimization()" style="width: 100%; margin-top: 15px;">
+                        ⚡ Применить оптимизацию
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    modal.style.display = 'flex';
+}
+
+// Apply bulk optimization
+async function applyBulkOptimization() {
+    const fingerprint = document.getElementById('bulk-fingerprint').value;
+    const applyTls = document.getElementById('bulk-apply-tls').checked;
+    const applyReality = document.getElementById('bulk-apply-reality').checked;
+    const enableSniffing = document.getElementById('bulk-enable-sniffing').checked;
+
+    try {
+        showToast('⏳ Применение оптимизации...', 'info');
+
+        const response = await fetch(API_URL + 'api/inbounds/bulk-optimize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                fingerprint: fingerprint || null,
+                apply_to_tls: applyTls,
+                apply_to_reality: applyReality,
+                enable_sniffing: enableSniffing
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            showToast(`✅ Оптимизировано ${data.updated_count} inbounds`, 'success');
+            document.getElementById('bulk-optimize-modal').style.display = 'none';
+            loadInboundsTable();
+        } else {
+            showToast('❌ Ошибка: ' + (data.detail || data.error), 'error');
+        }
+    } catch (error) {
+        console.error('Error applying optimization:', error);
+        showToast('❌ Ошибка оптимизации', 'error');
+    }
+}
+
 // Copy to clipboard
 function copyToClipboard(text) {
     navigator.clipboard.writeText(text).then(() => {

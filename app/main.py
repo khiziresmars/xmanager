@@ -1772,6 +1772,310 @@ async def delete_inbound(inbound_id: int, username: str = Depends(get_current_us
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== INBOUND PRESETS & OPTIMIZATION ====================
+
+@app.post("/api/presets/create-inbound")
+async def create_inbound_from_preset(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Создание нового inbound из шаблона
+
+    Request body:
+    {
+        "preset_name": "vless_reality",
+        "auto_generate": true,
+        "port": null,  // Auto-generate if null
+        "remark": null  // Auto-generate if null
+    }
+    """
+    import secrets
+    import subprocess
+
+    try:
+        preset_name = request.get("preset_name")
+        auto_generate = request.get("auto_generate", True)
+        custom_port = request.get("port")
+        custom_remark = request.get("remark")
+
+        # Define presets
+        presets = {
+            "vless_reality": {
+                "protocol": "vless",
+                "port": custom_port or random.randint(30000, 60000),
+                "settings": {"clients": [], "decryption": "none", "fallbacks": []},
+                "stream_settings": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "show": False,
+                        "xver": 0,
+                        "dest": "www.microsoft.com:443",
+                        "serverNames": ["www.microsoft.com"],
+                        "privateKey": "",
+                        "shortIds": [""],
+                        "fingerprint": "chrome",
+                        "spiderX": "/"
+                    }
+                },
+                "sniffing": {"enabled": True, "destOverride": ["http", "tls", "quic", "fakedns"]}
+            },
+            "vless_ws_tls": {
+                "protocol": "vless",
+                "port": custom_port or random.randint(30000, 60000),
+                "settings": {"clients": [], "decryption": "none", "fallbacks": []},
+                "stream_settings": {
+                    "network": "ws",
+                    "security": "tls",
+                    "wsSettings": {"path": "/" + secrets.token_hex(4), "headers": {}},
+                    "tlsSettings": {
+                        "serverName": "",
+                        "fingerprint": "chrome",
+                        "alpn": ["h2", "http/1.1"],
+                        "certificates": [{"certificateFile": "", "keyFile": ""}]
+                    }
+                },
+                "sniffing": {"enabled": True, "destOverride": ["http", "tls"]}
+            },
+            "trojan_tls": {
+                "protocol": "trojan",
+                "port": custom_port or random.randint(30000, 60000),
+                "settings": {"clients": [], "fallbacks": []},
+                "stream_settings": {
+                    "network": "tcp",
+                    "security": "tls",
+                    "tlsSettings": {
+                        "serverName": "",
+                        "fingerprint": "chrome",
+                        "alpn": ["h2", "http/1.1"],
+                        "certificates": [{"certificateFile": "", "keyFile": ""}]
+                    }
+                },
+                "sniffing": {"enabled": True, "destOverride": ["http", "tls"]}
+            },
+            "shadowsocks": {
+                "protocol": "shadowsocks",
+                "port": custom_port or random.randint(30000, 60000),
+                "settings": {
+                    "method": "2022-blake3-aes-128-gcm",
+                    "password": secrets.token_urlsafe(16),
+                    "network": "tcp,udp"
+                },
+                "stream_settings": {"network": "tcp", "security": "none"},
+                "sniffing": {"enabled": True, "destOverride": ["http", "tls"]}
+            }
+        }
+
+        if preset_name not in presets:
+            raise HTTPException(status_code=400, detail=f"Unknown preset: {preset_name}")
+
+        preset = presets[preset_name]
+
+        # Generate X25519 keys for Reality
+        if preset_name == "vless_reality" and auto_generate:
+            try:
+                result = subprocess.run(
+                    ['/usr/local/x-ui/bin/xray-linux-amd64', 'x25519'],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.strip().split('\n'):
+                        if line.startswith('Private key:'):
+                            preset["stream_settings"]["realitySettings"]["privateKey"] = line.split(':')[1].strip()
+                        elif line.startswith('Public key:'):
+                            pass  # Public key for clients
+            except:
+                pass
+
+            # Generate short ID
+            preset["stream_settings"]["realitySettings"]["shortIds"] = [secrets.token_hex(4)]
+
+        # Generate remark
+        remark = custom_remark or f"{preset_name}-{preset['port']}"
+
+        # Insert into database
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO inbounds (user_id, up, down, total, remark, enable, expiry_time, listen, port, protocol, settings, stream_settings, tag, sniffing)
+            VALUES (?, 0, 0, 0, ?, 1, 0, '', ?, ?, ?, ?, ?, ?)
+        """, (
+            1,
+            remark,
+            preset["port"],
+            preset["protocol"],
+            json.dumps(preset["settings"]),
+            json.dumps(preset["stream_settings"]),
+            f"inbound-{preset['port']}",
+            json.dumps(preset["sniffing"])
+        ))
+
+        inbound_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        # Restart x-ui
+        subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        logger.info(f"Created inbound from preset {preset_name}: {remark} on port {preset['port']}")
+
+        return {
+            "success": True,
+            "inbound_id": inbound_id,
+            "remark": remark,
+            "port": preset["port"],
+            "protocol": preset["protocol"]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating inbound from preset: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/inbounds/bulk-update-fingerprint")
+async def bulk_update_fingerprint(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Массовое обновление fingerprint на всех TLS/Reality inbounds
+
+    Request body: {"fingerprint": "chrome"}
+    """
+    try:
+        fingerprint = request.get("fingerprint", "chrome")
+        valid_fingerprints = ["chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq", "randomized", "random"]
+
+        if fingerprint not in valid_fingerprints:
+            raise HTTPException(status_code=400, detail=f"Invalid fingerprint. Valid: {valid_fingerprints}")
+
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT id, stream_settings FROM inbounds")
+        rows = cursor.fetchall()
+
+        updated = 0
+        for row in rows:
+            inbound_id, stream_json = row
+            try:
+                stream = json.loads(stream_json) if stream_json else {}
+                security = stream.get("security", "none")
+
+                modified = False
+                if security == "reality" and "realitySettings" in stream:
+                    stream["realitySettings"]["fingerprint"] = fingerprint
+                    modified = True
+                elif security == "tls" and "tlsSettings" in stream:
+                    stream["tlsSettings"]["fingerprint"] = fingerprint
+                    modified = True
+
+                if modified:
+                    cursor.execute(
+                        "UPDATE inbounds SET stream_settings = ? WHERE id = ?",
+                        (json.dumps(stream), inbound_id)
+                    )
+                    updated += 1
+            except:
+                continue
+
+        conn.commit()
+        conn.close()
+
+        if updated > 0:
+            subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {"success": True, "updated_count": updated, "fingerprint": fingerprint}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error bulk updating fingerprint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/inbounds/bulk-optimize")
+async def bulk_optimize_inbounds(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Массовая оптимизация inbounds
+
+    Request body:
+    {
+        "fingerprint": "chrome",
+        "apply_to_tls": true,
+        "apply_to_reality": true,
+        "enable_sniffing": true
+    }
+    """
+    try:
+        fingerprint = request.get("fingerprint")
+        apply_to_tls = request.get("apply_to_tls", True)
+        apply_to_reality = request.get("apply_to_reality", True)
+        enable_sniffing = request.get("enable_sniffing", True)
+
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT id, stream_settings, sniffing FROM inbounds")
+        rows = cursor.fetchall()
+
+        updated = 0
+        for row in rows:
+            inbound_id, stream_json, sniffing_json = row
+            try:
+                stream = json.loads(stream_json) if stream_json else {}
+                sniffing = json.loads(sniffing_json) if sniffing_json else {}
+                security = stream.get("security", "none")
+
+                modified = False
+
+                # Update fingerprint
+                if fingerprint:
+                    if security == "reality" and apply_to_reality and "realitySettings" in stream:
+                        stream["realitySettings"]["fingerprint"] = fingerprint
+                        modified = True
+                    elif security == "tls" and apply_to_tls and "tlsSettings" in stream:
+                        stream["tlsSettings"]["fingerprint"] = fingerprint
+                        modified = True
+
+                # Update sniffing
+                if enable_sniffing:
+                    sniffing["enabled"] = True
+                    if "destOverride" not in sniffing or not sniffing["destOverride"]:
+                        sniffing["destOverride"] = ["http", "tls", "quic", "fakedns"]
+                    modified = True
+
+                if modified:
+                    cursor.execute(
+                        "UPDATE inbounds SET stream_settings = ?, sniffing = ? WHERE id = ?",
+                        (json.dumps(stream), json.dumps(sniffing), inbound_id)
+                    )
+                    updated += 1
+            except:
+                continue
+
+        conn.commit()
+        conn.close()
+
+        if updated > 0:
+            subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {"success": True, "updated_count": updated}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error bulk optimizing inbounds: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== УПРАВЛЕНИЕ ОЧЕРЕДЯМИ ====================
 
 @app.post("/api/queues/bulk-create")

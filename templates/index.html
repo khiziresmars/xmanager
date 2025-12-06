@@ -870,8 +870,67 @@
                 Просмотр, редактирование и управление inbounds
             </p>
 
+            <!-- Optimization Section -->
+            <div style="background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px; border: 1px solid var(--border);">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                    <span style="font-size: 24px;">⚡</span>
+                    <div>
+                        <h3 style="margin: 0; font-size: 16px;">Оптимизация и шаблоны</h3>
+                        <p style="margin: 0; font-size: 12px; color: var(--text-secondary);">Быстрое создание inbound по готовым шаблонам</p>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
+                    <!-- VLESS + Reality -->
+                    <button class="preset-create-btn" onclick="createInboundFromPreset('vless_reality')" style="display: flex; align-items: center; gap: 10px; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; text-align: left; transition: all 0.2s;">
+                        <span style="font-size: 20px;">🎭</span>
+                        <div>
+                            <div style="font-weight: 600; font-size: 13px; color: var(--text-primary);">VLESS + Reality</div>
+                            <div style="font-size: 11px; color: #9b59b6;">TCP • Рекомендуемый</div>
+                        </div>
+                    </button>
+
+                    <!-- VLESS + WS + TLS -->
+                    <button class="preset-create-btn" onclick="createInboundFromPreset('vless_ws_tls')" style="display: flex; align-items: center; gap: 10px; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; text-align: left; transition: all 0.2s;">
+                        <span style="font-size: 20px;">🔌</span>
+                        <div>
+                            <div style="font-weight: 600; font-size: 13px; color: var(--text-primary);">VLESS + WS + TLS</div>
+                            <div style="font-size: 11px; color: #27ae60;">WebSocket • CDN</div>
+                        </div>
+                    </button>
+
+                    <!-- Trojan + TLS -->
+                    <button class="preset-create-btn" onclick="createInboundFromPreset('trojan_tls')" style="display: flex; align-items: center; gap: 10px; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; text-align: left; transition: all 0.2s;">
+                        <span style="font-size: 20px;">🐴</span>
+                        <div>
+                            <div style="font-weight: 600; font-size: 13px; color: var(--text-primary);">Trojan + TLS</div>
+                            <div style="font-size: 11px; color: #e74c3c;">TCP • HTTPS</div>
+                        </div>
+                    </button>
+
+                    <!-- Shadowsocks -->
+                    <button class="preset-create-btn" onclick="createInboundFromPreset('shadowsocks')" style="display: flex; align-items: center; gap: 10px; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; text-align: left; transition: all 0.2s;">
+                        <span style="font-size: 20px;">🌑</span>
+                        <div>
+                            <div style="font-weight: 600; font-size: 13px; color: var(--text-primary);">Shadowsocks</div>
+                            <div style="font-size: 11px; color: #95a5a6;">2022 • AEAD</div>
+                        </div>
+                    </button>
+                </div>
+
+                <!-- Mass optimization buttons -->
+                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border); display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" onclick="updateAllFingerprints()" style="font-size: 12px;">
+                        🔄 Обновить Fingerprint на всех
+                    </button>
+                    <button class="btn btn-secondary" onclick="showBulkOptimizeModal()" style="font-size: 12px;">
+                        ⚙️ Массовая оптимизация
+                    </button>
+                </div>
+            </div>
+
             <div class="btn-group" style="margin-bottom: 20px;">
-                <button class="btn btn-primary" onclick="loadInboundsTable()">🔄 Обновить</button>
+                <button class="btn btn-primary" onclick="loadInboundsTable()">🔄 Обновить список</button>
             </div>
 
             <!-- Compact accordion-style inbound list -->

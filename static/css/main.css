@@ -1032,13 +1032,15 @@ small {
 }
 
 /* Preset cards */
-.preset-card:hover {
+.preset-card:hover,
+.preset-create-btn:hover {
     border-color: var(--accent) !important;
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 
-.preset-card:active {
+.preset-card:active,
+.preset-create-btn:active {
     transform: translateY(0);
 }
 
