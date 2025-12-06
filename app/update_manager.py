@@ -48,6 +48,7 @@ UPDATE_STATUS_FILE = "/opt/xui-manager/.update_status.json"
 FILES_TO_UPDATE = [
     "app/",
     "templates/",
+    "static/",
     "requirements.txt",
     "README.md"
 ]
