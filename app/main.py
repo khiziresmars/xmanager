@@ -516,7 +516,7 @@ async def get_panel_status(username: str = Depends(get_current_user)):
 async def get_users(
     inbound_id: Optional[int] = None,
     page: Optional[int] = Query(1, ge=1, description="Номер страницы"),
-    per_page: Optional[int] = Query(500, ge=10, le=500, description="Элементов на странице"),
+    per_page: Optional[int] = Query(500, ge=10, le=10000, description="Элементов на странице"),
     sort_by: Optional[str] = Query("id", description="Поле сортировки"),
     order: Optional[str] = Query("desc", description="asc или desc"),
     filter_status: Optional[str] = Query(None, description="active/disabled/expired"),
