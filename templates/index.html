@@ -8,7 +8,28 @@
     <meta http-equiv="Expires" content="0">
     <title>XUI Manager - Управление 3x-ui</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
-    <link rel="stylesheet" href="/static/css/main.css">
+    <script>
+        // Определяем базовый путь для статических файлов
+        (function() {
+            var path = window.location.pathname;
+            // Убираем trailing slash если есть, затем добавляем обратно для base
+            if (path.endsWith('/')) {
+                path = path;
+            } else {
+                path = path + '/';
+            }
+            // Создаём base тег
+            var base = document.createElement('base');
+            base.href = path;
+            document.head.appendChild(base);
+
+            // Динамически загружаем CSS
+            var css = document.createElement('link');
+            css.rel = 'stylesheet';
+            css.href = 'static/css/main.css';
+            document.head.appendChild(css);
+        })();
+    </script>
 </head>
 <body>
     <div class="container">
@@ -2198,6 +2219,6 @@
     </footer>
 
 
-    <script src="/static/js/main.js"></script>
+    <script src="static/js/main.js"></script>
 </body>
 </html>
