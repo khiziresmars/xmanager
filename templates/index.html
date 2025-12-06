@@ -893,11 +893,12 @@
                     <input type="hidden" id="edit-inbound-network-type">
 
                     <!-- Modal Tabs -->
-                    <div class="modal-tabs" style="display: flex; border-bottom: 1px solid var(--border-color); background: var(--bg-secondary);">
+                    <div class="modal-tabs" style="display: flex; border-bottom: 1px solid var(--border-color); background: var(--bg-secondary); flex-wrap: wrap;">
                         <button class="modal-tab active" data-tab="basic" onclick="switchInboundTab('basic')">📋 Основное</button>
                         <button class="modal-tab" data-tab="transport" onclick="switchInboundTab('transport')">🔄 Транспорт</button>
                         <button class="modal-tab" data-tab="security" onclick="switchInboundTab('security')">🔐 Безопасность</button>
-                        <button class="modal-tab" data-tab="advanced" onclick="switchInboundTab('advanced')">⚙️ Расширенные</button>
+                        <button class="modal-tab" data-tab="presets" onclick="switchInboundTab('presets')">📦 Шаблоны</button>
+                        <button class="modal-tab" data-tab="advanced" onclick="switchInboundTab('advanced')">⚙️ JSON</button>
                     </div>
 
                     <!-- Tab: Basic -->
@@ -1163,24 +1164,158 @@
                                     <input type="text" class="form-input" id="edit-tls-server-name" placeholder="example.com">
                                 </div>
                                 <div class="form-group">
-                                    <label class="form-label">ALPN</label>
-                                    <select class="form-input" id="edit-tls-alpn" multiple style="height: 80px;">
-                                        <option value="h2" selected>h2</option>
-                                        <option value="http/1.1" selected>http/1.1</option>
-                                        <option value="h3">h3</option>
+                                    <label class="form-label">uTLS Fingerprint</label>
+                                    <select class="form-input" id="edit-tls-fingerprint">
+                                        <option value="">-- Не использовать --</option>
+                                        <option value="chrome" selected>chrome</option>
+                                        <option value="firefox">firefox</option>
+                                        <option value="safari">safari</option>
+                                        <option value="ios">ios</option>
+                                        <option value="android">android</option>
+                                        <option value="edge">edge</option>
+                                        <option value="360">360</option>
+                                        <option value="qq">qq</option>
+                                        <option value="randomized">randomized</option>
+                                        <option value="random">random</option>
                                     </select>
                                 </div>
                             </div>
 
                             <div class="form-row">
                                 <div class="form-group">
+                                    <label class="form-label">ALPN</label>
+                                    <select class="form-input" id="edit-tls-alpn" multiple style="height: 60px;">
+                                        <option value="h2" selected>h2</option>
+                                        <option value="http/1.1" selected>http/1.1</option>
+                                        <option value="h3">h3</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Min/Max Version</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <select class="form-input" id="edit-tls-min-version" style="flex: 1;">
+                                            <option value="">Auto</option>
+                                            <option value="1.2">TLS 1.2</option>
+                                            <option value="1.3">TLS 1.3</option>
+                                        </select>
+                                        <select class="form-input" id="edit-tls-max-version" style="flex: 1;">
+                                            <option value="">Auto</option>
+                                            <option value="1.2">TLS 1.2</option>
+                                            <option value="1.3">TLS 1.3</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
                                     <label class="form-label">Cert File Path</label>
-                                    <input type="text" class="form-input" id="edit-tls-cert-file" placeholder="/path/to/fullchain.pem">
+                                    <input type="text" class="form-input" id="edit-tls-cert-file" placeholder="/etc/letsencrypt/live/domain/fullchain.pem">
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">Key File Path</label>
-                                    <input type="text" class="form-input" id="edit-tls-key-file" placeholder="/path/to/privkey.pem">
+                                    <input type="text" class="form-input" id="edit-tls-key-file" placeholder="/etc/letsencrypt/live/domain/privkey.pem">
                                 </div>
+                            </div>
+
+                            <div style="margin-top: 10px; padding: 10px; background: var(--bg-secondary); border-radius: 6px;">
+                                <small style="color: var(--text-secondary);">
+                                    💡 <strong>uTLS Fingerprint</strong> маскирует TLS отпечаток клиента под популярные браузеры для обхода DPI.
+                                    Рекомендуется <code>chrome</code> или <code>randomized</code>.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab: Presets -->
+                    <div class="modal-tab-content" id="inbound-tab-presets" style="padding: 20px; display: none;">
+                        <div style="margin-bottom: 15px; padding: 10px; background: var(--bg-secondary); border-radius: 8px;">
+                            <p style="margin: 0; color: var(--text-secondary); font-size: 13px;">
+                                📦 Выберите шаблон для быстрой настройки. Применение шаблона изменит транспорт и безопасность.
+                            </p>
+                        </div>
+
+                        <div id="preset-templates-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;">
+                            <!-- VLESS + Reality -->
+                            <div class="preset-card" onclick="applyPresetToInbound('vless_reality')" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                                    <span style="font-size: 24px;">🎭</span>
+                                    <div>
+                                        <div style="font-weight: 600; color: var(--text-primary);">VLESS + Reality</div>
+                                        <div style="font-size: 11px; color: #9b59b6;">TCP • Reality</div>
+                                    </div>
+                                </div>
+                                <p style="font-size: 12px; color: var(--text-secondary); margin: 0;">Рекомендуемый. Маскировка под HTTPS сайт.</p>
+                            </div>
+
+                            <!-- VLESS + WS + TLS -->
+                            <div class="preset-card" onclick="applyPresetToInbound('vless_ws_tls')" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                                    <span style="font-size: 24px;">🔌</span>
+                                    <div>
+                                        <div style="font-weight: 600; color: var(--text-primary);">VLESS + WebSocket + TLS</div>
+                                        <div style="font-size: 11px; color: #27ae60;">WebSocket • TLS</div>
+                                    </div>
+                                </div>
+                                <p style="font-size: 12px; color: var(--text-secondary); margin: 0;">Для CDN (Cloudflare). Требует домен.</p>
+                            </div>
+
+                            <!-- VMess + WS + TLS -->
+                            <div class="preset-card" onclick="applyPresetToInbound('vmess_ws_tls')" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                                    <span style="font-size: 24px;">📡</span>
+                                    <div>
+                                        <div style="font-weight: 600; color: var(--text-primary);">VMess + WebSocket + TLS</div>
+                                        <div style="font-size: 11px; color: #3498db;">WebSocket • TLS</div>
+                                    </div>
+                                </div>
+                                <p style="font-size: 12px; color: var(--text-secondary); margin: 0;">Классический CDN протокол.</p>
+                            </div>
+
+                            <!-- Trojan + TLS -->
+                            <div class="preset-card" onclick="applyPresetToInbound('trojan_tls')" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                                    <span style="font-size: 24px;">🐴</span>
+                                    <div>
+                                        <div style="font-weight: 600; color: var(--text-primary);">Trojan + TLS</div>
+                                        <div style="font-size: 11px; color: #e74c3c;">TCP • TLS</div>
+                                    </div>
+                                </div>
+                                <p style="font-size: 12px; color: var(--text-secondary); margin: 0;">Маскировка под HTTPS. Требует SSL сертификат.</p>
+                            </div>
+
+                            <!-- VLESS + gRPC -->
+                            <div class="preset-card" onclick="applyPresetToInbound('vless_grpc')" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                                    <span style="font-size: 24px;">⚡</span>
+                                    <div>
+                                        <div style="font-weight: 600; color: var(--text-primary);">VLESS + gRPC + TLS</div>
+                                        <div style="font-size: 11px; color: #f39c12;">gRPC • TLS</div>
+                                    </div>
+                                </div>
+                                <p style="font-size: 12px; color: var(--text-secondary); margin: 0;">Быстрый мультиплексированный транспорт.</p>
+                            </div>
+
+                            <!-- Shadowsocks -->
+                            <div class="preset-card" onclick="applyPresetToInbound('shadowsocks')" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                                    <span style="font-size: 24px;">🌑</span>
+                                    <div>
+                                        <div style="font-weight: 600; color: var(--text-primary);">Shadowsocks 2022</div>
+                                        <div style="font-size: 11px; color: #95a5a6;">TCP • None</div>
+                                    </div>
+                                </div>
+                                <p style="font-size: 12px; color: var(--text-secondary); margin: 0;">Простой и быстрый. AEAD шифрование.</p>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 20px; padding: 15px; background: var(--bg-secondary); border-radius: 8px;">
+                            <h4 style="margin: 0 0 10px 0; font-size: 14px;">Быстрые настройки:</h4>
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button class="btn btn-secondary" onclick="generateX25519Keys()" style="font-size: 12px;">🔄 Генерировать X25519</button>
+                                <button class="btn btn-secondary" onclick="generateShortId()" style="font-size: 12px;">🎲 Short ID</button>
+                                <button class="btn btn-secondary" onclick="generateRandomPort()" style="font-size: 12px;">🎲 Порт</button>
+                                <button class="btn btn-secondary" onclick="generateRandomPath()" style="font-size: 12px;">🎲 Path</button>
                             </div>
                         </div>
                     </div>

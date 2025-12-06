@@ -2659,6 +2659,26 @@ function parseInboundToVisual(ib) {
             (tls.certificates || [{}])[0].certificateFile || '';
         document.getElementById('edit-tls-key-file').value =
             (tls.certificates || [{}])[0].keyFile || '';
+
+        // uTLS fingerprint
+        const fingerprintEl = document.getElementById('edit-tls-fingerprint');
+        if (fingerprintEl) {
+            fingerprintEl.value = tls.fingerprint || 'chrome';
+        }
+
+        // ALPN
+        const alpnSelect = document.getElementById('edit-tls-alpn');
+        if (alpnSelect && tls.alpn) {
+            Array.from(alpnSelect.options).forEach(opt => {
+                opt.selected = tls.alpn.includes(opt.value);
+            });
+        }
+
+        // TLS versions
+        const minVersionEl = document.getElementById('edit-tls-min-version');
+        const maxVersionEl = document.getElementById('edit-tls-max-version');
+        if (minVersionEl) minVersionEl.value = tls.minVersion || '';
+        if (maxVersionEl) maxVersionEl.value = tls.maxVersion || '';
     }
 
     // Update visibility
@@ -2734,13 +2754,34 @@ function buildStreamSettingsFromVisual() {
             spiderX: document.getElementById('edit-reality-spider-x').value || '/'
         };
     } else if (security === 'tls') {
-        stream.tlsSettings = {
+        const tlsSettings = {
             serverName: document.getElementById('edit-tls-server-name').value,
             certificates: [{
                 certificateFile: document.getElementById('edit-tls-cert-file').value,
                 keyFile: document.getElementById('edit-tls-key-file').value
             }]
         };
+
+        // Add fingerprint (uTLS)
+        const fingerprint = document.getElementById('edit-tls-fingerprint')?.value;
+        if (fingerprint) {
+            tlsSettings.fingerprint = fingerprint;
+        }
+
+        // Add ALPN
+        const alpnSelect = document.getElementById('edit-tls-alpn');
+        if (alpnSelect) {
+            const alpn = Array.from(alpnSelect.selectedOptions).map(o => o.value);
+            if (alpn.length > 0) tlsSettings.alpn = alpn;
+        }
+
+        // Add TLS versions
+        const minVersion = document.getElementById('edit-tls-min-version')?.value;
+        const maxVersion = document.getElementById('edit-tls-max-version')?.value;
+        if (minVersion) tlsSettings.minVersion = minVersion;
+        if (maxVersion) tlsSettings.maxVersion = maxVersion;
+
+        stream.tlsSettings = tlsSettings;
     }
 
     return stream;
@@ -2775,6 +2816,107 @@ function resetInboundForm() {
             JSON.stringify(currentInboundData.sniffing, null, 2) : '';
         showToast('Форма сброшена', 'info');
     }
+}
+
+// Preset templates for inbound configuration
+const INBOUND_PRESETS = {
+    vless_reality: {
+        network: 'tcp',
+        security: 'reality',
+        realitySettings: {
+            dest: 'www.microsoft.com:443',
+            serverNames: ['www.microsoft.com'],
+            fingerprint: 'chrome',
+            spiderX: '/'
+        }
+    },
+    vless_ws_tls: {
+        network: 'ws',
+        security: 'tls',
+        wsSettings: { path: '/vless', headers: {} },
+        tlsSettings: { fingerprint: 'chrome', alpn: ['h2', 'http/1.1'] }
+    },
+    vmess_ws_tls: {
+        network: 'ws',
+        security: 'tls',
+        wsSettings: { path: '/vmess', headers: {} },
+        tlsSettings: { fingerprint: 'chrome', alpn: ['h2', 'http/1.1'] }
+    },
+    trojan_tls: {
+        network: 'tcp',
+        security: 'tls',
+        tlsSettings: { fingerprint: 'chrome', alpn: ['h2', 'http/1.1'] }
+    },
+    vless_grpc: {
+        network: 'grpc',
+        security: 'tls',
+        grpcSettings: { serviceName: 'grpc', multiMode: true },
+        tlsSettings: { fingerprint: 'chrome', alpn: ['h2'] }
+    },
+    shadowsocks: {
+        network: 'tcp',
+        security: 'none'
+    }
+};
+
+// Apply preset to inbound form
+async function applyPresetToInbound(presetName) {
+    const preset = INBOUND_PRESETS[presetName];
+    if (!preset) {
+        showToast('Шаблон не найден', 'error');
+        return;
+    }
+
+    // Set network type
+    document.getElementById('edit-network-type').value = preset.network;
+
+    // Set security type
+    document.getElementById('edit-security-type').value = preset.security;
+
+    // Apply transport settings
+    if (preset.network === 'ws' && preset.wsSettings) {
+        document.getElementById('edit-ws-path').value = preset.wsSettings.path || '/';
+        document.getElementById('edit-ws-host').value = '';
+    } else if (preset.network === 'grpc' && preset.grpcSettings) {
+        document.getElementById('edit-grpc-service').value = preset.grpcSettings.serviceName || 'grpc';
+        document.getElementById('edit-grpc-mode').value = preset.grpcSettings.multiMode ? 'multi' : 'gun';
+    }
+
+    // Apply security settings
+    if (preset.security === 'reality' && preset.realitySettings) {
+        document.getElementById('edit-reality-dest').value = preset.realitySettings.dest || 'www.microsoft.com:443';
+        document.getElementById('edit-reality-sni').value = (preset.realitySettings.serverNames || [])[0] || 'www.microsoft.com';
+        document.getElementById('edit-reality-fingerprint').value = preset.realitySettings.fingerprint || 'chrome';
+        document.getElementById('edit-reality-spider-x').value = preset.realitySettings.spiderX || '/';
+        // Generate keys if empty
+        if (!document.getElementById('edit-reality-private-key').value) {
+            await generateX25519Keys();
+        }
+        if (!document.getElementById('edit-reality-short-ids').value) {
+            generateShortId();
+        }
+    } else if (preset.security === 'tls' && preset.tlsSettings) {
+        const fingerprintEl = document.getElementById('edit-tls-fingerprint');
+        if (fingerprintEl) {
+            fingerprintEl.value = preset.tlsSettings.fingerprint || 'chrome';
+        }
+        // Set ALPN
+        const alpnSelect = document.getElementById('edit-tls-alpn');
+        if (alpnSelect && preset.tlsSettings.alpn) {
+            Array.from(alpnSelect.options).forEach(opt => {
+                opt.selected = preset.tlsSettings.alpn.includes(opt.value);
+            });
+        }
+    }
+
+    // Update field visibility
+    updateTransportFields();
+    updateSecurityFields();
+
+    // Switch to security tab to show result
+    switchInboundTab('security');
+
+    showToast(`✅ Шаблон "${presetName}" применён`, 'success');
 }
 
 // Copy to clipboard
