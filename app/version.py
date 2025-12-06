@@ -8,7 +8,7 @@ from datetime import datetime
 import re
 
 # Current application version (Semantic Versioning: MAJOR.MINOR.PATCH)
-CURRENT_VERSION = "2.5.0"
+CURRENT_VERSION = "2.5.1"
 VERSION_NAME = "Presets & Enhanced UI"
 GITHUB_REPO = "khiziresmars/xmanager"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
