@@ -1,5 +1,12 @@
-// Use relative URLs - nginx proxies /manager/ to API service
-const API_URL = '';
+// Динамически определяем базовый путь для API
+const API_URL = (function() {
+    let path = window.location.pathname;
+    // Добавляем trailing slash если нет
+    if (!path.endsWith('/')) {
+        path += '/';
+    }
+    return path;
+})();
 let currentUsers = [];
 let lowTrafficUsers = [];
 let unlimitedUsers = [];
