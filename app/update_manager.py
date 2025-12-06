@@ -965,5 +965,379 @@ class UpdateManager:
             return {"success": False, "error": str(e)}
 
 
+    # ============================================
+    # DEVELOPER MODE: Version Management & Releases
+    # ============================================
+
+    async def bump_version(self, bump_type: str = "patch", custom_version: str = None, version_name: str = None) -> Dict:
+        """
+        Bump version in version.py file
+
+        Args:
+            bump_type: 'major', 'minor', or 'patch'
+            custom_version: Custom version string (e.g., "2.5.0")
+            version_name: Optional new version name
+
+        Returns:
+            Dict with old and new version info
+        """
+        try:
+            version_file = "/opt/xui-manager/app/version.py"
+
+            # Read current file
+            with open(version_file, 'r') as f:
+                content = f.read()
+
+            old_version = CURRENT_VERSION
+
+            # Calculate new version
+            if custom_version:
+                new_version = custom_version.lstrip('v')
+            else:
+                current = Version(CURRENT_VERSION)
+                if bump_type == "major":
+                    new_version = f"{current.major + 1}.0.0"
+                elif bump_type == "minor":
+                    new_version = f"{current.major}.{current.minor + 1}.0"
+                else:  # patch
+                    new_version = f"{current.major}.{current.minor}.{current.patch + 1}"
+
+            # Update version in file
+            import re
+            content = re.sub(
+                r'CURRENT_VERSION\s*=\s*"[^"]+"',
+                f'CURRENT_VERSION = "{new_version}"',
+                content
+            )
+
+            # Update version name if provided
+            if version_name:
+                content = re.sub(
+                    r'VERSION_NAME\s*=\s*"[^"]+"',
+                    f'VERSION_NAME = "{version_name}"',
+                    content
+                )
+
+            # Write back
+            with open(version_file, 'w') as f:
+                f.write(content)
+
+            logger.info(f"Version bumped from {old_version} to {new_version}")
+
+            return {
+                "success": True,
+                "old_version": old_version,
+                "new_version": new_version,
+                "version_name": version_name,
+                "file": version_file
+            }
+
+        except Exception as e:
+            logger.error(f"Error bumping version: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    def git_commit_and_push(self, commit_message: str, github_token: str = None) -> Dict:
+        """
+        Commit all changes and push to GitHub
+
+        Args:
+            commit_message: Commit message
+            github_token: GitHub personal access token (uses settings.GITHUB_TOKEN if not provided)
+
+        Returns:
+            Dict with result
+        """
+        try:
+            repo_dir = "/opt/xui-manager"
+            token = github_token or settings.GITHUB_TOKEN
+
+            if not token:
+                return {"success": False, "error": "GitHub token not configured. Set GITHUB_TOKEN in .env"}
+
+            # Configure git user if not set
+            subprocess.run(
+                ["git", "config", "user.email", "xui-manager@server.local"],
+                cwd=repo_dir, capture_output=True
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "XUI Manager"],
+                cwd=repo_dir, capture_output=True
+            )
+
+            # Stage all changes
+            result = subprocess.run(
+                ["git", "add", "-A"],
+                cwd=repo_dir, capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                return {"success": False, "error": f"git add failed: {result.stderr}"}
+
+            # Check if there are changes to commit
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=repo_dir, capture_output=True, text=True
+            )
+            if not status.stdout.strip():
+                return {"success": False, "error": "No changes to commit"}
+
+            # Commit
+            result = subprocess.run(
+                ["git", "commit", "-m", commit_message],
+                cwd=repo_dir, capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                return {"success": False, "error": f"git commit failed: {result.stderr}"}
+
+            # Get remote URL and inject token
+            remote_result = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                cwd=repo_dir, capture_output=True, text=True
+            )
+            original_url = remote_result.stdout.strip()
+
+            # Build authenticated URL
+            if "github.com" in original_url:
+                if original_url.startswith("https://"):
+                    # https://github.com/user/repo.git -> https://TOKEN@github.com/user/repo.git
+                    auth_url = original_url.replace("https://", f"https://{token}@")
+                else:
+                    # git@github.com:user/repo.git -> https://TOKEN@github.com/user/repo.git
+                    auth_url = original_url.replace("git@github.com:", "https://github.com/")
+                    auth_url = auth_url.replace("https://", f"https://{token}@")
+            else:
+                auth_url = original_url
+
+            # Push with token
+            result = subprocess.run(
+                ["git", "push", auth_url, "main"],
+                cwd=repo_dir, capture_output=True, text=True,
+                env={**os.environ, "GIT_ASKPASS": "/bin/true"}
+            )
+
+            if result.returncode != 0:
+                # Try master branch
+                result = subprocess.run(
+                    ["git", "push", auth_url, "master"],
+                    cwd=repo_dir, capture_output=True, text=True,
+                    env={**os.environ, "GIT_ASKPASS": "/bin/true"}
+                )
+
+            if result.returncode != 0:
+                return {"success": False, "error": f"git push failed: {result.stderr}"}
+
+            logger.info(f"Successfully pushed to GitHub: {commit_message}")
+
+            return {
+                "success": True,
+                "message": "Changes pushed to GitHub",
+                "commit_message": commit_message
+            }
+
+        except Exception as e:
+            logger.error(f"Error pushing to GitHub: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    async def create_github_release(
+        self,
+        version: str,
+        release_name: str = None,
+        release_notes: str = None,
+        github_token: str = None,
+        prerelease: bool = False,
+        draft: bool = False
+    ) -> Dict:
+        """
+        Create a new release on GitHub
+
+        Args:
+            version: Version tag (e.g., "2.5.0")
+            release_name: Release title
+            release_notes: Release description/changelog
+            github_token: GitHub PAT (uses settings.GITHUB_TOKEN if not provided)
+            prerelease: Mark as pre-release
+            draft: Create as draft
+
+        Returns:
+            Dict with release info
+        """
+        try:
+            token = github_token or settings.GITHUB_TOKEN
+
+            if not token:
+                return {"success": False, "error": "GitHub token not configured. Set GITHUB_TOKEN in .env"}
+
+            # Ensure version starts with 'v'
+            tag_name = f"v{version.lstrip('v')}"
+
+            # Create git tag locally first
+            repo_dir = "/opt/xui-manager"
+            subprocess.run(
+                ["git", "tag", "-a", tag_name, "-m", f"Release {tag_name}"],
+                cwd=repo_dir, capture_output=True
+            )
+
+            # Push tag
+            remote_result = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                cwd=repo_dir, capture_output=True, text=True
+            )
+            original_url = remote_result.stdout.strip()
+
+            if "github.com" in original_url:
+                if original_url.startswith("https://"):
+                    auth_url = original_url.replace("https://", f"https://{token}@")
+                else:
+                    auth_url = original_url.replace("git@github.com:", "https://github.com/")
+                    auth_url = auth_url.replace("https://", f"https://{token}@")
+            else:
+                auth_url = original_url
+
+            # Push tag
+            subprocess.run(
+                ["git", "push", auth_url, tag_name],
+                cwd=repo_dir, capture_output=True, text=True,
+                env={**os.environ, "GIT_ASKPASS": "/bin/true"}
+            )
+
+            # Create release via GitHub API
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
+
+            payload = {
+                "tag_name": tag_name,
+                "name": release_name or f"Release {tag_name}",
+                "body": release_notes or f"## XUI Manager {tag_name}\n\nNew release version.",
+                "draft": draft,
+                "prerelease": prerelease
+            }
+
+            headers = {
+                "Accept": "application/vnd.github.v3+json",
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "XUI-Manager"
+            }
+
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=payload, headers=headers) as response:
+                    if response.status == 201:
+                        data = await response.json()
+                        logger.info(f"Created GitHub release: {tag_name}")
+                        return {
+                            "success": True,
+                            "tag_name": tag_name,
+                            "release_name": data.get("name"),
+                            "html_url": data.get("html_url"),
+                            "id": data.get("id"),
+                            "created_at": data.get("created_at")
+                        }
+                    else:
+                        error_text = await response.text()
+                        return {
+                            "success": False,
+                            "error": f"GitHub API error {response.status}: {error_text}"
+                        }
+
+        except Exception as e:
+            logger.error(f"Error creating GitHub release: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    async def full_release_cycle(
+        self,
+        bump_type: str = "patch",
+        custom_version: str = None,
+        version_name: str = None,
+        release_notes: str = None,
+        github_token: str = None
+    ) -> Dict:
+        """
+        Complete release cycle: bump version -> commit -> push -> create release
+
+        Args:
+            bump_type: 'major', 'minor', or 'patch'
+            custom_version: Custom version string
+            version_name: Optional new version name
+            release_notes: Release description
+            github_token: GitHub PAT
+
+        Returns:
+            Dict with all steps results
+        """
+        results = {
+            "success": False,
+            "steps": {}
+        }
+
+        try:
+            # Step 1: Bump version
+            bump_result = await self.bump_version(
+                bump_type=bump_type,
+                custom_version=custom_version,
+                version_name=version_name
+            )
+            results["steps"]["bump_version"] = bump_result
+
+            if not bump_result["success"]:
+                results["error"] = f"Version bump failed: {bump_result['error']}"
+                return results
+
+            new_version = bump_result["new_version"]
+
+            # Step 2: Commit and push
+            commit_message = f"Release v{new_version}"
+            if version_name:
+                commit_message += f" - {version_name}"
+
+            push_result = self.git_commit_and_push(
+                commit_message=commit_message,
+                github_token=github_token
+            )
+            results["steps"]["git_push"] = push_result
+
+            if not push_result["success"]:
+                results["error"] = f"Git push failed: {push_result['error']}"
+                return results
+
+            # Step 3: Create GitHub release
+            release_result = await self.create_github_release(
+                version=new_version,
+                release_name=f"v{new_version}" + (f" - {version_name}" if version_name else ""),
+                release_notes=release_notes,
+                github_token=github_token
+            )
+            results["steps"]["github_release"] = release_result
+
+            if not release_result["success"]:
+                results["error"] = f"Release creation failed: {release_result['error']}"
+                return results
+
+            results["success"] = True
+            results["new_version"] = new_version
+            results["release_url"] = release_result.get("html_url")
+
+            logger.info(f"Full release cycle completed: v{new_version}")
+            return results
+
+        except Exception as e:
+            logger.error(f"Error in release cycle: {e}", exc_info=True)
+            results["error"] = str(e)
+            return results
+
+    def get_github_token_status(self) -> Dict:
+        """Check if GitHub token is configured and valid"""
+        token = settings.GITHUB_TOKEN
+
+        if not token:
+            return {
+                "configured": False,
+                "message": "GITHUB_TOKEN not set in .env file"
+            }
+
+        return {
+            "configured": True,
+            "token_preview": f"{token[:10]}...{token[-4:]}" if len(token) > 14 else "***",
+            "message": "GitHub token is configured"
+        }
+
+
 # Global instance
 update_manager = UpdateManager()

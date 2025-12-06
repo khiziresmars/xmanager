@@ -516,7 +516,7 @@ async def get_panel_status(username: str = Depends(get_current_user)):
 async def get_users(
     inbound_id: Optional[int] = None,
     page: Optional[int] = Query(1, ge=1, description="Номер страницы"),
-    per_page: Optional[int] = Query(50, ge=10, le=500, description="Элементов на странице"),
+    per_page: Optional[int] = Query(500, ge=10, le=500, description="Элементов на странице"),
     sort_by: Optional[str] = Query("id", description="Поле сортировки"),
     order: Optional[str] = Query("desc", description="asc или desc"),
     filter_status: Optional[str] = Query(None, description="active/disabled/expired"),
@@ -2532,6 +2532,279 @@ async def get_background_tasks_status(username: str = Depends(get_current_user))
         return status
     except Exception as e:
         logger.error(f"Error getting background tasks status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== DEVELOPER: VERSION & RELEASE MANAGEMENT ====================
+
+@app.get("/api/dev/github-token-status")
+async def get_github_token_status(username: str = Depends(get_current_user)):
+    """
+    Проверка статуса GitHub токена
+
+    Returns:
+        configured: Настроен ли токен
+        token_preview: Превью токена (первые/последние символы)
+    """
+    return update_manager.get_github_token_status()
+
+
+@app.post("/api/dev/bump-version")
+async def bump_version(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Увеличение версии приложения
+
+    Request body:
+    {
+        "bump_type": "patch",  // "major", "minor", or "patch"
+        "custom_version": null,  // Optional: "2.5.0"
+        "version_name": null  // Optional: "New Feature Release"
+    }
+
+    Returns:
+        old_version: Предыдущая версия
+        new_version: Новая версия
+    """
+    try:
+        bump_type = request.get("bump_type", "patch")
+        custom_version = request.get("custom_version")
+        version_name = request.get("version_name")
+
+        if bump_type not in ["major", "minor", "patch"]:
+            raise HTTPException(
+                status_code=400,
+                detail="bump_type must be 'major', 'minor', or 'patch'"
+            )
+
+        result = await update_manager.bump_version(
+            bump_type=bump_type,
+            custom_version=custom_version,
+            version_name=version_name
+        )
+
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result.get("error"))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error bumping version: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/dev/git-push")
+async def git_commit_and_push(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Коммит и пуш изменений в GitHub
+
+    Request body:
+    {
+        "commit_message": "Update version",
+        "github_token": null  // Optional: uses .env GITHUB_TOKEN if not provided
+    }
+
+    Returns:
+        success: Успех операции
+        message: Сообщение о результате
+    """
+    try:
+        commit_message = request.get("commit_message")
+        github_token = request.get("github_token")
+
+        if not commit_message:
+            raise HTTPException(
+                status_code=400,
+                detail="commit_message is required"
+            )
+
+        result = update_manager.git_commit_and_push(
+            commit_message=commit_message,
+            github_token=github_token
+        )
+
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result.get("error"))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error pushing to GitHub: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/dev/create-release")
+async def create_github_release(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Создание релиза на GitHub
+
+    Request body:
+    {
+        "version": "2.5.0",
+        "release_name": "v2.5.0 - New Features",  // Optional
+        "release_notes": "## Changes\n- Feature 1\n- Bug fix 2",  // Optional
+        "github_token": null,  // Optional
+        "prerelease": false,  // Optional
+        "draft": false  // Optional
+    }
+
+    Returns:
+        tag_name: Тег версии
+        html_url: URL релиза на GitHub
+    """
+    try:
+        version = request.get("version")
+        if not version:
+            raise HTTPException(
+                status_code=400,
+                detail="version is required"
+            )
+
+        result = await update_manager.create_github_release(
+            version=version,
+            release_name=request.get("release_name"),
+            release_notes=request.get("release_notes"),
+            github_token=request.get("github_token"),
+            prerelease=request.get("prerelease", False),
+            draft=request.get("draft", False)
+        )
+
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result.get("error"))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating release: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/dev/full-release")
+async def full_release_cycle(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Полный цикл релиза: bump version -> commit -> push -> create release
+
+    Request body:
+    {
+        "bump_type": "patch",  // "major", "minor", or "patch"
+        "custom_version": null,  // Optional: "2.5.0"
+        "version_name": "New Release",  // Optional
+        "release_notes": "## Changes\n- ...",  // Optional
+        "github_token": null  // Optional
+    }
+
+    Returns:
+        success: Успех всех шагов
+        new_version: Новая версия
+        release_url: URL созданного релиза
+        steps: Результаты каждого шага
+    """
+    try:
+        bump_type = request.get("bump_type", "patch")
+
+        if bump_type not in ["major", "minor", "patch"]:
+            raise HTTPException(
+                status_code=400,
+                detail="bump_type must be 'major', 'minor', or 'patch'"
+            )
+
+        result = await update_manager.full_release_cycle(
+            bump_type=bump_type,
+            custom_version=request.get("custom_version"),
+            version_name=request.get("version_name"),
+            release_notes=request.get("release_notes"),
+            github_token=request.get("github_token")
+        )
+
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error"),
+                headers={"X-Release-Steps": str(result.get("steps", {}))}
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in full release cycle: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/dev/set-github-token")
+async def set_github_token(
+    request: Dict[str, Any],
+    username: str = Depends(get_current_user)
+):
+    """
+    Сохранение GitHub токена в .env файл
+
+    Request body:
+    {
+        "github_token": "github_pat_xxxxx..."
+    }
+
+    ВАЖНО: Токен должен иметь права: repo, workflow
+    """
+    try:
+        token = request.get("github_token")
+        if not token:
+            raise HTTPException(
+                status_code=400,
+                detail="github_token is required"
+            )
+
+        env_file = "/opt/xui-manager/.env"
+
+        # Read existing .env
+        env_content = ""
+        if os.path.exists(env_file):
+            with open(env_file, 'r') as f:
+                env_content = f.read()
+
+        # Update or add GITHUB_TOKEN
+        import re
+        if "GITHUB_TOKEN=" in env_content:
+            env_content = re.sub(
+                r'GITHUB_TOKEN=.*',
+                f'GITHUB_TOKEN={token}',
+                env_content
+            )
+        else:
+            env_content += f"\n# GitHub Personal Access Token for updates\nGITHUB_TOKEN={token}\n"
+
+        # Write back
+        with open(env_file, 'w') as f:
+            f.write(env_content)
+
+        logger.info("GitHub token saved to .env")
+
+        return {
+            "success": True,
+            "message": "GitHub token saved. Restart service to apply.",
+            "note": "Run: systemctl restart xui-manager"
+        }
+
+    except Exception as e:
+        logger.error(f"Error saving GitHub token: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
