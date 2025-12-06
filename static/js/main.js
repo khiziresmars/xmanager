@@ -2385,81 +2385,157 @@ async function loadInboundsTable() {
                 let securityBadge = '';
                 let destInfo = '';
                 let sniInfo = '';
+                let fingerprint = '';
+                let pathInfo = '';
+                let configDescription = '';
 
                 if (security === 'reality') {
-                    securityBadge = '<span class="protocol-badge security-reality">Reality</span>';
+                    securityBadge = '<span class="protocol-badge security-reality" title="Reality - Обход DPI через маскировку под легитимный TLS">Reality</span>';
                     const reality = stream.realitySettings || {};
                     destInfo = reality.dest || '-';
                     sniInfo = (reality.serverNames || [])[0] || '-';
+                    fingerprint = reality.fingerprint || '-';
+                    configDescription = 'Маскировка под ' + sniInfo;
                 } else if (security === 'tls') {
-                    securityBadge = '<span class="protocol-badge security-tls">TLS</span>';
+                    securityBadge = '<span class="protocol-badge security-tls" title="TLS - Стандартное TLS шифрование">TLS</span>';
                     const tls = stream.tlsSettings || {};
                     sniInfo = (tls.serverNames || [])[0] || '-';
+                    fingerprint = tls.fingerprint || '-';
+                    configDescription = 'TLS сертификат';
+                } else {
+                    configDescription = 'Без шифрования';
+                }
+
+                // Network-specific info
+                let networkBadge = '';
+                const networkDescriptions = {
+                    'tcp': 'TCP - Прямое соединение',
+                    'ws': 'WebSocket - Поддержка CDN',
+                    'grpc': 'gRPC - Высокая производительность',
+                    'h2': 'HTTP/2 - Мультиплексирование',
+                    'splithttp': 'SplitHTTP - Эксперимент',
+                    'kcp': 'mKCP - UDP туннель'
+                };
+                networkBadge = `<span class="protocol-badge network-${network}" title="${networkDescriptions[network] || network}">${network.toUpperCase()}</span>`;
+
+                if (network === 'ws') {
+                    const ws = stream.wsSettings || {};
+                    pathInfo = ws.path || '/';
+                } else if (network === 'grpc') {
+                    const grpc = stream.grpcSettings || {};
+                    pathInfo = grpc.serviceName || 'grpc';
+                } else if (network === 'h2') {
+                    const h2 = stream.httpSettings || {};
+                    pathInfo = h2.path || '/';
                 }
 
                 // Format traffic
                 const formatBytes = (bytes) => {
                     if (!bytes) return '0 B';
                     const k = 1024;
-                    const sizes = ['B', 'KB', 'MB', 'GB'];
+                    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
                     const i = Math.floor(Math.log(bytes) / Math.log(k));
                     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
                 };
 
+                // Calculate traffic percentage if limit exists
+                const totalTraffic = (ib.up || 0) + (ib.down || 0);
+                let trafficProgress = '';
+                if (ib.total && ib.total > 0) {
+                    const percent = Math.min(100, Math.round((totalTraffic / ib.total) * 100));
+                    const color = percent > 90 ? 'var(--danger)' : percent > 70 ? 'var(--warning)' : 'var(--success)';
+                    trafficProgress = `<div class="traffic-bar" style="width: 60px; height: 4px; background: var(--bg-tertiary); border-radius: 2px; margin-left: 5px;">
+                        <div style="width: ${percent}%; height: 100%; background: ${color}; border-radius: 2px;"></div>
+                    </div>`;
+                }
+
+                // Build description tooltip
+                const descParts = [ib.protocol.toUpperCase()];
+                if (network !== 'tcp') descParts.push(network.toUpperCase());
+                if (security !== 'none') descParts.push(security.charAt(0).toUpperCase() + security.slice(1));
+                const fullConfigName = descParts.join(' + ');
+
                 return `
                     <div class="inbound-card" id="inbound-${ib.id}">
                         <div class="inbound-header" onclick="toggleInboundDetails(${ib.id})">
-                            <span class="inbound-status-dot ${ib.enable ? 'active' : 'inactive'}"></span>
+                            <input type="checkbox" class="inbound-checkbox" data-id="${ib.id}" onclick="event.stopPropagation(); toggleInboundSelection(this)" style="width: 18px; height: 18px; margin-right: 10px; cursor: pointer;">
+                            <span class="inbound-status-dot ${ib.enable ? 'active' : 'inactive'}" title="${ib.enable ? 'Активен' : 'Отключен'}"></span>
 
                             <div class="inbound-info">
                                 <div class="inbound-name">${ib.remark || 'Без названия'}</div>
                                 <div class="inbound-meta">
-                                    <span>Port: ${ib.port}</span>
-                                    <span>↓ ${formatBytes(ib.down)}</span>
-                                    <span>↑ ${formatBytes(ib.up)}</span>
-                                    <span>${ib.users_count || 0} clients</span>
+                                    <span title="Порт прослушивания">:${ib.port}</span>
+                                    <span title="Скачано">↓${formatBytes(ib.down)}</span>
+                                    <span title="Загружено">↑${formatBytes(ib.up)}</span>
+                                    ${trafficProgress}
+                                    <span title="Количество клиентов">👤${ib.users_count || 0}</span>
                                 </div>
                             </div>
 
-                            <div class="inbound-badges">
-                                <span class="protocol-badge protocol-${ib.protocol}">${ib.protocol.toUpperCase()}</span>
+                            <div class="inbound-badges" title="${fullConfigName}">
+                                <span class="protocol-badge protocol-${ib.protocol}" title="${ib.protocol.toUpperCase()} протокол">${ib.protocol.toUpperCase()}</span>
+                                ${networkBadge}
                                 ${securityBadge}
                             </div>
 
                             <div class="inbound-actions" onclick="event.stopPropagation()">
-                                <button class="btn-icon" onclick="editInbound(${ib.id})" title="Edit">✏️</button>
-                                <button class="btn-icon" onclick="toggleInbound(${ib.id})" title="Toggle">${ib.enable ? '⏸️' : '▶️'}</button>
-                                <button class="btn-icon" onclick="deleteInbound(${ib.id}, '${ib.remark || 'Inbound'}')" title="Delete" style="color: var(--danger);">🗑️</button>
+                                <button class="btn-icon" onclick="testInboundPort(${ib.id})" title="Проверить доступность порта">🔍</button>
+                                <button class="btn-icon" onclick="getInboundLink(${ib.id})" title="Получить QR-код и ссылку для подключения">📱</button>
+                                <button class="btn-icon" onclick="cloneInbound(${ib.id}, '${(ib.remark || 'Inbound').replace(/'/g, "\\'")}')" title="Создать копию этого inbound">📋</button>
+                                <button class="btn-icon" onclick="editInbound(${ib.id})" title="Редактировать настройки">✏️</button>
+                                <button class="btn-icon" onclick="toggleInbound(${ib.id})" title="${ib.enable ? 'Отключить' : 'Включить'} inbound">${ib.enable ? '⏸️' : '▶️'}</button>
+                                <button class="btn-icon" onclick="deleteInbound(${ib.id}, '${(ib.remark || 'Inbound').replace(/'/g, "\\'")}')" title="Удалить inbound" style="color: var(--danger);">🗑️</button>
                             </div>
                         </div>
 
                         <div class="inbound-details">
+                            <div class="inbound-config-summary" style="margin-bottom: 15px; padding: 10px; background: var(--bg-tertiary); border-radius: 6px; font-size: 12px;">
+                                <strong>${fullConfigName}</strong> — ${configDescription}
+                            </div>
                             <div class="detail-grid">
                                 <div class="detail-item">
                                     <div class="detail-label">ID</div>
                                     <div class="detail-value">${ib.id}</div>
                                 </div>
                                 <div class="detail-item">
-                                    <div class="detail-label">Network</div>
+                                    <div class="detail-label">Протокол</div>
+                                    <div class="detail-value">${ib.protocol}</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Транспорт</div>
                                     <div class="detail-value">${network}</div>
                                 </div>
                                 <div class="detail-item">
-                                    <div class="detail-label">Security</div>
+                                    <div class="detail-label">Безопасность</div>
                                     <div class="detail-value">${security}</div>
                                 </div>
+                                ${pathInfo ? `
+                                <div class="detail-item">
+                                    <div class="detail-label">${network === 'grpc' ? 'Service Name' : 'Path'}</div>
+                                    <div class="detail-value" style="font-family: monospace;">${pathInfo}</div>
+                                </div>` : ''}
+                                ${fingerprint && fingerprint !== '-' ? `
+                                <div class="detail-item">
+                                    <div class="detail-label">Fingerprint</div>
+                                    <div class="detail-value">${fingerprint}</div>
+                                </div>` : ''}
                                 ${destInfo ? `
                                 <div class="detail-item">
-                                    <div class="detail-label">Dest</div>
-                                    <div class="detail-value">${destInfo}</div>
+                                    <div class="detail-label">Dest (Reality)</div>
+                                    <div class="detail-value" style="font-family: monospace;">${destInfo}</div>
                                 </div>` : ''}
-                                ${sniInfo ? `
+                                ${sniInfo && sniInfo !== '-' ? `
                                 <div class="detail-item">
                                     <div class="detail-label">SNI</div>
-                                    <div class="detail-value">${sniInfo}</div>
+                                    <div class="detail-value" style="font-family: monospace;">${sniInfo}</div>
                                 </div>` : ''}
                                 <div class="detail-item">
-                                    <div class="detail-label">Listen</div>
-                                    <div class="detail-value">${ib.listen || '0.0.0.0'}</div>
+                                    <div class="detail-label">Listen IP</div>
+                                    <div class="detail-value">${ib.listen || '0.0.0.0 (все интерфейсы)'}</div>
+                                </div>
+                                <div class="detail-item">
+                                    <div class="detail-label">Всего трафика</div>
+                                    <div class="detail-value">${formatBytes(totalTraffic)} ${ib.total > 0 ? '/ ' + formatBytes(ib.total) : '(без лимита)'}</div>
                                 </div>
                             </div>
                         </div>
@@ -2818,9 +2894,13 @@ function resetInboundForm() {
     }
 }
 
-// Preset templates for inbound configuration
+// Preset templates for inbound configuration with descriptions
 const INBOUND_PRESETS = {
-    vless_reality: {
+    // === VLESS + REALITY (Recommended for bypassing DPI) ===
+    vless_reality_tcp: {
+        name: 'VLESS + Reality (TCP)',
+        description: 'Лучший выбор для обхода блокировок. Маскируется под легитимный HTTPS трафик.',
+        protocol: 'vless',
         network: 'tcp',
         security: 'reality',
         realitySettings: {
@@ -2830,37 +2910,226 @@ const INBOUND_PRESETS = {
             spiderX: '/'
         }
     },
+    vless_reality_h2: {
+        name: 'VLESS + Reality (H2)',
+        description: 'Reality с HTTP/2 мультиплексированием. Подходит для множества параллельных соединений.',
+        protocol: 'vless',
+        network: 'h2',
+        security: 'reality',
+        httpSettings: { path: '/', host: ['www.microsoft.com'] },
+        realitySettings: {
+            dest: 'www.microsoft.com:443',
+            serverNames: ['www.microsoft.com'],
+            fingerprint: 'chrome',
+            spiderX: '/'
+        }
+    },
+    vless_reality_grpc: {
+        name: 'VLESS + Reality (gRPC)',
+        description: 'Reality с gRPC транспортом. Отличная производительность для CDN и мобильных сетей.',
+        protocol: 'vless',
+        network: 'grpc',
+        security: 'reality',
+        grpcSettings: { serviceName: 'grpc', multiMode: true },
+        realitySettings: {
+            dest: 'www.microsoft.com:443',
+            serverNames: ['www.microsoft.com'],
+            fingerprint: 'chrome',
+            spiderX: '/'
+        }
+    },
+
+    // === VLESS + TLS (Classic secure configurations) ===
     vless_ws_tls: {
+        name: 'VLESS + WS + TLS',
+        description: 'Классическая WebSocket конфигурация. Поддерживает CDN (Cloudflare, etc).',
+        protocol: 'vless',
         network: 'ws',
         security: 'tls',
-        wsSettings: { path: '/vless', headers: {} },
+        wsSettings: { path: '/vless-ws', headers: {} },
         tlsSettings: { fingerprint: 'chrome', alpn: ['h2', 'http/1.1'] }
     },
-    vmess_ws_tls: {
-        network: 'ws',
+    vless_grpc_tls: {
+        name: 'VLESS + gRPC + TLS',
+        description: 'gRPC с TLS сертификатом. Высокая производительность, поддержка CDN.',
+        protocol: 'vless',
+        network: 'grpc',
         security: 'tls',
-        wsSettings: { path: '/vmess', headers: {} },
-        tlsSettings: { fingerprint: 'chrome', alpn: ['h2', 'http/1.1'] }
+        grpcSettings: { serviceName: 'vless-grpc', multiMode: true },
+        tlsSettings: { fingerprint: 'chrome', alpn: ['h2'] }
     },
-    trojan_tls: {
+    vless_h2_tls: {
+        name: 'VLESS + HTTP/2 + TLS',
+        description: 'HTTP/2 мультиплексирование с TLS. Низкая задержка для множества запросов.',
+        protocol: 'vless',
+        network: 'h2',
+        security: 'tls',
+        httpSettings: { path: '/vless-h2', host: [] },
+        tlsSettings: { fingerprint: 'chrome', alpn: ['h2'] }
+    },
+    vless_tcp_tls: {
+        name: 'VLESS + TCP + TLS',
+        description: 'Простой TCP с TLS. Минимальные накладные расходы, максимальная скорость.',
+        protocol: 'vless',
         network: 'tcp',
         security: 'tls',
         tlsSettings: { fingerprint: 'chrome', alpn: ['h2', 'http/1.1'] }
     },
-    vless_grpc: {
+
+    // === VMess configurations ===
+    vmess_ws_tls: {
+        name: 'VMess + WS + TLS',
+        description: 'VMess через WebSocket. Совместим с CDN, хорошо маскируется.',
+        protocol: 'vmess',
+        network: 'ws',
+        security: 'tls',
+        wsSettings: { path: '/vmess-ws', headers: {} },
+        tlsSettings: { fingerprint: 'chrome', alpn: ['h2', 'http/1.1'] }
+    },
+    vmess_grpc_tls: {
+        name: 'VMess + gRPC + TLS',
+        description: 'VMess с gRPC транспортом. Быстрый и надежный.',
+        protocol: 'vmess',
         network: 'grpc',
         security: 'tls',
-        grpcSettings: { serviceName: 'grpc', multiMode: true },
+        grpcSettings: { serviceName: 'vmess-grpc', multiMode: true },
         tlsSettings: { fingerprint: 'chrome', alpn: ['h2'] }
     },
-    shadowsocks: {
+    vmess_tcp_tls: {
+        name: 'VMess + TCP + TLS',
+        description: 'Базовая VMess конфигурация с TLS шифрованием.',
+        protocol: 'vmess',
+        network: 'tcp',
+        security: 'tls',
+        tlsSettings: { fingerprint: 'chrome', alpn: ['h2', 'http/1.1'] }
+    },
+    vmess_ws_none: {
+        name: 'VMess + WS (без TLS)',
+        description: 'VMess WebSocket без шифрования. Для использования за обратным прокси.',
+        protocol: 'vmess',
+        network: 'ws',
+        security: 'none',
+        wsSettings: { path: '/vmess', headers: {} }
+    },
+
+    // === Trojan configurations ===
+    trojan_tcp_tls: {
+        name: 'Trojan + TCP + TLS',
+        description: 'Классический Trojan протокол. Маскируется под обычный HTTPS трафик.',
+        protocol: 'trojan',
+        network: 'tcp',
+        security: 'tls',
+        tlsSettings: { fingerprint: 'chrome', alpn: ['h2', 'http/1.1'] }
+    },
+    trojan_ws_tls: {
+        name: 'Trojan + WS + TLS',
+        description: 'Trojan через WebSocket. Поддерживает CDN, хорошая маскировка.',
+        protocol: 'trojan',
+        network: 'ws',
+        security: 'tls',
+        wsSettings: { path: '/trojan-ws', headers: {} },
+        tlsSettings: { fingerprint: 'chrome', alpn: ['h2', 'http/1.1'] }
+    },
+    trojan_grpc_tls: {
+        name: 'Trojan + gRPC + TLS',
+        description: 'Trojan с gRPC. Высокая производительность для мобильных клиентов.',
+        protocol: 'trojan',
+        network: 'grpc',
+        security: 'tls',
+        grpcSettings: { serviceName: 'trojan-grpc', multiMode: false },
+        tlsSettings: { fingerprint: 'chrome', alpn: ['h2'] }
+    },
+
+    // === Shadowsocks configurations ===
+    shadowsocks_tcp: {
+        name: 'Shadowsocks (TCP)',
+        description: 'Классический Shadowsocks. Простой и быстрый, без TLS.',
+        protocol: 'shadowsocks',
+        network: 'tcp',
+        security: 'none'
+    },
+    shadowsocks_ws: {
+        name: 'Shadowsocks + WS',
+        description: 'Shadowsocks через WebSocket. Для обхода DPI с поддержкой CDN.',
+        protocol: 'shadowsocks',
+        network: 'ws',
+        security: 'none',
+        wsSettings: { path: '/ss-ws', headers: {} }
+    },
+
+    // === Special configurations ===
+    vless_splithttp: {
+        name: 'VLESS + SplitHTTP',
+        description: 'Экспериментальный splithttp транспорт. Для сложных сетевых условий.',
+        protocol: 'vless',
+        network: 'splithttp',
+        security: 'tls',
+        splithttpSettings: { path: '/split' },
+        tlsSettings: { fingerprint: 'chrome', alpn: ['h2', 'http/1.1'] }
+    },
+    vless_tcp_none: {
+        name: 'VLESS + TCP (без TLS)',
+        description: 'Базовый VLESS без шифрования. Только для тестирования или за reverse proxy.',
+        protocol: 'vless',
         network: 'tcp',
         security: 'none'
     }
 };
 
+// Preset categories for better organization
+const PRESET_CATEGORIES = {
+    recommended: {
+        name: 'Рекомендуемые',
+        description: 'Лучшие конфигурации для обхода блокировок',
+        presets: ['vless_reality_tcp', 'vless_reality_grpc', 'vless_ws_tls', 'trojan_tcp_tls']
+    },
+    reality: {
+        name: 'VLESS + Reality',
+        description: 'Самый эффективный метод обхода DPI',
+        presets: ['vless_reality_tcp', 'vless_reality_h2', 'vless_reality_grpc']
+    },
+    vless: {
+        name: 'VLESS + TLS',
+        description: 'Классические VLESS конфигурации',
+        presets: ['vless_ws_tls', 'vless_grpc_tls', 'vless_h2_tls', 'vless_tcp_tls']
+    },
+    vmess: {
+        name: 'VMess',
+        description: 'VMess протокол (совместимость)',
+        presets: ['vmess_ws_tls', 'vmess_grpc_tls', 'vmess_tcp_tls', 'vmess_ws_none']
+    },
+    trojan: {
+        name: 'Trojan',
+        description: 'Trojan протокол',
+        presets: ['trojan_tcp_tls', 'trojan_ws_tls', 'trojan_grpc_tls']
+    },
+    shadowsocks: {
+        name: 'Shadowsocks',
+        description: 'Shadowsocks протокол',
+        presets: ['shadowsocks_tcp', 'shadowsocks_ws']
+    },
+    special: {
+        name: 'Специальные',
+        description: 'Экспериментальные и особые конфигурации',
+        presets: ['vless_splithttp', 'vless_tcp_none']
+    }
+};
+
+// Legacy alias for backward compatibility
+const INBOUND_PRESETS_LEGACY = {
+    vless_reality: 'vless_reality_tcp',
+    trojan_tls: 'trojan_tcp_tls',
+    vless_grpc: 'vless_grpc_tls',
+    shadowsocks: 'shadowsocks_tcp'
+};
+
 // Apply preset to inbound form
 async function applyPresetToInbound(presetName) {
+    // Handle legacy preset names
+    if (INBOUND_PRESETS_LEGACY[presetName]) {
+        presetName = INBOUND_PRESETS_LEGACY[presetName];
+    }
+
     const preset = INBOUND_PRESETS[presetName];
     if (!preset) {
         showToast('Шаблон не найден', 'error');
@@ -2873,13 +3142,21 @@ async function applyPresetToInbound(presetName) {
     // Set security type
     document.getElementById('edit-security-type').value = preset.security;
 
-    // Apply transport settings
+    // Apply transport settings based on network type
     if (preset.network === 'ws' && preset.wsSettings) {
         document.getElementById('edit-ws-path').value = preset.wsSettings.path || '/';
         document.getElementById('edit-ws-host').value = '';
     } else if (preset.network === 'grpc' && preset.grpcSettings) {
         document.getElementById('edit-grpc-service').value = preset.grpcSettings.serviceName || 'grpc';
         document.getElementById('edit-grpc-mode').value = preset.grpcSettings.multiMode ? 'multi' : 'gun';
+    } else if (preset.network === 'h2' && preset.httpSettings) {
+        const h2PathEl = document.getElementById('edit-h2-path');
+        const h2HostEl = document.getElementById('edit-h2-host');
+        if (h2PathEl) h2PathEl.value = preset.httpSettings.path || '/';
+        if (h2HostEl) h2HostEl.value = (preset.httpSettings.host || []).join(',');
+    } else if (preset.network === 'splithttp' && preset.splithttpSettings) {
+        const splitPathEl = document.getElementById('edit-splithttp-path');
+        if (splitPathEl) splitPathEl.value = preset.splithttpSettings.path || '/';
     }
 
     // Apply security settings
@@ -2916,29 +3193,207 @@ async function applyPresetToInbound(presetName) {
     // Switch to security tab to show result
     switchInboundTab('security');
 
-    showToast(`✅ Шаблон "${presetName}" применён`, 'success');
+    const displayName = preset.name || presetName;
+    showToast(`✅ Шаблон "${displayName}" применён`, 'success');
 }
 
-// Create new inbound from preset template
-async function createInboundFromPreset(presetName) {
+// Show preset selector modal with categories
+function showPresetSelectorModal() {
+    let modal = document.getElementById('preset-selector-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'preset-selector-modal';
+        modal.className = 'modal';
+
+        let html = `
+            <div class="modal-content" style="max-width: 700px;">
+                <div class="modal-header">
+                    <h3>📋 Выбор шаблона конфигурации</h3>
+                    <button class="modal-close" onclick="document.getElementById('preset-selector-modal').style.display='none'">&times;</button>
+                </div>
+                <div class="modal-body" style="padding: 20px; max-height: 70vh; overflow-y: auto;">
+        `;
+
+        // Build categories
+        for (const [catKey, category] of Object.entries(PRESET_CATEGORIES)) {
+            html += `
+                <div class="preset-category" style="margin-bottom: 20px;">
+                    <h4 style="margin: 0 0 5px 0; color: var(--accent-primary);">${category.name}</h4>
+                    <p style="margin: 0 0 10px 0; font-size: 12px; color: var(--text-secondary);">${category.description}</p>
+                    <div class="preset-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;">
+            `;
+
+            for (const presetKey of category.presets) {
+                const preset = INBOUND_PRESETS[presetKey];
+                if (preset) {
+                    html += `
+                        <div class="preset-card" onclick="selectPresetFromModal('${presetKey}')"
+                             style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px; cursor: pointer; border: 1px solid var(--border-primary); transition: all 0.2s;">
+                            <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">${preset.name}</div>
+                            <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">${preset.description}</div>
+                        </div>
+                    `;
+                }
+            }
+
+            html += `</div></div>`;
+        }
+
+        html += `
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="document.getElementById('preset-selector-modal').style.display='none'">Отмена</button>
+                </div>
+            </div>
+        `;
+
+        modal.innerHTML = html;
+        document.body.appendChild(modal);
+
+        // Add hover styles
+        const style = document.createElement('style');
+        style.textContent = `
+            .preset-card:hover {
+                border-color: var(--accent-primary) !important;
+                background: var(--bg-secondary) !important;
+                transform: translateY(-2px);
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    modal.style.display = 'flex';
+}
+
+// Select preset from modal and apply
+async function selectPresetFromModal(presetKey) {
+    document.getElementById('preset-selector-modal').style.display = 'none';
+    await applyPresetToInbound(presetKey);
+}
+
+// Show preset creation modal with options
+function createInboundFromPreset(presetName) {
+    // Create modal if not exists
+    let modal = document.getElementById('preset-create-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'preset-create-modal';
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 500px;">
+                <div class="modal-header">
+                    <h3 id="preset-modal-title">🚀 Создать Inbound</h3>
+                    <button class="modal-close" onclick="document.getElementById('preset-create-modal').style.display='none'">&times;</button>
+                </div>
+                <div class="modal-body" style="padding: 20px;">
+                    <input type="hidden" id="preset-name-input">
+
+                    <div class="form-group">
+                        <label class="form-label">Название (Remark)</label>
+                        <input type="text" class="form-input" id="preset-remark" placeholder="Авто-генерация если пусто">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Порт</label>
+                        <input type="number" class="form-input" id="preset-port" placeholder="Авто (30000-60000)">
+                    </div>
+
+                    <div id="preset-reality-options" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Dest (Reality)</label>
+                            <input type="text" class="form-input" id="preset-dest" placeholder="www.microsoft.com:443">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">SNI</label>
+                            <input type="text" class="form-input" id="preset-sni" placeholder="www.microsoft.com">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Fingerprint (uTLS)</label>
+                        <select class="form-input" id="preset-fingerprint">
+                            <option value="chrome">chrome</option>
+                            <option value="firefox">firefox</option>
+                            <option value="safari">safari</option>
+                            <option value="ios">ios</option>
+                            <option value="android">android</option>
+                            <option value="edge">edge</option>
+                            <option value="randomized">randomized</option>
+                            <option value="random">random</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer" style="display: flex; gap: 10px; justify-content: flex-end; padding: 15px 20px; border-top: 1px solid var(--border);">
+                    <button class="btn btn-secondary" onclick="document.getElementById('preset-create-modal').style.display='none'">Отмена</button>
+                    <button class="btn btn-primary" onclick="submitPresetCreation()">🚀 Создать</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    // Set preset name and show/hide Reality options
+    document.getElementById('preset-name-input').value = presetName;
+    document.getElementById('preset-remark').value = '';
+    document.getElementById('preset-port').value = '';
+    document.getElementById('preset-dest').value = '';
+    document.getElementById('preset-sni').value = '';
+    document.getElementById('preset-fingerprint').value = 'chrome';
+
+    // Show Reality options for vless_reality
+    const realityOptions = document.getElementById('preset-reality-options');
+    realityOptions.style.display = presetName === 'vless_reality' ? 'block' : 'none';
+
+    // Update modal title
+    const titles = {
+        'vless_reality': '🎭 VLESS + Reality',
+        'vless_ws_tls': '🌐 VLESS + WebSocket + TLS',
+        'trojan_tls': '🔐 Trojan + TLS',
+        'shadowsocks': '🔒 Shadowsocks',
+        'vless_grpc': '📡 VLESS + gRPC'
+    };
+    document.getElementById('preset-modal-title').textContent = titles[presetName] || 'Создать Inbound';
+
+    modal.style.display = 'flex';
+}
+
+// Submit preset creation
+async function submitPresetCreation() {
+    const presetName = document.getElementById('preset-name-input').value;
+    const remark = document.getElementById('preset-remark').value.trim();
+    const port = document.getElementById('preset-port').value;
+    const dest = document.getElementById('preset-dest').value.trim();
+    const sni = document.getElementById('preset-sni').value.trim();
+    const fingerprint = document.getElementById('preset-fingerprint').value;
+
     try {
         showToast('⏳ Создание inbound...', 'info');
+
+        const body = {
+            preset_name: presetName,
+            auto_generate: true,
+            fingerprint: fingerprint
+        };
+
+        if (remark) body.remark = remark;
+        if (port) body.port = parseInt(port);
+        if (dest) body.dest = dest;
+        if (sni) body.sni = sni;
 
         const response = await fetch(API_URL + 'api/presets/create-inbound', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({
-                preset_name: presetName,
-                auto_generate: true  // Auto-generate keys, ports, etc.
-            })
+            body: JSON.stringify(body)
         });
 
         const data = await response.json();
 
         if (response.ok && data.success) {
             showToast(`✅ Inbound "${data.remark}" создан на порту ${data.port}`, 'success');
-            loadInboundsTable();  // Refresh list
+            document.getElementById('preset-create-modal').style.display = 'none';
+            loadInboundsTable();
         } else {
             showToast('❌ Ошибка: ' + (data.detail || data.error || 'Неизвестная ошибка'), 'error');
         }
@@ -5089,6 +5544,468 @@ async function ensureAuthenticated() {
         return false;
     }
 }
+
+// ==================== INBOUND ADVANCED OPERATIONS ====================
+
+// Selected inbounds for bulk operations
+let selectedInbounds = new Set();
+
+// Update selection count display
+function updateSelectionCount() {
+    const countEl = document.getElementById('selected-count');
+    const toolbar = document.getElementById('bulk-toolbar');
+    if (countEl) {
+        countEl.textContent = `${selectedInbounds.size} выбрано`;
+    }
+    if (toolbar) {
+        toolbar.style.display = selectedInbounds.size > 0 ? 'block' : 'none';
+    }
+}
+
+// Toggle all inbounds selection
+function toggleAllInbounds(checked) {
+    const checkboxes = document.querySelectorAll('.inbound-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = checked;
+        const id = parseInt(cb.dataset.id);
+        if (checked) {
+            selectedInbounds.add(id);
+        } else {
+            selectedInbounds.delete(id);
+        }
+    });
+    updateSelectionCount();
+}
+
+// Toggle single inbound selection
+function toggleInboundSelection(checkbox) {
+    const id = parseInt(checkbox.dataset.id);
+    if (checkbox.checked) {
+        selectedInbounds.add(id);
+    } else {
+        selectedInbounds.delete(id);
+    }
+    updateSelectionCount();
+}
+
+// Show statistics modal
+async function showInboundsStats() {
+    try {
+        showToast('📊 Загрузка статистики...', 'info');
+        const response = await fetch(API_URL + 'api/inbounds/all-stats', { credentials: 'include' });
+        const data = await response.json();
+
+        if (!data.success) {
+            showToast('Ошибка загрузки статистики', 'error');
+            return;
+        }
+
+        const stats = data.inbounds;
+        const summary = data.summary;
+
+        let html = `
+            <div class="modal" id="stats-modal" style="display: flex;">
+                <div class="modal-content" style="max-width: 800px;">
+                    <div class="modal-header">
+                        <h3>📊 Статистика Inbounds</h3>
+                        <button class="modal-close" onclick="document.getElementById('stats-modal').remove()">&times;</button>
+                    </div>
+                    <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                        <!-- Summary -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 20px;">
+                            <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 24px; font-weight: 700; color: var(--accent);">${summary.total_inbounds}</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">Всего</div>
+                            </div>
+                            <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 24px; font-weight: 700; color: var(--success);">${summary.active_inbounds}</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">Активных</div>
+                            </div>
+                            <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 24px; font-weight: 700; color: var(--warning);">${summary.total_clients}</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">Клиентов</div>
+                            </div>
+                            <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 18px; font-weight: 700; color: #9b59b6;">${summary.total_traffic_formatted}</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">Трафик</div>
+                            </div>
+                        </div>
+
+                        <!-- Inbounds table -->
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Имя</th>
+                                        <th>Порт</th>
+                                        <th>Протокол</th>
+                                        <th>Клиенты</th>
+                                        <th>Трафик</th>
+                                        <th>Статус</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${stats.map(s => `
+                                        <tr>
+                                            <td>${s.remark}</td>
+                                            <td>${s.port}</td>
+                                            <td><span style="color: ${s.security === 'reality' ? '#9b59b6' : s.security === 'tls' ? '#27ae60' : '#95a5a6'}">${s.protocol}/${s.security}</span></td>
+                                            <td>${s.client_count}</td>
+                                            <td>${s.traffic_formatted}</td>
+                                            <td>${s.enabled ? '<span style="color: var(--success);">●</span>' : '<span style="color: var(--danger);">●</span>'}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', html);
+    } catch (error) {
+        console.error('Error loading stats:', error);
+        showToast('Ошибка загрузки статистики', 'error');
+    }
+}
+
+// Check health of all inbounds
+async function checkAllHealth() {
+    try {
+        showToast('🏥 Проверка здоровья...', 'info');
+
+        // Get all inbounds
+        const listResponse = await fetch(API_URL + 'api/inbounds', { credentials: 'include' });
+        const listData = await listResponse.json();
+        const inbounds = listData.obj || [];
+
+        const results = [];
+        for (const ib of inbounds.slice(0, 10)) { // Limit to 10 for performance
+            try {
+                const response = await fetch(API_URL + `api/inbounds/${ib.id}/health`, { credentials: 'include' });
+                const data = await response.json();
+                if (data.success) {
+                    results.push(data.health);
+                }
+            } catch (e) {
+                console.error(`Health check failed for ${ib.id}:`, e);
+            }
+        }
+
+        // Show results modal
+        let html = `
+            <div class="modal" id="health-modal" style="display: flex;">
+                <div class="modal-content" style="max-width: 700px;">
+                    <div class="modal-header">
+                        <h3>🏥 Проверка здоровья Inbounds</h3>
+                        <button class="modal-close" onclick="document.getElementById('health-modal').remove()">&times;</button>
+                    </div>
+                    <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                        ${results.map(h => `
+                            <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid ${h.overall === 'ok' ? 'var(--success)' : h.overall === 'warning' ? 'var(--warning)' : 'var(--danger)'};">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                    <strong>${h.remark}</strong>
+                                    <span style="font-size: 12px; color: var(--text-secondary);">:${h.port} • ${h.protocol}/${h.security}</span>
+                                </div>
+                                ${h.checks.map(c => `
+                                    <div style="font-size: 12px; padding: 4px 0; color: ${c.status === 'ok' ? 'var(--success)' : c.status === 'warning' ? 'var(--warning)' : 'var(--danger)'};">
+                                        ${c.status === 'ok' ? '✅' : c.status === 'warning' ? '⚠️' : '❌'} ${c.message}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `).join('')}
+                        ${results.length === 0 ? '<div style="text-align: center; color: var(--text-secondary);">Нет данных</div>' : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', html);
+        showToast(`✅ Проверено ${results.length} inbounds`, 'success');
+    } catch (error) {
+        console.error('Error checking health:', error);
+        showToast('Ошибка проверки', 'error');
+    }
+}
+
+// Export all inbounds
+async function exportAllInbounds() {
+    try {
+        showToast('📤 Экспорт inbounds...', 'info');
+        const response = await fetch(API_URL + 'api/inbounds/export-all', { credentials: 'include' });
+        const data = await response.json();
+
+        if (!data.success) {
+            showToast('Ошибка экспорта', 'error');
+            return;
+        }
+
+        // Download as JSON file
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `inbounds_backup_${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        showToast(`✅ Экспортировано ${data.count} inbounds`, 'success');
+    } catch (error) {
+        console.error('Error exporting:', error);
+        showToast('Ошибка экспорта', 'error');
+    }
+}
+
+// Show import modal
+function showImportModal() {
+    let html = `
+        <div class="modal" id="import-modal" style="display: flex;">
+            <div class="modal-content" style="max-width: 500px;">
+                <div class="modal-header">
+                    <h3>📥 Импорт Inbounds</h3>
+                    <button class="modal-close" onclick="document.getElementById('import-modal').remove()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label class="form-label">Файл JSON</label>
+                        <input type="file" id="import-file" accept=".json" class="form-input" onchange="previewImport(this)">
+                    </div>
+                    <div id="import-preview" style="display: none; margin-top: 15px;">
+                        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 10px;">
+                            Найдено inbounds: <strong id="import-count">0</strong>
+                        </div>
+                        <div id="import-list" style="max-height: 200px; overflow-y: auto; font-size: 12px; background: var(--bg-tertiary); padding: 10px; border-radius: 6px;">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="document.getElementById('import-modal').remove()">Отмена</button>
+                    <button class="btn btn-primary" id="import-btn" onclick="executeImport()" disabled>📥 Импортировать</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', html);
+}
+
+let importData = null;
+
+function previewImport(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = JSON.parse(e.target.result);
+            const inbounds = data.inbounds || [];
+
+            importData = inbounds;
+
+            document.getElementById('import-preview').style.display = 'block';
+            document.getElementById('import-count').textContent = inbounds.length;
+            document.getElementById('import-list').innerHTML = inbounds.map(ib =>
+                `<div style="padding: 4px 0; border-bottom: 1px solid var(--border);">
+                    ${ib.remark} - :${ib.port} (${ib.protocol})
+                </div>`
+            ).join('');
+            document.getElementById('import-btn').disabled = inbounds.length === 0;
+        } catch (err) {
+            showToast('Ошибка чтения файла', 'error');
+        }
+    };
+    reader.readAsText(file);
+}
+
+async function executeImport() {
+    if (!importData || importData.length === 0) return;
+
+    try {
+        showToast('📥 Импорт...', 'info');
+        const response = await fetch(API_URL + 'api/inbounds/import-bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ inbounds: importData })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(`✅ Импортировано: ${data.imported}, пропущено: ${data.skipped}`, 'success');
+            document.getElementById('import-modal').remove();
+            loadInboundsTable();
+        } else {
+            showToast('Ошибка импорта: ' + (data.detail || ''), 'error');
+        }
+    } catch (error) {
+        console.error('Error importing:', error);
+        showToast('Ошибка импорта', 'error');
+    }
+}
+
+// Bulk toggle inbounds
+async function bulkToggleInbounds(enable) {
+    if (selectedInbounds.size === 0) {
+        showToast('Выберите inbounds', 'warning');
+        return;
+    }
+
+    const action = enable ? 'включить' : 'выключить';
+    if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} ${selectedInbounds.size} inbounds?`)) return;
+
+    try {
+        showToast(`⏳ ${enable ? 'Включение' : 'Выключение'}...`, 'info');
+        const response = await fetch(API_URL + 'api/inbounds/bulk-toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ inbound_ids: Array.from(selectedInbounds), enable })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(`✅ ${data.message}`, 'success');
+            selectedInbounds.clear();
+            updateSelectionCount();
+            loadInboundsTable();
+        } else {
+            showToast('Ошибка: ' + (data.detail || ''), 'error');
+        }
+    } catch (error) {
+        console.error('Error bulk toggle:', error);
+        showToast('Ошибка', 'error');
+    }
+}
+
+// Bulk delete inbounds
+async function bulkDeleteInbounds() {
+    if (selectedInbounds.size === 0) {
+        showToast('Выберите inbounds', 'warning');
+        return;
+    }
+
+    if (!confirm(`Удалить ${selectedInbounds.size} inbounds? Это действие нельзя отменить!`)) return;
+
+    try {
+        showToast('⏳ Удаление...', 'info');
+        const response = await fetch(API_URL + 'api/inbounds/bulk-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ inbound_ids: Array.from(selectedInbounds) })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(`✅ ${data.message}`, 'success');
+            selectedInbounds.clear();
+            updateSelectionCount();
+            loadInboundsTable();
+        } else {
+            showToast('Ошибка: ' + (data.detail || ''), 'error');
+        }
+    } catch (error) {
+        console.error('Error bulk delete:', error);
+        showToast('Ошибка', 'error');
+    }
+}
+
+// Test inbound port
+async function testInboundPort(id) {
+    try {
+        showToast('🔍 Проверка порта...', 'info');
+        const response = await fetch(API_URL + `api/inbounds/${id}/test-port`, { credentials: 'include' });
+        const data = await response.json();
+
+        if (data.success) {
+            if (data.is_open) {
+                showToast(`✅ Порт ${data.port} открыт и работает`, 'success');
+            } else {
+                showToast(`⚠️ Порт ${data.port} не отвечает`, 'warning');
+            }
+        } else {
+            showToast('Ошибка проверки', 'error');
+        }
+    } catch (error) {
+        console.error('Error testing port:', error);
+        showToast('Ошибка проверки', 'error');
+    }
+}
+
+// Clone inbound
+async function cloneInbound(id, remark) {
+    const newPort = prompt('Порт для клона:', Math.floor(Math.random() * 30000) + 30000);
+    if (!newPort) return;
+
+    const newRemark = prompt('Имя для клона:', remark + '-clone');
+    if (!newRemark) return;
+
+    try {
+        showToast('⏳ Клонирование...', 'info');
+        const response = await fetch(API_URL + `api/inbounds/${id}/clone`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ new_port: parseInt(newPort), new_remark: newRemark })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(`✅ Inbound клонирован`, 'success');
+            loadInboundsTable();
+        } else {
+            showToast('Ошибка: ' + (data.detail || data.msg || ''), 'error');
+        }
+    } catch (error) {
+        console.error('Error cloning:', error);
+        showToast('Ошибка клонирования', 'error');
+    }
+}
+
+// Get QR code / connection link
+async function getInboundLink(id) {
+    try {
+        showToast('🔗 Генерация ссылки...', 'info');
+        const response = await fetch(API_URL + `api/inbounds/${id}/qrcode`, { credentials: 'include' });
+        const data = await response.json();
+
+        if (data.success) {
+            // Show modal with link and QR
+            let html = `
+                <div class="modal" id="link-modal" style="display: flex;">
+                    <div class="modal-content" style="max-width: 500px;">
+                        <div class="modal-header">
+                            <h3>🔗 Ссылка подключения</h3>
+                            <button class="modal-close" onclick="document.getElementById('link-modal').remove()">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 10px;">
+                                ${data.remark} • ${data.protocol} • ${data.client}
+                            </div>
+                            <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; word-break: break-all; font-size: 12px; font-family: monospace;">
+                                ${data.link}
+                            </div>
+                            <div style="margin-top: 15px; text-align: center;">
+                                <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.link)}" alt="QR Code" style="max-width: 200px; border-radius: 8px;">
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-primary" onclick="navigator.clipboard.writeText('${data.link.replace(/'/g, "\\'")}'); showToast('📋 Скопировано', 'success');">📋 Копировать</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', html);
+        } else {
+            showToast('Ошибка: ' + (data.detail || ''), 'error');
+        }
+    } catch (error) {
+        console.error('Error getting link:', error);
+        showToast('Ошибка генерации ссылки', 'error');
+    }
+}
+
 
 // ==================== INITIALIZATION ====================
 

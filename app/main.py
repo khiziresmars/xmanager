@@ -1593,6 +1593,254 @@ async def get_inbound_fingerprints(username: str = Depends(get_current_user)):
         logger.error(f"Error getting fingerprints: {e}")
         return {"success": False, "message": str(e), "inbounds": []}
 
+
+# Static routes MUST come before parameterized routes
+@app.get("/api/inbounds/all-stats")
+async def get_all_inbounds_stats_route(username: str = Depends(get_current_user)):
+    """Get statistics for all inbounds."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, remark, port, protocol, enable, up, down, total, settings, stream_settings
+            FROM inbounds
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+
+        stats = []
+        total_up = 0
+        total_down = 0
+        total_clients = 0
+
+        for row in rows:
+            inbound_id, remark, port, protocol, enable, up, down, total, settings_json, stream_json = row
+
+            # Count clients
+            client_count = 0
+            try:
+                settings = json.loads(settings_json) if settings_json else {}
+                client_count = len(settings.get("clients", []))
+            except:
+                pass
+
+            # Get security type
+            security = "none"
+            try:
+                stream = json.loads(stream_json) if stream_json else {}
+                security = stream.get("security", "none")
+            except:
+                pass
+
+            traffic = up + down
+            total_up += up
+            total_down += down
+            total_clients += client_count
+
+            stats.append({
+                "id": inbound_id,
+                "remark": remark,
+                "port": port,
+                "protocol": protocol,
+                "security": security,
+                "enabled": bool(enable),
+                "upload": up,
+                "download": down,
+                "traffic": traffic,
+                "traffic_formatted": format_bytes(traffic),
+                "limit": total,
+                "limit_formatted": format_bytes(total) if total > 0 else "Unlimited",
+                "client_count": client_count
+            })
+
+        return {
+            "success": True,
+            "inbounds": stats,
+            "summary": {
+                "total_inbounds": len(stats),
+                "active_inbounds": sum(1 for s in stats if s["enabled"]),
+                "total_upload": total_up,
+                "total_download": total_down,
+                "total_traffic": total_up + total_down,
+                "total_traffic_formatted": format_bytes(total_up + total_down),
+                "total_clients": total_clients
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting all inbounds stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/inbounds/export-all")
+async def export_all_inbounds_route(username: str = Depends(get_current_user)):
+    """Export all inbounds as JSON for backup."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, remark, port, protocol, settings, stream_settings, sniffing, enable
+            FROM inbounds
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+
+        inbounds = []
+        for row in rows:
+            inbound_id, remark, port, protocol, settings, stream_settings, sniffing, enable = row
+            inbounds.append({
+                "id": inbound_id,
+                "remark": remark,
+                "port": port,
+                "protocol": protocol,
+                "enable": bool(enable),
+                "settings": json.loads(settings) if settings else {},
+                "stream_settings": json.loads(stream_settings) if stream_settings else {},
+                "sniffing": json.loads(sniffing) if sniffing else {}
+            })
+
+        return {
+            "success": True,
+            "count": len(inbounds),
+            "inbounds": inbounds,
+            "exported_at": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error exporting inbounds: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/inbounds/import-bulk")
+async def import_bulk_inbounds_route(request: Request, username: str = Depends(get_current_user)):
+    """Import multiple inbounds from JSON backup."""
+    try:
+        body = await request.json()
+        inbounds = body.get("inbounds", [])
+
+        if not inbounds:
+            raise HTTPException(status_code=400, detail="No inbounds to import")
+
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        imported = 0
+        skipped = 0
+
+        for inbound in inbounds:
+            # Check if port is already in use
+            port = inbound.get("port")
+            cursor.execute("SELECT id FROM inbounds WHERE port = ?", (port,))
+            if cursor.fetchone():
+                skipped += 1
+                continue
+
+            remark = inbound.get("remark", f"imported-{port}")
+            protocol = inbound.get("protocol", "vless")
+            settings = json.dumps(inbound.get("settings", {}))
+            stream_settings = json.dumps(inbound.get("stream_settings", {}))
+            sniffing = json.dumps(inbound.get("sniffing", {"enabled": True, "destOverride": ["http", "tls"]}))
+            enable = 1 if inbound.get("enable", True) else 0
+
+            cursor.execute("""
+                INSERT INTO inbounds (user_id, up, down, total, remark, enable, expiry_time, listen, port, protocol, settings, stream_settings, tag, sniffing)
+                VALUES (1, 0, 0, 0, ?, ?, 0, '', ?, ?, ?, ?, ?, ?)
+            """, (remark, enable, port, protocol, settings, stream_settings, f"inbound-{port}", sniffing))
+            imported += 1
+
+        conn.commit()
+        conn.close()
+
+        if imported > 0:
+            subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {
+            "success": True,
+            "imported": imported,
+            "skipped": skipped,
+            "message": f"Imported {imported} inbounds, skipped {skipped} (port conflicts)"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error importing inbounds: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/inbounds/bulk-toggle")
+async def bulk_toggle_inbounds_route(request: Request, username: str = Depends(get_current_user)):
+    """Bulk enable/disable multiple inbounds."""
+    try:
+        body = await request.json()
+        inbound_ids = body.get("inbound_ids", [])
+        enable = body.get("enable", True)
+
+        if not inbound_ids:
+            raise HTTPException(status_code=400, detail="inbound_ids is required")
+
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        updated = 0
+        for inbound_id in inbound_ids:
+            cursor.execute("UPDATE inbounds SET enable = ? WHERE id = ?", (1 if enable else 0, inbound_id))
+            if cursor.rowcount > 0:
+                updated += 1
+
+        conn.commit()
+        conn.close()
+
+        subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {
+            "success": True,
+            "updated": updated,
+            "enable": enable,
+            "message": f"{'Enabled' if enable else 'Disabled'} {updated} inbounds"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error bulk toggling inbounds: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/inbounds/bulk-delete")
+async def bulk_delete_inbounds_route(request: Request, username: str = Depends(get_current_user)):
+    """Bulk delete multiple inbounds."""
+    try:
+        body = await request.json()
+        inbound_ids = body.get("inbound_ids", [])
+
+        if not inbound_ids:
+            raise HTTPException(status_code=400, detail="inbound_ids is required")
+
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        deleted = 0
+        for inbound_id in inbound_ids:
+            cursor.execute("DELETE FROM inbounds WHERE id = ?", (inbound_id,))
+            if cursor.rowcount > 0:
+                deleted += 1
+
+        conn.commit()
+        conn.close()
+
+        subprocess.run(['systemctl', 'restart', 'x-ui'], capture_output=True)
+
+        return {
+            "success": True,
+            "deleted": deleted,
+            "message": f"Deleted {deleted} inbounds"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error bulk deleting inbounds: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/inbounds/{inbound_id}")
 async def get_inbound(inbound_id: int):
     """Получение информации об inbound"""
@@ -1776,7 +2024,7 @@ async def delete_inbound(inbound_id: int, username: str = Depends(get_current_us
 
 @app.post("/api/presets/create-inbound")
 async def create_inbound_from_preset(
-    request: Dict[str, Any],
+    request: Request,
     username: str = Depends(get_current_user)
 ):
     """
@@ -1794,10 +2042,18 @@ async def create_inbound_from_preset(
     import subprocess
 
     try:
-        preset_name = request.get("preset_name")
-        auto_generate = request.get("auto_generate", True)
-        custom_port = request.get("port")
-        custom_remark = request.get("remark")
+        body = await request.json()
+        preset_name = body.get("preset_name")
+        auto_generate = body.get("auto_generate", True)
+        custom_port = body.get("port")
+        custom_remark = body.get("remark")
+        custom_dest = body.get("dest")
+        custom_sni = body.get("sni")
+        custom_fingerprint = body.get("fingerprint", "chrome")
+
+        # Default dest/sni
+        default_dest = custom_dest or "www.microsoft.com:443"
+        default_sni = custom_sni or default_dest.split(':')[0]
 
         # Define presets
         presets = {
@@ -1811,11 +2067,11 @@ async def create_inbound_from_preset(
                     "realitySettings": {
                         "show": False,
                         "xver": 0,
-                        "dest": "www.microsoft.com:443",
-                        "serverNames": ["www.microsoft.com"],
+                        "dest": default_dest,
+                        "serverNames": [default_sni],
                         "privateKey": "",
                         "shortIds": [""],
-                        "fingerprint": "chrome",
+                        "fingerprint": custom_fingerprint,
                         "spiderX": "/"
                     }
                 },
@@ -1830,8 +2086,8 @@ async def create_inbound_from_preset(
                     "security": "tls",
                     "wsSettings": {"path": "/" + secrets.token_hex(4), "headers": {}},
                     "tlsSettings": {
-                        "serverName": "",
-                        "fingerprint": "chrome",
+                        "serverName": custom_sni or "",
+                        "fingerprint": custom_fingerprint,
                         "alpn": ["h2", "http/1.1"],
                         "certificates": [{"certificateFile": "", "keyFile": ""}]
                     }
@@ -1846,8 +2102,8 @@ async def create_inbound_from_preset(
                     "network": "tcp",
                     "security": "tls",
                     "tlsSettings": {
-                        "serverName": "",
-                        "fingerprint": "chrome",
+                        "serverName": custom_sni or "",
+                        "fingerprint": custom_fingerprint,
                         "alpn": ["h2", "http/1.1"],
                         "certificates": [{"certificateFile": "", "keyFile": ""}]
                     }
@@ -1863,6 +2119,26 @@ async def create_inbound_from_preset(
                     "network": "tcp,udp"
                 },
                 "stream_settings": {"network": "tcp", "security": "none"},
+                "sniffing": {"enabled": True, "destOverride": ["http", "tls"]}
+            },
+            "vless_grpc": {
+                "protocol": "vless",
+                "port": custom_port or random.randint(30000, 60000),
+                "settings": {"clients": [], "decryption": "none", "fallbacks": []},
+                "stream_settings": {
+                    "network": "grpc",
+                    "security": "tls",
+                    "grpcSettings": {
+                        "serviceName": secrets.token_hex(6),
+                        "multiMode": False
+                    },
+                    "tlsSettings": {
+                        "serverName": custom_sni or "",
+                        "fingerprint": custom_fingerprint,
+                        "alpn": ["h2"],
+                        "certificates": [{"certificateFile": "", "keyFile": ""}]
+                    }
+                },
                 "sniffing": {"enabled": True, "destOverride": ["http", "tls"]}
             }
         }
@@ -5135,6 +5411,366 @@ async def update_inbound_sniffing(inbound_id: int, request: Dict[str, Any], user
         return result
     except Exception as e:
         logger.error(f"Error updating sniffing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== INBOUND ADVANCED OPERATIONS ====================
+
+@app.get("/api/inbounds/{inbound_id}/test-port")
+async def test_inbound_port(inbound_id: int, username: str = Depends(get_current_user)):
+    """Test if inbound port is accessible."""
+    import socket
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT port, enable FROM inbounds WHERE id = ?", (inbound_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Inbound not found")
+
+        port, enabled = row
+
+        # Check if port is listening locally
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        result = sock.connect_ex(('127.0.0.1', port))
+        sock.close()
+
+        is_open = result == 0
+
+        return {
+            "success": True,
+            "port": port,
+            "enabled": bool(enabled),
+            "is_open": is_open,
+            "status": "open" if is_open else "closed",
+            "message": f"Port {port} is {'open and listening' if is_open else 'closed or not listening'}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error testing port: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/inbounds/{inbound_id}/stats")
+async def get_inbound_stats(inbound_id: int, username: str = Depends(get_current_user)):
+    """Get detailed statistics for an inbound."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+
+        # Get inbound info
+        cursor.execute("""
+            SELECT id, remark, port, protocol, enable, up, down, total, expiry_time, settings
+            FROM inbounds WHERE id = ?
+        """, (inbound_id,))
+        row = cursor.fetchone()
+
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Inbound not found")
+
+        inbound_id, remark, port, protocol, enable, up, down, total, expiry_time, settings_json = row
+
+        # Count clients
+        client_count = 0
+        active_clients = 0
+        try:
+            settings = json.loads(settings_json) if settings_json else {}
+            clients = settings.get("clients", [])
+            client_count = len(clients)
+            # Count enabled clients
+            for client in clients:
+                if client.get("enable", True):
+                    active_clients += 1
+        except:
+            pass
+
+        conn.close()
+
+        # Calculate traffic
+        total_traffic = up + down
+        traffic_limit = total if total > 0 else None
+        traffic_percent = (total_traffic / total * 100) if total > 0 else 0
+
+        return {
+            "success": True,
+            "stats": {
+                "id": inbound_id,
+                "remark": remark,
+                "port": port,
+                "protocol": protocol,
+                "enabled": bool(enable),
+                "upload": up,
+                "download": down,
+                "total_traffic": total_traffic,
+                "traffic_limit": traffic_limit,
+                "traffic_percent": round(traffic_percent, 2),
+                "client_count": client_count,
+                "active_clients": active_clients,
+                "expiry_time": expiry_time,
+                "upload_formatted": format_bytes(up),
+                "download_formatted": format_bytes(down),
+                "total_formatted": format_bytes(total_traffic),
+                "limit_formatted": format_bytes(traffic_limit) if traffic_limit else "Unlimited"
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting inbound stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/inbounds/{inbound_id}/health")
+async def check_inbound_health(inbound_id: int, username: str = Depends(get_current_user)):
+    """Comprehensive health check for an inbound."""
+    import socket
+    import ssl
+    from datetime import datetime
+
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT port, enable, stream_settings, protocol, remark
+            FROM inbounds WHERE id = ?
+        """, (inbound_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Inbound not found")
+
+        port, enabled, stream_json, protocol, remark = row
+        stream = json.loads(stream_json) if stream_json else {}
+        security = stream.get("security", "none")
+
+        health = {
+            "inbound_id": inbound_id,
+            "remark": remark,
+            "port": port,
+            "protocol": protocol,
+            "security": security,
+            "enabled": bool(enabled),
+            "checks": []
+        }
+
+        # Check 1: Port listening
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        port_open = sock.connect_ex(('127.0.0.1', port)) == 0
+        sock.close()
+        health["checks"].append({
+            "name": "port_listening",
+            "status": "ok" if port_open else "error",
+            "message": f"Port {port} is {'listening' if port_open else 'not listening'}"
+        })
+
+        # Check 2: TLS Certificate expiry (if TLS)
+        if security == "tls":
+            tls_settings = stream.get("tlsSettings", {})
+            certs = tls_settings.get("certificates", [])
+            if certs:
+                cert_file = certs[0].get("certificateFile", "")
+                if cert_file and os.path.exists(cert_file):
+                    try:
+                        result = subprocess.run(
+                            ["openssl", "x509", "-enddate", "-noout", "-in", cert_file],
+                            capture_output=True, text=True, timeout=5
+                        )
+                        if result.returncode == 0:
+                            # Parse expiry date
+                            expiry_str = result.stdout.strip().replace("notAfter=", "")
+                            expiry_date = datetime.strptime(expiry_str, "%b %d %H:%M:%S %Y %Z")
+                            days_left = (expiry_date - datetime.now()).days
+
+                            status = "ok" if days_left > 30 else ("warning" if days_left > 7 else "error")
+                            health["checks"].append({
+                                "name": "tls_certificate",
+                                "status": status,
+                                "message": f"Certificate expires in {days_left} days",
+                                "expiry_date": expiry_date.isoformat(),
+                                "days_left": days_left
+                            })
+                    except Exception as e:
+                        health["checks"].append({
+                            "name": "tls_certificate",
+                            "status": "warning",
+                            "message": f"Could not check certificate: {str(e)}"
+                        })
+                else:
+                    health["checks"].append({
+                        "name": "tls_certificate",
+                        "status": "warning",
+                        "message": "Certificate file not found"
+                    })
+
+        # Check 3: Reality SNI validation
+        if security == "reality":
+            reality_settings = stream.get("realitySettings", {})
+            dest = reality_settings.get("dest", "")
+            server_names = reality_settings.get("serverNames", [])
+
+            if dest:
+                dest_host = dest.split(":")[0]
+                try:
+                    socket.gethostbyname(dest_host)
+                    health["checks"].append({
+                        "name": "reality_dest",
+                        "status": "ok",
+                        "message": f"Dest host {dest_host} resolves correctly"
+                    })
+                except:
+                    health["checks"].append({
+                        "name": "reality_dest",
+                        "status": "warning",
+                        "message": f"Dest host {dest_host} does not resolve"
+                    })
+
+        # Overall status
+        statuses = [c["status"] for c in health["checks"]]
+        if "error" in statuses:
+            health["overall"] = "error"
+        elif "warning" in statuses:
+            health["overall"] = "warning"
+        else:
+            health["overall"] = "ok"
+
+        return {"success": True, "health": health}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking inbound health: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/inbounds/{inbound_id}/qrcode")
+async def get_inbound_qrcode(inbound_id: int, client_email: Optional[str] = None, username: str = Depends(get_current_user)):
+    """Generate QR code for inbound client connection."""
+    try:
+        conn = sqlite3.connect("/etc/x-ui/x-ui.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT port, protocol, settings, stream_settings, remark
+            FROM inbounds WHERE id = ?
+        """, (inbound_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Inbound not found")
+
+        port, protocol, settings_json, stream_json, remark = row
+        settings = json.loads(settings_json) if settings_json else {}
+        stream = json.loads(stream_json) if stream_json else {}
+
+        clients = settings.get("clients", [])
+        if not clients:
+            raise HTTPException(status_code=400, detail="No clients in this inbound")
+
+        # Find client
+        client = None
+        if client_email:
+            for c in clients:
+                if c.get("email") == client_email:
+                    client = c
+                    break
+        else:
+            client = clients[0]
+
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        # Get server IP
+        server_ip = subprocess.run(
+            ["curl", "-s", "ifconfig.me"],
+            capture_output=True, text=True, timeout=5
+        ).stdout.strip() or "SERVER_IP"
+
+        # Build connection string based on protocol
+        security = stream.get("security", "none")
+        network = stream.get("network", "tcp")
+
+        if protocol == "vless":
+            uuid = client.get("id", "")
+            flow = client.get("flow", "")
+
+            params = [f"type={network}"]
+
+            if security == "reality":
+                reality = stream.get("realitySettings", {})
+                params.append("security=reality")
+                params.append(f"pbk={reality.get('publicKey', '')}")
+                params.append(f"fp={reality.get('fingerprint', 'chrome')}")
+                sni = reality.get("serverNames", [""])[0]
+                if sni:
+                    params.append(f"sni={sni}")
+                short_ids = reality.get("shortIds", [""])
+                if short_ids:
+                    params.append(f"sid={short_ids[0]}")
+                if flow:
+                    params.append(f"flow={flow}")
+            elif security == "tls":
+                tls = stream.get("tlsSettings", {})
+                params.append("security=tls")
+                sni = tls.get("serverName", "")
+                if sni:
+                    params.append(f"sni={sni}")
+                fp = tls.get("fingerprint", "")
+                if fp:
+                    params.append(f"fp={fp}")
+
+            if network == "ws":
+                ws = stream.get("wsSettings", {})
+                path = ws.get("path", "/")
+                params.append(f"path={path}")
+            elif network == "grpc":
+                grpc = stream.get("grpcSettings", {})
+                service = grpc.get("serviceName", "")
+                params.append(f"serviceName={service}")
+
+            link = f"vless://{uuid}@{server_ip}:{port}?{'&'.join(params)}#{remark}-{client.get('email', '')}"
+
+        elif protocol == "trojan":
+            password = client.get("password", "")
+            params = [f"type={network}"]
+
+            if security == "tls":
+                tls = stream.get("tlsSettings", {})
+                params.append("security=tls")
+                sni = tls.get("serverName", "")
+                if sni:
+                    params.append(f"sni={sni}")
+
+            link = f"trojan://{password}@{server_ip}:{port}?{'&'.join(params)}#{remark}"
+
+        elif protocol == "shadowsocks":
+            method = settings.get("method", "aes-256-gcm")
+            password = settings.get("password", "")
+            import base64
+            user_info = base64.b64encode(f"{method}:{password}".encode()).decode()
+            link = f"ss://{user_info}@{server_ip}:{port}#{remark}"
+
+        else:
+            raise HTTPException(status_code=400, detail=f"QR code not supported for {protocol}")
+
+        return {
+            "success": True,
+            "link": link,
+            "protocol": protocol,
+            "client": client.get("email", "default"),
+            "remark": remark
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating QR code: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
